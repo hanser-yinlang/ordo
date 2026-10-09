@@ -345,12 +345,26 @@ class OrdoEngine(
     fun moveProject(id: String, areaId: String?) = updateProject(id) { it.copy(areaId = areaId) }
 
     /** 项目完成:必须所有子待办都结束(契约 §2.2 硬约束) */
+    /**
+     * 完成项目(契约 §2.2 项目完成规则,v1.1 修订)。
+     *
+     * 唯一硬约束:该项目下所有 todo 的 status ∈ {done, canceled}。
+     * **未归档的 heading 不再阻塞完成** —— Heading 是组织容器不是工作项;
+     * 完成时它们会被自动归档(每个标题一条 Op,与手工归档同构),
+     * 从而保持"已完成的项目不含未归档标题"这一不变量。
+     */
     fun completeProject(id: String): Boolean {
+        val project = project(id) ?: return false
+        if (project.status == Status.DONE) return false
         val openCount = state.todos.count { it.projectId == id && !it.deleted && it.status == Status.OPEN }
-        val openHeadings = state.headings.count { it.projectId == id && !it.deleted && !it.archived }
-        if (openCount > 0 || openHeadings > 0) return false
-        val now = clock.nowMillis()
-        updateProject(id) { it.copy(status = Status.DONE, completedAt = now) }
+        if (openCount > 0) return false
+        // 契约 §2.2 v1.1:未归档的标题自动归档(复用 archiveHeading,产出与手工归档同构的 Op)。
+        // 此时该项目已无未完成待办,所以每个标题的 archiveHeading 都不会被拒。
+        state.headings
+            .filter { it.projectId == id && !it.deleted && !it.archived }
+            .map { it.id }
+            .forEach { archiveHeading(it) }
+        updateProject(id) { it.copy(status = Status.DONE, completedAt = clock.nowMillis()) }
         return true
     }
 

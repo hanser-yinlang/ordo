@@ -1,5 +1,6 @@
 package com.ordo.core
 
+import com.ordo.core.model.EntityType
 import com.ordo.core.model.Status
 import com.ordo.core.model.RepeatFreq
 import com.ordo.core.model.RepeatMode
@@ -16,6 +17,7 @@ import com.ordo.core.store.TodoOptions
 import com.ordo.core.util.OrdoDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -241,6 +243,42 @@ class QueryRulesTest {
         val overflow = e.sections(ListQuery.Upcoming).any { it.kind == SectionKind.LATER && it.todos.any { t -> t.id == todo.id } }
         // 要么落在窗口内,要么进「更晚」,不能两者都不出现
         assertTrue(listed || overflow, "重复待办即使超出窗口也必须归入「更晚」,不能凭空消失")
+    }
+
+    @Test
+    fun projectWithOpenHeadingsCanStillBeCompleted() {
+        // 契约 §2.2 v1.1:Heading 是组织容器,不阻塞项目完成;完成时自动归档。
+        // 原规则要求"所有 heading.archived == true",导致 UI 显示 0 项未完成却拒绝完成(四端同样的困惑)。
+        val e = engine()
+        val p = e.createProject("Q4 产品发布")
+        val h1 = e.createHeading(p.id, "设计")
+        e.createHeading(p.id, "开发")
+        val t1 = e.createTodo("写方案", TodoOptions(projectId = p.id, headingId = h1.id))
+        e.complete(t1.id)
+
+        assertEquals(2, e.headingsOf(p.id).size, "两个标题都还没归档")
+        // 建标题本身也会产 Op,所以比较"完成前后的增量"而不是总数
+        val opsBefore = e.pendingOps().size
+        assertTrue(e.completeProject(p.id), "所有待办已完成时,即使标题未归档也必须允许完成项目")
+        assertEquals(Status.DONE, e.project(p.id)!!.status)
+        assertEquals(0, e.headingsOf(p.id).size, "完成后不变量:项目下不应再有未归档标题")
+
+        // 自动归档必须产出可同步的 Op(与手工归档同构):2 个标题 → 2 条归档 Op + 1 条项目完成 Op
+        val delta = e.pendingOps().size - opsBefore
+        assertEquals(3, delta, "应为 2 条 heading 归档 Op + 1 条 project 完成 Op")
+        val archivedOps = e.pendingOps().filter { it.entity == EntityType.HEADING }
+            .count { op -> op.payload?.toString()?.contains("\"archived\":true") == true }
+        assertEquals(2, archivedOps, "两个标题都应产出 archived=true 的 Op")
+    }
+
+    @Test
+    fun projectWithOpenTodosStillCannotBeCompleted() {
+        // 真正的硬约束:还有未完成待办时不能完成项目(这条不能被上面的改动放松)
+        val e = engine()
+        val p = e.createProject("未完成项目")
+        e.createTodo("还没做", TodoOptions(projectId = p.id))
+        assertFalse(e.completeProject(p.id), "存在未完成待办时必须拒绝")
+        assertEquals(Status.OPEN, e.project(p.id)!!.status)
     }
 
     @Test

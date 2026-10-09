@@ -57,13 +57,16 @@ export function repeatBaseDate(t: Todo, today: string): string {
 }
 
 /**
- * 在 [fromISO, ∞) 区间内找到第一个发生日(用于「计划」清单展示重复待办的下一次)。
+ * 找到 base 之后(严格大于 fromISO)的第一个发生日,用于「计划」清单展示重复待办的下一次。
+ *
+ * 为什么是严格大于:契约 §4 的「计划」窗口是**明天起 14 天**。若把 fromISO 当天也算作
+ * 「下一次」,一条以今天为发生日的重复待办会同时出现在「今天」和「计划」两个清单里。
  * 最多向前推进 400 次,防止脏数据造成死循环。
  */
 export function firstOccurrenceOnOrAfter(rule: RepeatRule, baseDate: string, fromISO: string): string {
   let n: number = 1;
   let d: string = advanceOccurrence(rule, baseDate, n);
-  while (d < fromISO && n < 400) {
+  while (d <= fromISO && n < 400) {
     n++;
     d = advanceOccurrence(rule, baseDate, n);
   }

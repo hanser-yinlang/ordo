@@ -489,6 +489,60 @@ export class OrdoEngine implements OpSink, OpSource {
     this.touchTodo(t);
   }
 
+  /**
+   * 拖拽排序(契约 §2.4 的 `order`,04 §6「长按拖拽」):按传入顺序**整批**重写 `order = 下标`。
+   *
+   * 与共享核心 `OrdoEngine.reorderTodos(ids)`(shared/core/.../OrdoEngine.kt:293)语义逐字一致:
+   * `ids[i]` 的 order = i。调用方必须提交**同一容器内的完整可见序列**——核心不知道该清单里
+   * 被过滤掉了哪些条目,提交残缺序列会把未提交的条目挤到数组末尾。
+   *
+   * 容器 = `(when, projectId, headingId)` 三元组(见 `nextOrder` 的作用域);跨容器提交会写出
+   * 互相竞争的 order,由视图层(`view/list/ReorderMath.ets`)在提交前拒绝。
+   *
+   * 与 `reorderTodo()` 的区别:后者只改一条的 order(会把其它条目挤到同序号),本方法按整段序列落库。
+   *
+   * @returns 真正被改写的条数(0 表示 ids 里没有本地存在的待办)
+   */
+  reorderTodos(ids: string[]): number {
+    const now: number = nowMillis();
+    const updated: Todo[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      const t: Todo | null = this.findTodo(ids[i]);
+      if (t === null) {
+        continue;
+      }
+      t.order = i;
+      t.updatedAt = now;
+      updated.push(t);
+    }
+    for (let i = 0; i < updated.length; i++) {
+      // 每一条都要落库 + 产出 Op(契约 §7.1 本地优先),合并成一次 emit 通知 UI
+      this.persistTodo(updated[i]);
+      this.pushOp('todo', updated[i].id, 'upsert');
+    }
+    if (updated.length > 0) {
+      this.emit();
+    }
+    return updated.length;
+  }
+
+  /**
+   * 撤销删除(左滑删除的可撤销兜底,04 §6):`deleted` 复位 + `updatedAt` 取当前时刻。
+   *
+   * 本地墓碑保留不动,理由:墓碑规则是「deletedAt >= op.clientTs 才忽略」(§7.3.5),
+   * 恢复后 `updatedAt = now` 已经晚于墓碑时刻,任何早于删除时刻的远端 op 本就该被 LWW 拒绝;
+   * 保留墓碑只是把"我们自己的删除 op 回声"一并挡掉,而不会挡住用户之后的新删除(那时会刷新墓碑)。
+   */
+  restoreDeletedTodo(id: string): boolean {
+    const t: Todo | null = this.findTodo(id);
+    if (t === null || !t.deleted) {
+      return false;
+    }
+    t.deleted = false;
+    this.touchTodo(t);
+    return true;
+  }
+
   /* ---------------------------------------------------------- 完成 / 取消 */
 
   /**

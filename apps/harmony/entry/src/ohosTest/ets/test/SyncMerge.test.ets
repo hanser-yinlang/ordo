@@ -67,11 +67,15 @@ export default function syncMergeTest() {
       expect(todo.tags.length).assertEqual(1);
 
       const ops: Op[] = engine.takePendingOps(10);
-      expect(ops.length).assertEqual(1);
-      expect(ops[0].entity).assertEqual('todo');
+      // 契约 §7.1「每个写操作产出一条 Op」+ §3「标签必须已存在,否则自动创建」:
+      // 带新标签的待办 = 自动建标签 + 建待办,共 2 条 op(先 tag 后 todo)。
+      expect(ops.length).assertEqual(2);
+      expect(ops[0].entity).assertEqual('tag');
       expect(ops[0].type).assertEqual('upsert');
-      expect(ops[0].payload === null).assertFalse();
-      expect(ops[0].seq === null).assertTrue();
+      expect(ops[1].entity).assertEqual('todo');
+      expect(ops[1].type).assertEqual('upsert');
+      expect(ops[1].payload === null).assertFalse();
+      expect(ops[1].seq === null).assertTrue();
       done();
     });
 

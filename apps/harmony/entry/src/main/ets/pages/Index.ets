@@ -69,7 +69,7 @@ struct Index {
           Sidebar({ store: this.store })
         }
         Column() {
-          ListPage({ store: this.store, animatingId: this.store.animatingTodoId })
+          ListPage({ store: this.store, animatingId: this.store.animatingTodoId, storeRev: this.store.changeSeq })
         }
         .layoutWeight(1)
         .height('100%')
@@ -154,11 +154,15 @@ struct Index {
       }
       .margin({ right: OrdoSpace.xl, bottom: 64 })
 
-      // Toast
+      // Toast(左滑删除后带「撤销」动作,04 §4 / §6)
       OrdoToast({
         toastSeq: this.store.toast.seq,
         toastText: this.store.toast.text,
-        sticky: this.store.syncStatus.phase === 'error'
+        sticky: this.store.syncStatus.phase === 'error',
+        actionText: this.store.toast.action,
+        onAction: (): void => {
+          this.store.undoDelete();
+        }
       })
     }
     .width('100%')

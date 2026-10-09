@@ -1,4 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  深色（night）下的启动兜底色。
+
+  注意:这里必须**覆盖 base 里的同名颜色**(而不是新起 ordo_boot_canvas_dark 之类的名字):
+    1) Android 资源限定符的语义就是"同名的更具体配置覆盖更宽泛配置";新名字在 base 中不存在,
+       lint 的 MissingDefaultResource 会判定为 release 致命错误(本轮真实踩到);
+    2) 若本体在 day 配置下被引用到(例如某些厂商的启动窗口回调),新名字会取不到值。
+  取值与 ui/theme/Tokens.kt 的 OrdoDarkColors 保持一致。
+-->
 <resources>
-    <color name="ordo_boot_canvas_dark">#141416</color>
+    <color name="ordo_boot_canvas">#141416</color>
+    <color name="ordo_boot_surface">#1D1D21</color>
+    <color name="ordo_boot_sidebar">#191919</color>
+    <color name="ordo_boot_accent">#7C7CF0</color>
+    <color name="ordo_boot_text">#F2F1EE</color>
 </resources>

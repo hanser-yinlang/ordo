@@ -62,14 +62,23 @@ ordo/apps/harmony/
 │       │       │   └── SeedData.ets                     中文示例数据
 │       │       ├── theme/Tokens.ets                     04 §2 设计令牌(深浅两套)
 │       │       ├── viewmodel/AppStore.ets               @Observed 视图模型 + 派生缓存 + 账号状态
+│       │       ├── viewmodel/ReorderMath.ets            拖拽排序纯计算(容器键 / 落点 / 是否开放)
 │       │       ├── view/{Sidebar,ListPage,DetailCard,ScheduleSheet,FastFindSheet,QuickAddButton}.ets
+│       │       ├── view/list/RowModel.ets               行模型 + 行指纹 + 行级差量(纯逻辑)
+│       │       ├── view/list/RowDataSource.ets          LazyForEach 数据源(BasicDataSource)
+│       │       ├── view/list/TodoRow.ets                待办行组件(按行指纹重渲染)
+│       │       ├── view/list/SwipeActionBar.ets         左右滑动作区按钮
 │       │       ├── view/LoginPage.ets                   登录/注册浮层(LoginSheet)+ 独立页(LoginPage)
 │       │       ├── view/Common/{ProgressRing,EmptyState,OrdoToast}.ets
 │       │       └── pages/{Index,SettingsPage}.ets
-│       └── ohosTest/                  Hypium 四组用例 + 测试 Ability
+│       └── ohosTest/                  Hypium 六组用例 + 测试 Ability
 ├── _qa/                               构建与自检脚本(非运行时代码,不参与打包)
 │   ├── build.ps1                      环境变量 + 构建 + 告警计数包装脚本
 │   ├── warn-report.ps1                解析构建日志里的 ArkTS 告警/错误
+│   ├── build-harness.py               本机逻辑测试宿主构建器(见 §3.4.1)
+│   ├── node-harness/                  宿主源码:Hypium 垫片 + runner + 时钟冻结
+│   ├── row-perf-harness.mjs           行级刷新评测:真实 RowModel/RowDataSource 在 Node 上跑(见 §7.3)
+│   ├── row-perf-report.{md,json}      评测产物(自动生成)
 │   ├── selfcheck.py                   静态自检:ArkTS 禁用语法 / 相对导入 / 符号导出一致性
 │   ├── scan_damage.py                 U+FFFD 与中文问号残留扫描
 │   ├── repair_encoding.py             GBK 往返损坏的一键还原
@@ -147,10 +156,46 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
      `entry-default-unsigned.hap` 签名。
 - 签名完成后:`hdc install entry-default-signed.hap`,或 DevEco 里直接 `Run 'entry'`。
 
-### 3.4 无设备时如何验证测试代码
+### 3.4 无设备时如何跑测试
 
-本机 `hdc list targets` 为 `[Empty]`(无真机;模拟器 `Pura X View` 镜像已部署但未能通过命令行拉起),
-因此 Hypium 用例**未在本机执行**,但已确认**测试代码可编译**:
+#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 82/82)
+
+Hypium 用例在设备上跑需要签名,而本机没有证书。但**六组用例只依赖纯逻辑模块**
+(`core/` 下除 `RelationalStore` / `RealtimeClient` / `SyncApi` / `ReminderAgent` 之外的模块,
+外加 `viewmodel/ReorderMath.ets`、`view/list/RowModel.ets`,全部不含 `@ohos`/`@kit` 依赖),
+断言也只用到 `describe` / `it` / `expect` + `assertEqual|assertTrue|assertFalse`。
+因此工程内提供了一套**本机宿主**,用 DevEco 自带的 tsc 编译后由 Node 真正执行:
+
+```powershell
+cd C:\Users\admin\Desktop\WeChat\ordo\apps\harmony
+python _qa\build-harness.py
+```
+
+它做四件事:
+
+1. 把纯逻辑核心模块与 `ohosTest` 的六组用例复制到 `_qa/node-harness/src`,并去掉 `.ets` 后缀;
+2. 用一个 Hypium 垫片(`_qa/node-harness/src/hypium-shim.ts`)实现 `describe/it/expect` 与断言,
+   **真正 await 异步用例**(`async (done) => …` 形态,不会在断言执行前误判通过);
+3. 把时钟冻结到 **2026-10-08**(`freeze-clock.ts`)—— 用例注释明确写着"固定今天为 2026-10-08",
+   但 `DateUtil.todayISO()` 一类路径仍会读系统时间,不冻结就会跨天假失败;
+4. `tsc`(strict + noImplicitAny + strictNullChecks)编译 → Node 运行 → 汇总,退出码 0 = 全通过。
+
+实测结果:
+
+```
+describe 块: 6      用例总数: 82      通过: 82      失败: 0
+RESULT: ALL PASSED
+```
+
+> 第三轮新增两组用例:`RowModel.test.ets`(行序列等价性 / 行键稳定性 / 差量分类 / 拖拽开关)、
+> `ReorderMath.test.ets`(容器键 / 落点 / 跨容器拒绝)。`view/list/RowDataSource.ets` 用到 ArkUI 的
+> `IDataSource`/`DataChangeListener` 声明,不进这个宿主;它的**通知时序**由 `_qa/row-perf-harness.mjs`
+> 直接执行真实实现来验证(§7.3)。
+
+定位说明:**这是本机快速回归,不替代设备上的权威 Hypium 测试**。
+垫片只覆盖用例实际用到的 API;`RelationalStore`(RDB 真机存储)与 WebSocket 相关路径不在覆盖范围内。
+
+#### 3.4.2 测试代码的编译验证
 
 ```powershell
 & "$deveco\tools\node\node.exe" "$deveco\tools\hvigor\bin\hvigorw.js" `
@@ -158,7 +203,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 # 实测:BUILD SUCCESSFUL,ArkTS WARN 0 / ERROR 0
 ```
 
-设备就绪后运行用例:
+#### 3.4.3 设备上跑权威 Hypium
 
 1. 启动模拟器:DevEco Studio → `Device Manager` → 选中已部署的 **Pura X View**
    (HarmonyOS 7.0.0 / API 26.0.0,x86_64)→ Start;或 USB 连真机并开启「开发者模式 + USB 调试」。
@@ -170,7 +215,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
    `SyncMerge.test.ets`(§7.3 合并规则)。
 5. 结果在 DevEco 的 Test 面板与 `<DevEco>\...\log` 中查看。
 
-> **前置条件**:必须先完成 §3.3 的签名配置,否则测试 HAP 无法安装,`Run 'OhosTest'` 会在安装阶段失败。
+> **两个前置条件**(缺一不可,都需要人工操作):
+> 1. **签名**(§3.3)—— 否则测试 HAP 无法安装,`Run 'OhosTest'` 会在安装阶段失败。
+> 2. **模拟器许可证** —— 本机 `Emulator.exe -license` 显示还有 2 份协议待接受。
+>    首次启动模拟器时 DevEco 会弹出协议,需要**用户本人**点击同意
+>    (这是与华为之间的法律协议,不应由工具代签)。命令行等价形式:`Emulator.exe -license accept`。
 
 ### 3.5 真机 / 模拟器运行
 
@@ -210,6 +259,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 | §4 标签视图 | `tags.contains` + 只看未完成 | `ListQuery.tagTodos` |
 | §4 搜索 | 标题/备注包含,未完成优先 + updatedAt 倒序 | `ListQuery.search` / `sortForSearch` |
 | §4 项目进度 | `done/(done+open)`,无子项 0 | `ListQuery.projectProgress` |
+| §2.4 `order` / 04 §6 拖拽排序 | 同容器完整序列整批重写 `order = 下标` | `OrdoEngine.reorderTodos(ids)` / `viewmodel/ReorderMath.ets`(容器键与落点)/ `RowModel.diffRows`(行级差量) |
+| §3 软删除的可撤销 | `deleted` 复位为 `false` + LWW 时间戳前移 | `OrdoEngine.restoreDeletedTodo(id)` / `AppStore.deleteTodoWithUndo` + `undoDelete()` |
 | §5 NLP | 全部写法 + 优先级 + 时段换算 + 标题清理 | `core/nlp/NaturalDateParser.ets` · `parseNatural` |
 | §6 重复引擎 | fixed/afterCompletion + 月末溢出 | `core/repeat/RepeatEngine.ets` · `completeWithRepeat` / `advanceOccurrence` |
 | §7.1 本地优先 | outbox + serverSeq | `OrdoEngine.pushOp` / `takePendingOps` / `confirmPushed` / `setLastServerSeq` |
@@ -237,14 +288,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 | §2.2 排版令牌 | `OrdoFont.display/title/body/caption/micro` |
 | §2.3 间距/圆角/阴影/动效 | `OrdoSpace` / `OrdoRadius` / `OrdoShadow` / `OrdoMotion`(含完成动效 7 个时间点) |
 | §3 布局(侧栏 248 + 内容 720 + 状态栏 + 快加号) | `view/Sidebar.ets` / `ListPage.ets` / `OrdoSize` |
-| §4 组件(侧栏项 34 / 待办行 38 / 复选框 20 / chip 20 / 空状态 / Toast) | `Sidebar` / `ListPage.row` / `Common/{ProgressRing,EmptyState,OrdoToast}` |
+| §4 组件(侧栏项 34 / 待办行 38 / 复选框 20 / chip 20 / 空状态 / Toast) | `Sidebar` / `view/list/TodoRow.ets` / `Common/{ProgressRing,EmptyState,OrdoToast}` |
 | §4 排期面板(宽 280) | `view/ScheduleSheet.ets` |
 | §4 快找浮层(输入 44 / 结果行 36) | `view/FastFindSheet.ets` |
 | §4 快加号(直径 52,长按展开菜单) | `view/QuickAddButton.ets` |
-| §5 完成动效 | `ListPage.row`(透明度/动画)+ `OrdoMotion` 常量;`Common/ProgressRing` 100% 脉冲 |
-| §6 键盘与手势(鸿蒙列) | 设置页列出映射;触摸交互已实现(点击行展开、点击复选框完成、长按快加号出菜单) |
+| §4 提示条(底部居中 pill,2.4s) | `Common/OrdoToast.ets`;带「撤销」动作时停留 4s(见 §7.3 的删除可撤销) |
+| §5 完成动效 | `view/list/TodoRow.ets`(透明度/动画)+ `OrdoMotion` 常量;`Common/ProgressRing` 100% 脉冲 |
+| §6 手势:右滑完成 / 左滑删除 + 排期 | `ListPage.todoItem` 的 `ListItem.swipeAction`:start = 完成(绿 `state.success`),end = 排期 + 删除(危险色 `state.danger`);删除后可撤销 |
+| §6 手势:长按拖拽排序 | `ListItem.onDragStart/onDrop` → `ReorderMath.movedOrder` → `AppStore.reorderTodos(ids)` → `OrdoEngine.reorderTodos`(《04》§6「鸿蒙 = 长按拖拽」) |
+| §6 键盘与手势(其余鸿蒙列) | 设置页列出映射;点击行展开、点击复选框完成、长按快加号出菜单 |
 | §7 平台映射(RelationalStore / reminderAgentManager / ordo://) | `RelationalStore.ets` / `ReminderAgent.ets` / `module.json5` skills |
-| §8 无障碍 | 所有可点元素 ≥44vp(`OrdoSize.minTouchTarget`)、状态不只靠颜色(逾期同时有图标+红色) |
+| §8 无障碍 | 所有可点元素 ≥44vp(`OrdoSize.minTouchTarget`)、滑动动作区宽 72vp、状态不只靠颜色(逾期同时有图标+红色) |
 
 ## 6. 账号与服务器地址
 
@@ -317,6 +371,82 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 > `@Observed` 的实体级观察或 `LazyForEach` + 数据源,属于后续迭代);
 > 本轮消除的是**同一次渲染内的重复计算**与**每次全量重写磁盘**这两个真正的放大点。
 > `OrdoEngine.todos()` 返回的是引擎持有的数组本身(不复制),因此缓存不会额外占用内存。
+>
+> **上一轮遗留的"整表重渲染"已在本轮消除,见 §7.3。**
+
+### 7.3 列表渲染:从「整表重建」到「行级增量刷新」(`view/list/*`)
+
+**问题**:改前 `ListPage` 是 `Scroll + Column + ForEach`,把 `currentTodos()/todaySections()` 直接铺成行:
+
+- `ForEach` **不是懒加载**:首帧把 1000 行全部建成组件树,`Scroll` 还要把它们全部测量/布局;
+- ArkUI 文档:*ForEach 非首次渲染时会逐项比较键值* —— 也就是说每次状态变化,框架都要**遍历全部 N 项**才能判断谁变;
+- 行与分组标题同属一个 `@Component` 的 build 产物,没有"某一行变了"这个粒度。
+
+**改法**(三个文件,全部在本端 `view/` 层,不碰契约核心):
+
+| 文件 | 职责 |
+|---|---|
+| `view/list/RowModel.ets` | 数据 → **行序列**(顺序与改前逐行等价)+ 行指纹 `rev` + 行级差量 `diffRows()` |
+| `view/list/RowDataSource.ets` | `IDataSource` 实现;按清单键缓存行序列;把差量翻译成 `onDataReloaded/Add/Delete/Move` |
+| `view/list/TodoRow.ets` | 待办行独立成组件,由 `@Prop rowRev`(行指纹)驱动重渲染 |
+
+三条**框架硬约束**决定了上面的形状(均出自 ArkUI 官方文档《LazyForEach:数据懒加载》):
+
+1. *"If the first parameter dataSource is re-assigned a value, an exception occurs."*
+   → 数据源实例在整个页面生命周期内**只创建一次**,切换清单由 `RowDataSource.sync(清单键, 行序列)` 内部换序列;
+2. *"If the key does not change, LazyForEach cannot trigger a re-render."*
+   → 行键取 `id@rev`(身份 + 内容指纹):内容变了键才变,`onDataReloaded` 于是**只重建键变了的那几行**,同键的行复用缓存组件;
+3. *"Before onDataDelete is called, ensure that the corresponding data has been deleted."*
+   → 每条通知都先改自己的数组、再通知;`apply()` 收尾还会逐位比对键,任何记账偏差直接退化为整表 reload。
+
+**改前 / 改后对比**(1000 条待办;数字来自 `_qa/row-perf-harness.mjs`,它把仓库里真实的
+`RowModel` / `RowDataSource` 复制到临时目录用 Node 类型擦除**直接执行**,不是估算):
+
+| 指标 | 改前(ForEach + Scroll/Column) | 改后(LazyForEach + RowDataSource) |
+|---|---|---|
+| 每次状态变化的条目处理量 | 逐项比较键值 **1001 次**(文档口径) | 框架不做全量键比较(**0 次**);只处理收到通知的下标 |
+| 首帧创建的行组件数 | **1001 个**(无虚拟化,滚动区外也要建+布局) | **可见区 + cachedCount** 个(800vp 视口 / 46vp 行高 / cachedCount 6 → 24 个) |
+| 改一行标题 | 整棵列表子树重算 | **1 次 `reload`,1 行重建**(视口外改动:视口内 0 行重建) |
+| 收件箱新增一条 | 整表重算 | **1 次 `add`,0 行重建** |
+| 收件箱删除一条 | 整表重算 | **1 次 `delete`,0 行重建** |
+| 完成一条(今天,分组计数变) | 整表重算 | **1 次 `reload`,视口内 1 行重建**(行 + 分组标题最多 2 行) |
+| 拖拽 1 行(位移 4 格) | — | **4 次 `move`(交换语义),0 行重建** |
+| 拖拽 1 行(位移 > 64 格) | — | 退化为 **1 次 `reload`,≤ 已渲染行数** |
+| 切换清单 | 整表重算 | **1 次 `reload`**(键值未变的行仍复用组件) |
+| 单次行模型重算(1000 条) | — | **0.4 ms/次**(本机 Node 24 实测,20 次均值) |
+
+完整逐场景表(12 个场景 + 每次通知条数 + 一致性校验)在 `_qa/row-perf-report.md`,
+由 `node _qa/row-perf-harness.mjs` 生成;脚本结束时会断言"数据源内部行序列 == 行模型",
+当前 **0 例不一致**。
+
+**其它配套改动**:
+
+- `AppStore.listKey()` 从私有 `currentKey()` 提升为公开:视图侧用它做数据源缓存键;
+- `AppStore` 新增 `reorderTodos(ids)`(两道闸门:每条都能找到、全部同容器)、
+  `deleteTodoWithUndo(id)` / `undoDelete()`(左滑删除的"可撤销"兜底);
+- `OrdoEngine` 新增 `reorderTodos(ids)`(`ids[i].order = i`,与共享核心 `OrdoEngine.kt:293` 逐字同义)与
+  `restoreDeletedTodo(id)`;`pages/Index.ets` 把 `store.changeSeq` 作为 `storeRev` 传给 `ListPage` 触发同步;
+- 行高/圆角/令牌不变;`List` 关掉了边缘回弹(`edgeEffect(EdgeEffect.None)`)以贴近改前观感。
+
+> **风险留痕**:手势(swipeAction / 拖拽)与真实滚动帧率**未在设备上验证**(本机无签名无设备)。
+> 若真机上出现"行内容滞后",兜底是把 `rev` 折进行键后对该区间发 `onDataReload`(1 行代码,
+> 见 `RowModel` 的键值口径注释);`MAX_SWAPS = 64` 的长距离拖拽回退策略亦可在 `RowModel.ets` 调整。
+
+### 7.4 手势语义与另外三端的一致性
+
+| 行为 | 本端实现 | 与其它端的关系 |
+|---|---|---|
+| 右滑 → 完成 | `swipeAction.start` = 绿色 `state.success` 动作区;`onAction`(滑过阈值松手)与按钮点击都走 `store.toggleDone` | iOS `ordoSwipeActions(leading: .complete)` 同义 |
+| 左滑 → 删除 + 排期 | `swipeAction.end` = 排期 + 删除两个 72vp 动作区;删除走"软删除 + 提示条撤销"(04 §6 未规定二次确认,按可撤销实现) | iOS `trailing: .delete` 同义;撤销是本端补的兜底 |
+| 长按拖拽 | `onDragStart/onDrop` → `movedOrder` → `reorderTodos(ids)` | 与 iOS `movedOrder` 同形(先移除再插入);落点规则见下 |
+| 提交的序列 | **同一容器内的完整可见序列**(界面顺序),核心按 `ids[i].order = i` 整批落库 | 与 iOS `AppEnvironment.reorderTodos(ids:)`、桌上端 `ReorderMath.applySectionOrder` 同一契约 |
+| 容器 = | `(when, projectId, headingId)`(`ReorderMath.containerKeyOf`),与 `OrdoEngine.nextOrder` 的作用域一致 | 三端同口径;跨容器拖拽直接拒绝并提示 |
+| 开放拖拽的清单 | 今天 / 收件箱 / 随时 / 某天 / 项目 / 区域;且要求该分区**同容器且 ≥2 行** | iOS `canReorder` 同判据(本端额外开放「今天」,因其排序末位比较键就是 `order`) |
+
+> 落点规则与 iOS 有一处**刻意的差异**:鸿蒙用通用拖拽(`onDragStart/onDrop`),落点最小单位是整行,
+> 拿不到"指针是否越过目标行中点"的信息,因此按拖动方向表达意图——向下拖落在目标行**之后**、
+> 向上拖落在目标行**之前**(等价于桌上端"指针落在目标行下半部分"的结果)。
+> 否则"往下拖一行"会变成空操作(iOS 的 `targetIndex - 1` 在整行落点下就是这个后果)。
 
 ## 8. 编译告警(ArkTS)
 
@@ -349,6 +479,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 - **不吞异常**:`closeResultSet` / `rollbackTx` 是唯一的例外——它们只记日志,
   因为「关不上结果集」和「回滚失败」都不应掩盖真正的原始错误。
 
+### 8.4 本机逻辑测试宿主揪出的 4 个缺陷
+
+`python _qa/build-harness.py` 第一次跑就暴露了 55 个用例中的 16 个失败,逐个定性后确认:
+
+| # | 位置 | 现象 | 定性 | 处理 |
+|---|---|---|---|---|
+| 1 | `core/repeat/RepeatEngine.ets` `firstOccurrenceOnOrAfter` | 循环条件写 `d < fromISO`,当 `fromISO` 当天正好是发生日时会**返回今天** | **真 bug**:§4「计划」窗口是"明天起 14 天",把今天算作"下一次"会让重复待办同时出现在「今天」和「计划」 | 改 `d <= fromISO`。实测 `firstOccurrenceOnOrAfter(weekly, 2026-09-24, 2026-10-08)` 由 `2026-10-08` → `2026-10-15` |
+| 2 | `core/nlp/NaturalDateParser.ets` `nextWeekday` + 调用点 | 「下下周三」算出 **2026-10-28**(三周后),契约要求 10-21 | **真 bug**,且是两处叠加:调用点 `m[1].length + 1` 把「下下」当成 3;`nextWeekday` 内部又用 `(weekOffset-1)*7` + 手工顺延,重复计入周偏移 | 调用点改 `m[1].length`;`nextWeekday` 改为「自然向后的最近一次 + (本周内未过则推到下周) + (weekOffset-1) 周」,四个断言(周五/周三/下周五/下下周三)同时成立 |
+| 3 | `core/query/ListQuery.ets` `upcoming` | 重复待办完全不进「计划」清单(期望 1 组,实际 0 组) | **真 bug**:把 `t.date`(重复待办的**首次**发生日,通常早已过期)也和"下一次发生日"一起当候选,取最早后判为"今天及更早"整条丢弃 | §4 来源 3 对重复待办只认「下一次发生日」:`if (t.repeat !== null) { 只推 nextDate } else if (when==='date') { 推 t.date }` |
+| 4 | `ohosTest/…/SyncMerge.test.ets` L70 | 断言"创建带新标签的待办产出 1 条 op",实际 2 条 | **用例断言落后**(不是产品缺陷):契约 §7.1「每个写操作产出一条 Op」+ §3「标签必须已存在,否则自动创建」→ 自动建标签 + 建待办 = 2 条 op。同一文件 L264 已按 2 断言,前后自相矛盾 | 把断言改为 2,并显式校验顺序(先 `tag` 后 `todo`)。产品代码未改 |
+
+> 另外 12 个失败是宿主自身的问题(垫片没给异步用例传 `done`、时钟未冻结到用例基准日),已在宿主内修正。
+> 结论:**这 4 个缺陷在设备上跑 Hypium 之前是发现不了的**(前 3 个只有真正执行断言才会暴露),
+> 因此这套宿主不只是"编译验证"的替代品,而是本轮 P0 的主要产出。
+
 ## 9. 契约歧义处理(需要契约方确认)
 
 1. **Heading / Tag 的 `deleted` 字段**:§2.3、§2.6 未定义 `deleted`,而 §3 要求"删除一律软删除"。
@@ -369,16 +514,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 ## 10. 已知限制 / 未完成项
 
 - **未签名 / 未上真机**:本机没有调试证书,产物为 unsigned HAP,`hdc install` 会失败;
-  Hypium 用例**未在本机执行**(仅确认可编译)。补齐签名与设备后的步骤见 §3.3 / §3.4。
+  纯逻辑用例可在本机宿主里真实执行(§3.4.1),但**设备上的 Hypium 与真机手势仍未跑过**。
 - **未接入真实后端**:`SyncApi` 默认 `https://api.ordo.app`,可在登录页「服务器地址」或设置页改;
   登录/注册 UI 与服务器地址切换已完成(§6),但**尚无可用服务端**做端到端联调。
+- **手势与帧率未在设备上实测**:左右滑动作区、长按拖拽、`LazyForEach` 的真实滚动帧率都只在编译与
+  纯逻辑层面验证过(§7.3 末尾列了兜底改法);动作区按钮的触摸热区在 44vp 以上,但没有真机手感验证。
+- **拖拽落点为整行**:见 §7.4 末尾,通用拖拽拿不到行内中点,所以"向下拖 = 落在目标行之后"是**行级**语义;
+  若将来改用 `List.onItemDragStart/onItemDrop`,可以拿到 `insertIndex` 做行内中点细分。
+- **拖拽只在同容器生效**:跨分区/跨项目拖动会被拒绝(提示「手动排序只在同一分区/项目内生效」),
+  这是契约 `order` 的作用域决定的;混合容器的分区(如「今天」里同时有 `when=today` 与 `when=date` 的行)整体不开放拖拽。
+- **长距离拖拽退化为整表 reload**:位移超过 `MAX_SWAPS = 64` 格时,为免一次拖拽发出上百条通知,改发一次 reload
+  (≤ 已渲染行数,不会回到 1000 行时代)。
 - **日历事件为本地种子数据**:`§2.8` 的 `CalendarEvent` 只读展示,尚未接 `@ohos.calendarManager`。
-- **拖拽排序**:契约 04 §6 要求长按拖拽,当前实现为 `OrdoEngine.reorderTodo` 提供接口,
-  UI 层尚未接 `onDragStart/onDrop`。
-- **左滑删除 / 右滑排期**:手势尚未接 `ListItem.swipeAction`,当前通过详情卡片与行内按钮完成同样操作。
 - **图标为占位图形**:侧栏与元信息使用文本字形(▤ ★ ▦ ≡ ◇ ▣ ⏰ ⚑ ⟳),等设计给出矢量资源后替换为
   `$media:` 资源或 `SymbolGlyph`。
-- **刷新粒度仍是整表**:见 §7.2 末尾说明,行级增量刷新需要 `LazyForEach` + 数据源改造。
+- **撤销窗口 4s**:04 §4 只规定普通提示 2.4s;带「撤销」动作的提示条延长到 4s(样式/位置/圆角不变),
+  属本轮为"删除可撤销"补的约定,需契约方确认是否接受。
 - **`_qa/`**:构建与自检脚本 + 历史日志,不属于 App 运行时代码,不参与打包。
 
 ## 11. 变更记录
@@ -387,3 +538,5 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 |---|---|
 | 2026-10-08 | 首次实现:契约 §2–§7 的 ArkTS 版核心 + ArkUI 界面 + Hypium 四组用例 + 工程脚手架 |
 | 2026-10-09 | 环境固化(SDK 26.0.0 / hvigor 6.26.4,§3 本机构建)+ 签名缺失说明;ArkTS 告警 71 → 0(§8);新增登录/注册与服务器地址(§6);本地库写盘改增量 upsert、UI 派生结果加版本缓存(§7);修复 ohosTest 编译(5 ERROR → 0);新增 `_qa/build.ps1`、`_qa/warn-report.ps1` 自检脚本 |
+| 2026-10-09 | P0:新增**本机逻辑测试宿主**(§3.4.1),四组 Hypium 用例在本机真实执行 **55/55 通过**;据此修掉 3 个真 bug(`firstOccurrenceOnOrAfter` 边界、`下下周三` 周偏移双重计入、`upcoming` 重复待办被丢弃)与 1 处落后断言(§8.4);`_qa/build-harness.py` + `_qa/node-harness/` |
+| 2026-10-09 | 第三轮(鸿蒙端):① 列表渲染改 **`List + LazyForEach` + 行数据源**(§7.3),1000 条待办下"改一行 = 1 行重建、拖拽 = 0 重建";新增 `view/list/{RowModel,RowDataSource,TodoRow,SwipeActionBar}.ets`、`viewmodel/ReorderMath.ets`;② **左右滑手势**(右滑完成 / 左滑删除 + 排期,删除可撤销)与 **长按拖拽排序**(提交同容器完整可见序列,跨容器拒绝)(§7.4);③ 引擎补 `reorderTodos(ids)` / `restoreDeletedTodo(id)`;④ 新增 `_qa/row-perf-harness.mjs`(真实行模型在 Node 上评测,§7.3)+ `RowModel/ReorderMath` 两组 Hypium 用例(宿主内 **82/82 通过**) |

@@ -2,15 +2,53 @@
 // 依赖版本一律走根 gradle/libs.versions.toml 的别名，本文件不写死版本号。
 // 本模块需要的全部别名清单见 apps/android/README.md「接口与别名对齐清单」。
 
+// 注意：必须显式 import —— 脚本里裸写 java.* 会被 Android DSL 的 java 扩展遮蔽
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.compose.compiler)
 }
 
+// —— release 签名 ——
+// 凭据不入库:优先读环境变量 ORDO_KEYSTORE_PROPERTIES 指向的文件,
+// 其次读仓库内的 keystore.properties(已在 .gitignore 中),都没有则 release 走未签名。
+// 仓库不带任何私钥,客户拿到自己的签名资产后只需放好这个文件即可。
+val keystorePropsFile: File? = run {
+    val fromEnv = System.getenv("ORDO_KEYSTORE_PROPERTIES")
+    val candidates = listOfNotNull(
+        fromEnv?.let { File(it) },
+        // 推荐位置:apps/android/keystore.properties(Android 端自己的签名资产目录)
+        rootProject.file("apps/android/keystore.properties"),
+        // 兼容:仓库根或 app 模块内
+        rootProject.file("keystore.properties"),
+        project.file("keystore.properties"),
+    )
+    candidates.firstOrNull { it.isFile }
+}
+val keystoreProps = Properties().apply {
+    keystorePropsFile?.inputStream()?.use { load(it) }
+}
+
 android {
     namespace = "com.ordo.android"
     compileSdk = 36
+
+    signingConfigs {
+        if (keystorePropsFile != null) {
+            create("release") {
+                storeFile = File(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+                // 契约无关的打包优化:v1 关闭(v2/v3 已足够,minSdk 26)
+                enableV1Signing = false
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
 
     defaultConfig {
         applicationId = "com.ordo.android"
@@ -34,6 +72,8 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            // 有签名凭据就签,没有就产出未签名包(不会让构建失败)
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

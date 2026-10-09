@@ -1,13 +1,18 @@
 package com.ordo.core
 
 import com.ordo.core.model.Status
+import com.ordo.core.model.RepeatFreq
+import com.ordo.core.model.RepeatMode
+import com.ordo.core.model.RepeatRule
 import com.ordo.core.model.Todo
 import com.ordo.core.model.When
 import com.ordo.core.platform.FixedOrdoClock
 import com.ordo.core.query.ListQuery
+import com.ordo.core.query.SectionKind
 import com.ordo.core.seed.SeedData
 import com.ordo.core.storage.InMemoryStorage
 import com.ordo.core.store.OrdoEngine
+import com.ordo.core.store.TodoOptions
 import com.ordo.core.util.OrdoDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -204,6 +209,38 @@ class QueryRulesTest {
         val reversedIds = before.map { it.id }.reversed()
         e.reorderTodos(reversedIds)
         assertEquals(reversedIds, e.list(ListQuery.Someday).map { it.id })
+    }
+
+    @Test
+    fun repeatingTodoEntersUpcomingByNextOccurrence() {
+        // 契约 §4 来源 3:repeat != null 的下一次发生日 ∈ 窗口 时必须进入「计划」。
+        // 此前的实现只看 date/deadline,导致重复待办永远不进计划清单(鸿蒙移植版先发现,核心同病)。
+        val e = engine()
+        val today = OrdoDate.todayISO(FixedOrdoClock(fixedMillis))
+        val todo = e.createTodo("每周复盘", TodoOptions(`when` = When.DATE, date = OrdoDate.plusDays(today, -30)))
+        e.setRepeat(todo!!.id, RepeatRule(RepeatFreq.WEEKLY, interval = 1, mode = RepeatMode.FIXED))
+
+        val inUpcoming = e.list(ListQuery.Upcoming).any { it.id == todo.id }
+        assertTrue(inUpcoming, "每周重复的待办必须按下一次发生日进入「计划」")
+
+        // 下一次发生日应落在窗口内,且严格晚于今天
+        val sections = e.sections(ListQuery.Upcoming)
+        val day = sections.firstOrNull { s -> s.todos.any { it.id == todo.id } }?.title
+        assertTrue(day != null && day != "更晚", "下一次发生日应在 14 天窗口内,实际分组: $day")
+    }
+
+    @Test
+    fun repeatingTodoFarInFutureGoesToOverflow() {
+        // 每年一次、基准日在 3 年前 → 下一次发生日可能超出窗口 → 归入「更晚」而不是消失
+        val e = engine()
+        val today = OrdoDate.todayISO(FixedOrdoClock(fixedMillis))
+        val todo = e.createTodo("年度体检", TodoOptions(`when` = When.DATE, date = OrdoDate.plusDays(today, -1000)))
+        e.setRepeat(todo!!.id, RepeatRule(RepeatFreq.YEARLY, interval = 1, mode = RepeatMode.FIXED))
+
+        val listed = e.list(ListQuery.Upcoming).any { it.id == todo.id }
+        val overflow = e.sections(ListQuery.Upcoming).any { it.kind == SectionKind.LATER && it.todos.any { t -> t.id == todo.id } }
+        // 要么落在窗口内,要么进「更晚」,不能两者都不出现
+        assertTrue(listed || overflow, "重复待办即使超出窗口也必须归入「更晚」,不能凭空消失")
     }
 
     @Test

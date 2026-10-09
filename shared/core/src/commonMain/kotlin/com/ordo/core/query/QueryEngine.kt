@@ -7,6 +7,7 @@ import com.ordo.core.model.Todo
 import com.ordo.core.model.When
 import com.ordo.core.platform.OrdoClock
 import com.ordo.core.platform.SystemOrdoClock
+import com.ordo.core.repeat.RepeatEngine
 import com.ordo.core.util.OrdoDate
 
 /**
@@ -67,6 +68,22 @@ class QueryEngine(
     }
 
     private fun upcomingDayOf(todo: Todo, today: String, windowEnd: String): String? {
+        // 契约 §4 来源 3:重复实例按"下一次发生日"进计划窗口。
+        // 基准日取 date(首次发生日);没有 date 的重复待办按今天起算。
+        // 注意:基准日往往早已过期,必须一路推进到今天之后,否则会出现
+        // "重复待办在计划清单里永远不出现"或"首次发生日已过期就被整条丢弃"两类错误。
+        val repeat = todo.repeat
+        if (repeat != null) {
+            var next = RepeatEngine.nextDate(repeat, todo.date ?: today)
+            var guard = 0
+            while (next <= today && guard < MAX_REPEAT_ADVANCE) {
+                next = RepeatEngine.nextDate(repeat, next)
+                guard++
+            }
+            if (next > today && next <= windowEnd) return next
+            if (next > windowEnd) return OVERFLOW_DAY
+            return null
+        }
         todo.date?.let { d ->
             if (todo.`when` == When.DATE && d > today && d <= windowEnd) return d
             if (todo.`when` == When.DATE && d > windowEnd) return OVERFLOW_DAY
@@ -253,6 +270,8 @@ class QueryEngine(
     companion object {
         const val UPCOMING_WINDOW_DAYS = 14
         const val OVERFLOW_DAY = "9999-12-31"
+        /** 推进重复实例时的安全上限:每天一次的规则推进 400 次足够覆盖约 1 年的过期量 */
+        private const val MAX_REPEAT_ADVANCE = 400
         private const val AREA_LESS_KEY = "__none__"
     }
 }

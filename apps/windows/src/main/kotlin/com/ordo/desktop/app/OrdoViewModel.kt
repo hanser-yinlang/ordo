@@ -29,7 +29,9 @@ import kotlinx.coroutines.launch
 class OrdoViewModel(
     val engine: OrdoEngine,
     private val storage: OrdoStorage,
-    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+    /** 只有本进程的第一个窗口负责写入演示数据(多窗口时新窗口不该重新播种) */
+    private val seedDemoData: Boolean = true
 ) {
 
     private val _state = MutableStateFlow(UiState())
@@ -41,8 +43,8 @@ class OrdoViewModel(
     private var syncCoordinator: SyncCoordinator? = null
 
     init {
-        // 首次启动写入演示数据;已有内容时不覆盖
-        engine.seedDemoData(force = false)
+        // 首次启动写入演示数据;已有内容时不覆盖(多窗口的后续窗口不参与播种)
+        if (seedDemoData) engine.seedDemoData(force = false)
         val mode = runCatching { ThemeMode.valueOf(storage.kvGet(KEY_THEME) ?: ThemeMode.AUTO.name) }
             .getOrDefault(ThemeMode.AUTO)
         val tray = storage.kvGet(KEY_CLOSE_TO_TRAY)?.toBooleanStrictOrNull() ?: true

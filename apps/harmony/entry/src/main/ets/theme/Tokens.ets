@@ -194,6 +194,8 @@ export class OrdoSize {
   static readonly contentMaxWidth: number = 720;
   /** 排期面板宽 280 */
   static readonly sheetWidth: number = 280;
+  /** 滑动手势动作区宽度(04 §6:右滑完成 / 左滑删除 + 排期);≥ 44 的最小触控目标 */
+  static readonly swipeActionWidth: number = 72;
   /** 快找浮层:输入 44 高,结果行 36 */
   static readonly findInputHeight: number = 44;
   static readonly findRowHeight: number = 36;

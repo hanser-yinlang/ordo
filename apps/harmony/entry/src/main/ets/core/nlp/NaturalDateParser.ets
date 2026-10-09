@@ -236,10 +236,12 @@ function matchDate(text: string, today: string): DateHit | null {
     const somedayHit: DateHit = { when: 'someday', date: null, matched: m[0] };
     return somedayHit;
   }
-  // 下下周X / 下下周X
+  // 下X周X / 下下X周X(contract §5「带"下"按指定周偏移」)
   m = text.match(/(下{1,3})(?:周|星期|礼拜)([一二三四五六日天])/);
   if (m !== null) {
-    const weeks: number = m[1].length + 1; // "下"=下周偏移1;"下下"=2
+    // "下" 的个数就是周偏移:下周=1、下下周=2、下下下周=3。
+    // 不要再写 length + 1:那会让「下下周三」变成三周后,与契约 L145 的「指定周偏移」不符。
+    const weeks: number = m[1].length;
     return makeDateHit(nextWeekday(today, m[2], weeks), m[0]);
   }
   // 下周 / 下个星期(不带星期几)→ 下周一
@@ -301,7 +303,52 @@ function thisOrNextWeekday(today: string, cn: string): string {
   return addDays(today, delta);
 }
 
-/** 带"下"的周偏移:weekOffset=1 表示下周 */
+/**
+ * 带「下」的周偏移(契约 §5「带"下"按指定周偏移」)。
+ *
+ * 语义基准 = **该星期几严格未来的最近一次**(与"本周内未过则本周,否则下周"同构:
+ * 已过或就是今天 → 落在下周)。之后再叠加 (weekOffset - 1) 周。
+ * 以 2026-10-08 周四为今天:
+ *
+ *   下周五   : 周五严格未来最近一次 = 10-09,偏移 0 周 → 10-16   ❌ 见下
+ *
+ * 实测口径(v1 冻结用例 NaturalDateParser.test.ets `parse_weekday_this_or_next_week`):
+ *   下周五   = 10-16 = base(10-09) + 1 周
+ *   下周三   = 10-14 = base(10-14) + 0 周
+ *   下下周三 = 10-21 = base(10-14) + 1 周
+ *
+ * 两条约束同时成立,等价于:**先算出"本周内该天(未过则本周,已过则顺延一周)"的日期,
+ * 再整体加 weekOffset 周**——也就是以"本自然周内的那个该天"为基准,而不是以"严格未来最近一次"为基准。
+ * 以周四为今天:
+ *   周五 → 本周内的周五 = 10-09,+1 周 = 10-16 ✓
+ *   周三 → 本周内的周三已过(10-07),顺延 = 10-14,+0 周 = 10-14 ✓
+ *   周三 → 10-14 + 1 周 = 10-21 ✓(下下周三)
+ *
+ * 即:delta = 本周内该天(已过/今天则 +7);结果 = delta + weekOffset * 7。
+ * weekOffset: 1 = 下周,2 = 下下周,3 = 下下下周。
+ */
+/**
+ * 带「下」的周偏移(契约 §5「带"下"按指定周偏移」)。
+ *
+ * 基准 = **该星期几自然向后的最近一次**(与 bare「周五」用的 thisOrNextWeekday 同一基准),
+ * 再叠加 (weekOffset - 1) 周。以 2026-10-08 周四为今天,该基准下:
+ *
+ *   周五 = 10-09(未过 → 本周五)   周三 = 10-14(已过 → 下周三)
+ *
+ * 于是:
+ *   下周五   = base(10-09) + 0 周 = 10-16   ← 再 +7?  否:weekOffset=1 只加 0 周
+ *   下周三   = base(10-14) + 0 周 = 10-14
+ *   下下周三 = base(10-14) + 1 周 = 10-21
+ *
+ * 关键:bare「周五」(delta=1)与「下周五」(也以 delta=1 为基准)的差别在于
+ * 「下」**至少把落在本周内的那天推到下周**——因为"下周五"从字面就不能是明天的 10-09。
+ * 因此这里对"基准仍落在本周内"的情况额外 +7,再叠加 (weekOffset-1) 周:
+ *   下周五   : base 10-09 在本周内 → +7 = 10-16,再 +0 周 = 10-16 ✓
+ *   下周三   : base 10-14 已跨周   → +0,再 +0 周 = 10-14 ✓
+ *   下下周三 : base 10-14 已跨周   → +0,再 +1 周 = 10-21 ✓
+ *
+ * weekOffset: 1 = 下周,2 = 下下周,3 = 下下下周。
+ */
 function nextWeekday(today: string, cn: string, weekOffset: number): string {
   const map: Map<string, number> = new Map<string, number>();
   map.set('一', 1);
@@ -314,12 +361,20 @@ function nextWeekday(today: string, cn: string, weekOffset: number): string {
   map.set('天', 0);
   const target: number = map.has(cn) ? (map.get(cn) as number) : 1;
   const cur: number = weekdayIndex(today);
-  let delta: number = (target - cur + 7) % 7;
-  // 本周内该天已过(或就是今天)则顺延一周,再叠加 weekOffset-1
-  if (delta === 0) {
+  // 自然向后的最近一次(与 thisOrNextWeekday 同基准)
+  const natural: number = (target - cur + 7) % 7;
+  let delta: number;
+  if (natural === 0) {
+    // 今天正是该天:"下周同一天"= 7 天后
     delta = 7;
+  } else if (natural < 7 && target > cur) {
+    // 本周内还没到 → "下X"把它推到下周同一星期几
+    delta = natural + 7;
+  } else {
+    // 本周内已过 → 自然顺延已经落在下周,不再额外推
+    delta = natural;
   }
-  delta += (weekOffset - 1) * 7;
+  delta = delta + (weekOffset - 1) * 7;
   return addDays(today, delta);
 }
 

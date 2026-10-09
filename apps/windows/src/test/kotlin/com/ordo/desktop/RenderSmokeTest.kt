@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -197,6 +198,38 @@ class RenderSmokeTest {
         val dir = File(System.getProperty("ordo.reportDir") ?: "build/reports")
         dir.mkdirs()
         return dir
+    }
+
+    /** 渲染一帧整窗界面,返回 PNG 字节 */
+    private fun renderApp(vm: OrdoViewModel): ByteArray {
+        val scene = ImageComposeScene(width = 1440, height = 900, density = Density(1f)) { OrdoApp(vm) }
+        val bytes = scene.render().encodeToData()!!.bytes
+        scene.close()
+        return bytes
+    }
+
+    /** 破坏性操作的二次确认:文案 + 危险按钮的视觉证据 */
+    @Test
+    fun `删除项目的二次确认可以离屏渲染`() {
+        val vm = viewModel()
+        val idle = renderApp(vm)
+
+        val project = vm.state.value.projects.first()
+        vm.requestDeleteProject(project.id, project.name)
+        assertTrue("应进入待确认状态", vm.state.value.confirm != null)
+
+        val bytes = renderApp(vm)
+
+        assertTrue("截图不应为空", bytes.size > 5_000)
+        assertFalse("确认框必须真的画出来", idle.contentEquals(bytes))
+        val out = File(reportDir(), "ordo-confirm-delete.png")
+        out.writeBytes(bytes)
+        println("[RenderSmokeTest] 已输出删除确认截图:${out.absolutePath} (${out.length()} 字节)")
+
+        // 确认后项目消失、弹层关闭
+        vm.confirmDelete()
+        assertNull(vm.state.value.confirm)
+        assertTrue(vm.state.value.projects.none { it.id == project.id })
     }
 
     /**

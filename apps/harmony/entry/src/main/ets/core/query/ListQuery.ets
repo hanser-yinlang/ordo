@@ -173,15 +173,17 @@ export function upcoming(todos: Todo[], todayISOValue: string, windowDays: strin
       continue;
     }
     const candidates: string[] = [];
-    if (t.when === 'date' && t.date !== null) {
+    if (t.repeat !== null) {
+      // 契约 §4 来源 3:重复待办只认「下一次发生日」。不能再把 t.date 也当候选——
+      // 重复待办的 date 是**首次**发生日,通常早已过期,一旦作为候选参与"取最早",
+      // 就会被判为"今天及更早"而整条待办被丢弃,或错误地分到过期那天。
+      const nextDate: string = firstOccurrenceOnOrAfter(t.repeat, repeatBaseDate(t, todayISOValue), todayISOValue);
+      candidates.push(nextDate);
+    } else if (t.when === 'date' && t.date !== null) {
       candidates.push(t.date);
     }
     if (t.deadline !== null) {
       candidates.push(t.deadline);
-    }
-    if (t.repeat !== null) {
-      const nextDate: string = firstOccurrenceOnOrAfter(t.repeat, repeatBaseDate(t, todayISOValue), todayISOValue);
-      candidates.push(nextDate);
     }
     if (candidates.length === 0) {
       continue;

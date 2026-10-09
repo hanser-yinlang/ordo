@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- 深色下的启动窗口（跟随系统深色模式，04 文档 §2.1） -->
+    <!-- 深色下的启动窗口（跟随系统深色模式，04 文档 §2.1）
+         颜色名与 base 一致，由 values-night/colors.xml 覆盖取值 -->
     <style name="Theme.Ordo" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/ordo_boot_canvas_dark</item>
-        <item name="android:colorBackground">@color/ordo_boot_canvas_dark</item>
+        <item name="android:windowBackground">@color/ordo_boot_canvas</item>
+        <item name="android:colorBackground">@color/ordo_boot_canvas</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>

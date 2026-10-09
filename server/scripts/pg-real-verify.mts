@@ -14,7 +14,11 @@ import { baseConfig } from '../test/helpers';
 import { SyncService } from '../src/services/sync';
 import type { AnyEntity, Todo } from '../src/domain/model';
 
-const DATABASE_URL = process.env.DATABASE_URL ?? 'postgres://ordo:ordo_secret@127.0.0.1:55432/ordo';
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  console.error('DATABASE_URL is required, e.g. postgres://user:pass@127.0.0.1:55432/ordo');
+  process.exit(2);
+}
 const MIGRATIONS_DIR = join(process.cwd(), 'src', 'repo', 'migrations');
 const NOW = 1_810_000_000_000;
 

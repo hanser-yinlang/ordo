@@ -60,3 +60,8 @@ Thumbs.db
 
 # —— 本地验证产物(契约检查报告、构建日志) ——
 _qa/
+
+# —— 签名凭据(绝不入库) ——
+keystore.properties
+*.jks
+*.p12

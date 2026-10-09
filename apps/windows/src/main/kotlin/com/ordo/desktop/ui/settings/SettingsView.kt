@@ -148,7 +148,7 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
             }
             Spacer(Modifier.height(OrdoSpace.xs))
             Text(
-                text = "托盘图标可随时重新打开窗口或退出;深链会唤醒已有窗口。",
+                text = "最小化到托盘后应用继续跑(提醒 / 同步不断);托盘右键「退出」才真正结束。",
                 style = OrdoType.micro,
                 color = colors.textTertiary
             )

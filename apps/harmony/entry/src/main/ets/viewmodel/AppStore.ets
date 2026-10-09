@@ -49,6 +49,7 @@ import {
 } from '../core/query/ListQuery.ets';
 import { fmtShortDate, todayISO } from '../core/util/DateUtil.ets';
 import { newDeviceId } from '../core/util/Ids.ets';
+import { containerKeyOf, sameContainer } from './ReorderMath.ets';
 import { ReminderAgent } from '../core/notify/ReminderAgent.ets';
 import { DeepLinkTarget, parseDeepLink } from '../core/deeplink/DeepLink.ets';
 import { OrdoColorTokens, OrdoColors, OrdoTheme, ThemeMode } from '../theme/Tokens.ets';
@@ -85,6 +86,8 @@ export interface ToastState {
   text: string;
   seq: number;
   kind: string;
+  /** 提示条上的动作文案(空串 = 普通提示;「撤销」用于左滑删除,04 §6) */
+  action: string;
 }
 
 export const DEFAULT_BASE_URL: string = 'https://api.ordo.app';
@@ -172,9 +175,11 @@ export class AppStore {
   fastFindOpen: boolean = false;
   settingsOpen: boolean = false;
   drawerOpen: boolean = false;
-  toast: ToastState = { text: '', seq: 0, kind: 'info' };
+  toast: ToastState = { text: '', seq: 0, kind: 'info', action: '' };
   /** 完成动效:正在播放动画的待办 id */
   animatingTodoId: string = '';
+  /** 左滑删除的"可撤销"目标(空串 = 当前没有可撤销的删除) */
+  private undoTodoId: string = '';
 
   /* ------------------------------------------------------------ 生命周期 */
 
@@ -409,8 +414,13 @@ export class AppStore {
     this.cacheCurrentKey = '';
   }
 
+  /**
+   * 普通提示(无动作)。提示条是单槽位:新提示会顶掉上一条,因此这里同时清掉
+   * 「可撤销删除」的目标——界面上已经没有那个"撤销"按钮了,不能让它在后台留着。
+   */
   showToast(text: string): void {
-    this.toast = { text: text, seq: this.toast.seq + 1, kind: 'info' };
+    this.undoTodoId = '';
+    this.toast = { text: text, seq: this.toast.seq + 1, kind: 'info', action: '' };
     this.bump();
   }
 
@@ -529,7 +539,7 @@ export class AppStore {
 
   /** 当前清单的待办(项目/标签/搜索/内置清单统一入口) */
   currentTodos(): Todo[] {
-    const key: string = this.currentKey();
+    const key: string = this.listKey();
     this.ensureCache();
     const hit: Todo[] | null = this.cacheCurrent;
     if (hit !== null && this.cacheCurrentKey === key) {
@@ -542,8 +552,13 @@ export class AppStore {
     return computed;
   }
 
-  /** 缓存键:清单类型 + 关键参数,任一变化即视为不同结果集 */
-  private currentKey(): string {
+  /**
+   * 清单键:清单类型 + 关键参数,任一变化即视为不同结果集。
+   *
+   * 视图层也用它做 `LazyForEach` 数据源的缓存键(见 `view/ListPage.ets` 的 `sources`):
+   * 每个清单各自持有一份行序列,切回来时不必整表重建,只补差量。
+   */
+  listKey(): string {
     return this.list + '|' + this.projectId + '|' + this.areaId + '|' + this.tagName + '|' +
       this.searchKeyword + '|' + (this.showCompleted ? '1' : '0');
   }
@@ -883,6 +898,100 @@ export class AppStore {
     ReminderAgent.cancel(id);
     this.showToast('已删除');
     this.afterWrite(null);
+  }
+
+  /**
+   * 左滑删除 + 可撤销(04 §6「左滑删除」;§4 的提示条是底部 pill,这里在提示条上挂一个"撤销"动作)。
+   *
+   * 删除本身仍是契约 §3 的软删除(`deleted=true` + 墓碑),`undoDelete()` 只是把 `deleted` 复位,
+   * 因此撤销产出的是**同一实体的另一次 LWW 更新**,不会留下"删除 op + 新建 op"两条互相打架的记录。
+   * 契约与 04 号文档都没写"二次确认"还是"可撤销",这里按可撤销实现(更轻、可恢复,不会打断手势)。
+   */
+  deleteTodoWithUndo(id: string): void {
+    const e: OrdoEngine | null = this.engine;
+    if (e === null) {
+      return;
+    }
+    const t: Todo | null = e.findTodo(id);
+    if (t === null || t.deleted) {
+      return;
+    }
+    const title: string = t.title.length > 12 ? t.title.substring(0, 12) + '…' : t.title;
+    e.deleteTodo(id);
+    if (this.selectedTodoId === id) {
+      this.selectedTodoId = '';
+    }
+    ReminderAgent.cancel(id);
+    this.undoTodoId = id;
+    this.toast = {
+      text: '已删除「' + title + '」',
+      seq: this.toast.seq + 1,
+      kind: 'info',
+      action: '撤销'
+    };
+    this.afterWrite(null);
+  }
+
+  /** 撤销上一次左滑删除(提示条上的"撤销") */
+  undoDelete(): void {
+    const e: OrdoEngine | null = this.engine;
+    const id: string = this.undoTodoId;
+    this.undoTodoId = '';
+    if (e === null || id.length === 0) {
+      return;
+    }
+    if (!e.restoreDeletedTodo(id)) {
+      this.showToast('这条待办已无法恢复');
+      return;
+    }
+    const t: Todo | null = e.findTodo(id);
+    if (t !== null && t.reminder !== null) {
+      ReminderAgent.refresh(t);
+    }
+    this.showToast('已恢复');
+    this.afterWrite(t);
+  }
+
+  /** 当前提示条上是否有可撤销的删除 */
+  hasUndo(): boolean {
+    return this.undoTodoId.length > 0;
+  }
+
+  /**
+   * 拖拽排序(04 §6「长按拖拽」):把**同一容器内的完整可见序列**整段提交给核心。
+   *
+   * 两道闸门(与 iOS `AppEnvironment.reorderTodos(ids:)` 一致,缺一不可):
+   *  1. 每个 id 都能在本地找到、至少 2 条;
+   *  2. 所有 id 同容器——`order` 只在 `(when, projectId, headingId)` 内连续(见 `OrdoEngine.nextOrder`),
+   *     跨分区/跨项目拖动会写出互相竞争的 order,这里直接拒绝并提示。
+   *
+   * 提交的是**完整序列**而不是"被拖的那一条":核心的语义是 `ids[i].order = i`,
+   * 它不知道清单里被过滤掉了哪些条目,残缺序列会把未提交的条目挤到末尾。
+   *
+   * @returns 是否受理(未受理时不动数据)
+   */
+  reorderTodos(ids: string[]): boolean {
+    const e: OrdoEngine | null = this.engine;
+    if (e === null || ids.length < 2) {
+      return false;
+    }
+    const containers: string[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      const t: Todo | null = e.findTodo(ids[i]);
+      if (t === null) {
+        return false;
+      }
+      containers.push(containerKeyOf(t));
+    }
+    if (!sameContainer(containers)) {
+      this.showToast('手动排序只在同一分区/项目内生效');
+      return false;
+    }
+    if (e.reorderTodos(ids) === 0) {
+      return false;
+    }
+    this.afterWrite(null);
+    return true;
   }
 
   setSelected(id: string): void {

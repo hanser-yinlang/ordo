@@ -45,6 +45,7 @@ import com.ordo.desktop.net.TokenStore
 import com.ordo.desktop.sync.SyncCoordinator
 import com.ordo.desktop.system.DeepLink
 import com.ordo.desktop.system.DeepLinkInbox
+import com.ordo.desktop.system.LockResult
 import com.ordo.desktop.system.ReminderScheduler
 import com.ordo.desktop.system.SingleInstanceLock
 import com.ordo.desktop.system.TrayNotifications
@@ -96,15 +97,29 @@ fun main(args: Array<String>) {
 
     val dataDir = resolveDataDir(args)
     // 单实例:托盘常驻后用户可能再次双击图标,两个引擎写同一份 JSON 会互相覆盖
-    val instanceLock = SingleInstanceLock.acquire(dataDir)
-    if (instanceLock == null) {
-        // 已有实例在跑:把命令行里的 ordo:// 链接转交给它,再退出(04-UI规范 §7 深链)
-        val forwarded = DeepLinkInbox.of(dataDir).submit(args.toList())
-        println(if (forwarded) "Ordo 已在运行,已把链接转交给它" else "Ordo 已在运行(可在系统托盘里打开窗口)")
-        if (!forwarded) notifyAlreadyRunning()
-        return
+    val lockResult = SingleInstanceLock.acquire(dataDir)
+    when (lockResult) {
+        is LockResult.Unavailable -> {
+            // 环境问题(权限 / IO)不该把用户挡在门外:继续启动,只是没有单实例保护
+            println("单实例锁不可用(${lockResult.reason}),继续启动")
+        }
+        LockResult.AlreadyRunning -> {
+            // 已有实例在跑:把 ordo:// 链接转交给它(没有链接就只要求唤出窗口),然后自己退出
+            val inbox = DeepLinkInbox.of(dataDir)
+            val forwarded = inbox.submit(args.toList())
+            val focused = forwarded || inbox.submitFocus()
+            println(
+                when {
+                    forwarded -> "Ordo 已在运行,已把链接转交给它"
+                    focused -> "Ordo 已在运行,已唤出它的窗口"
+                    else -> "Ordo 已在运行(可在系统托盘里打开窗口)"
+                }
+            )
+            if (!focused) notifyAlreadyRunning()
+            return
+        }
+        is LockResult.Acquired -> Unit
     }
-    Runtime.getRuntime().addShutdownHook(Thread { instanceLock.release() })
 
     application { desktopApp(args, dataDir, selfTest) }
 }
@@ -223,7 +238,6 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
 
     // 深链:ordo://today / ordo://project/<id> / ordo://todo/<id>(作用于第一个窗口)
     val deepLink = remember { DeepLink.fromArgs(args) }
-
     // 跨进程深链转交:第二个实例把链接写进 .ordo.inbox,这里轮询消费
     // (命名管道要 JNI、本地 socket 要占端口,文件转交零依赖且可单测)
     val linkInbox = remember { DeepLinkInbox.of(dataDir) }
@@ -231,7 +245,13 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
         linkInbox.cleanupTemp()
         while (true) {
             linkInbox.drain().forEach { raw ->
-                val target = DeepLink.parse(raw) ?: return@forEach
+                // 只要"唤出窗口"的转交(第二个实例没带深链时)
+                if (raw == DeepLinkInbox.FOCUS_LINK) {
+                    showOrOpenWindow()
+                    selfTestReport(selfTest, "step=focus-requested")
+                    return@forEach
+                }
+                val target = DeepLink.safeParse(raw) ?: return@forEach
                 showOrOpenWindow()
                 windowIds.firstOrNull()?.let { id ->
                     vmRegistry[id]?.let { vm ->

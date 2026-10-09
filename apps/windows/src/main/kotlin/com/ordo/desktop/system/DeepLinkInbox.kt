@@ -22,17 +22,22 @@ class DeepLinkInbox(private val dir: File) {
     /** 第二个实例:把参数里的深链转交给正在运行的实例;没有可转交的链接时返回 false */
     fun submit(args: List<String>): Boolean {
         val link = args.firstOrNull { it.trim().startsWith(SCHEME_PREFIX) }?.trim() ?: return false
-        return runCatching {
-            if (!dir.exists()) dir.mkdirs()
-            val tmp = File(dir, "${UUID.randomUUID()}$TMP_SUFFIX")
-            tmp.writeText(link, StandardCharsets.UTF_8)
-            Files.move(
-                tmp.toPath(),
-                File(dir, "${System.currentTimeMillis()}-${UUID.randomUUID()}$FILE_SUFFIX").toPath(),
-                StandardCopyOption.ATOMIC_MOVE
-            )
-        }.isSuccess
+        return write(link)
     }
+
+    /** 第二个实例:没有深链时也要"把已有窗口叫出来",避免用户以为没反应 */
+    fun submitFocus(): Boolean = write(FOCUS_LINK)
+
+    private fun write(content: String): Boolean = runCatching {
+        if (!dir.exists()) dir.mkdirs()
+        val tmp = File(dir, "${UUID.randomUUID()}$TMP_SUFFIX")
+        tmp.writeText(content, StandardCharsets.UTF_8)
+        Files.move(
+            tmp.toPath(),
+            File(dir, "${System.currentTimeMillis()}-${UUID.randomUUID()}$FILE_SUFFIX").toPath(),
+            StandardCopyOption.ATOMIC_MOVE
+        )
+    }.isSuccess
 
     /** 运行中的实例:取出并删除待处理的链接(按写入顺序) */
     fun drain(): List<String> {
@@ -54,6 +59,10 @@ class DeepLinkInbox(private val dir: File) {
     companion object {
         const val DIR_NAME = ".ordo.inbox"
         const val SCHEME_PREFIX = "ordo://"
+
+        /** 只要求"唤出窗口"、不导航的特殊链接(第二个实例没带深链时使用) */
+        const val FOCUS_LINK = "ordo://focus"
+
         private const val FILE_SUFFIX = ".link"
         private const val TMP_SUFFIX = ".tmp"
 

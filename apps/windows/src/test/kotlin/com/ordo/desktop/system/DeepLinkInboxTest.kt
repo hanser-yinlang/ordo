@@ -12,7 +12,7 @@ import java.io.File
  * 跨进程深链转交测试。
  *
  * 场景:托盘常驻后再次双击图标(或浏览器点击 `ordo://…`)会起第二个进程;它拿到不到单实例锁,
- * 于是把链接写进 `.ordo.inbox`,由运行中的实例消费。
+ * 于是把链接写进 `.ordo.inbox`,由运行中的实例消费;没带链接时也要能"把窗口叫出来"。
  */
 class DeepLinkInboxTest {
 
@@ -39,6 +39,17 @@ class DeepLinkInboxTest {
         assertFalse("普通启动(无参数)不该留下转交文件", second.submit(listOf("Ordo.exe")))
         assertFalse(second.submit(listOf("Ordo.exe", "--data-dir=D:\\Ordo")))
         assertTrue(second.drain().isEmpty())
+    }
+
+    @Test
+    fun `没有深链时可以只要求唤出窗口`() {
+        val dir = tmp.newFolder("ordo")
+        val second = DeepLinkInbox.of(dir)
+
+        assertTrue(second.submitFocus())
+
+        assertEquals(listOf(DeepLinkInbox.FOCUS_LINK), DeepLinkInbox.of(dir).drain())
+        assertEquals("ordo://focus", DeepLinkInbox.FOCUS_LINK)
     }
 
     @Test
@@ -98,7 +109,16 @@ class DeepLinkInboxTest {
         val dir = tmp.newFolder("ordo")
         DeepLinkInbox.of(dir).submit(listOf("ordo://search?q=%E6%8A%A5%E5%91%8A"))
         val link = DeepLinkInbox.of(dir).drain().single()
-        val target = DeepLink.parse(link)
+        val target = DeepLink.safeParse(link)
         assertEquals(com.ordo.desktop.app.OrdoRoute.Search("报告"), target?.route)
+    }
+
+    @Test
+    fun `未知链接也不会让运行中的实例崩溃`() {
+        val dir = tmp.newFolder("ordo")
+        DeepLinkInbox.of(dir).submit(listOf("ordo://totally-unknown"))
+        val link = DeepLinkInbox.of(dir).drain().single()
+        // 解析器必须给出一个确定的路由(回落今天),而不是抛异常
+        assertEquals(com.ordo.desktop.app.OrdoRoute.Today, DeepLink.safeParse(link)?.route)
     }
 }

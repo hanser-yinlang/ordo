@@ -75,18 +75,20 @@ sealed class OrdoRoute {
 
     companion object {
 
-        /** 固定清单(快捷键 1–6 的顺序) */
-        val fixed: List<OrdoRoute> = fixedRoutes()
-
-        /** 固定清单的构造:用函数而不是共享列表字面量,避免调用方看到静态初始化期的半成品 */
-        private fun fixedRoutes(): List<OrdoRoute> =
-            listOf(Inbox, Today, Upcoming, Anytime, Someday, Logbook)
+        /**
+         * 固定清单(快捷键 1–6 的顺序)。
+         *
+         * 用**计算属性**而不是静态初始化字段:之前写成 `val fixed = listOf(Inbox, …)`,
+         * 当它被 `fromKey` 首次触发(Eager 初始化与嵌套 `object` 的类初始化交叉)时,读到了 null 元素,
+         * 于是 `ordo://logbook` 直接把应用打崩(实测复现)。每次现取 + `listOfNotNull` 双保险。
+         */
+        val fixed: List<OrdoRoute>
+            get() = listOfNotNull(Inbox, Today, Upcoming, Anytime, Someday, Logbook)
 
         /**
          * 路由 key → 路由(深链 / 快找用)。
          *
-         * 未知 key 一律回落到「今天」:**深链绝不能把应用打崩**(外面的进程可能传来任何字符串),
-         * 因此这里逐个比较、并对拿到的元素做非空防御。
+         * 未知 key 一律回落到「今天」:**深链绝不能把应用打崩**(外面的进程可能传来任何字符串)。
          */
         fun fromKey(key: String): OrdoRoute {
             val clean = key.trim().removePrefix("#").removePrefix("/")

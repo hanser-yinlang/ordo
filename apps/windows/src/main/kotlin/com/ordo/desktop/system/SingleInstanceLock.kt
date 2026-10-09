@@ -3,13 +3,17 @@ package com.ordo.desktop.system
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.channels.FileLock
+import java.nio.channels.OverlappingFileLockException
 
 /**
  * 单实例锁。
  *
  * 托盘常驻之后,"关闭窗口"不再等于退出,用户很可能再双击一次图标 —— 两个进程各持一个
  * [com.ordo.core.store.OrdoEngine] 写同一份 JSON 会互相覆盖。这里在数据目录上放一把文件锁:
- * 第二个实例拿不到锁就直接提示并退出(锁由操作系统在进程结束时释放,不会留下僵尸锁)。
+ * 第二个实例拿不到锁时会把深链转交给运行中的实例并退出(锁由操作系统在进程结束时释放,不会留下僵尸锁)。
+ *
+ * 注意区分两种"没拿到锁":**别人拿着**(正常单实例)与**环境问题**(权限 / 路径 / IO)。
+ * 后者不该把用户挡在门外,调用方应放行启动([LockResult.Unavailable])。
  */
 class SingleInstanceLock private constructor(
     private val file: RandomAccessFile,
@@ -20,23 +24,58 @@ class SingleInstanceLock private constructor(
     fun release() {
         runCatching { lock.release() }
         runCatching { file.close() }
+        held.remove(this)
     }
 
     companion object {
         const val FILE_NAME = ".ordo.lock"
 
-        /** 拿到锁返回实例;已有实例在跑(或文件不可写)返回 null */
-        fun acquire(dir: File): SingleInstanceLock? = runCatching {
-            if (!dir.exists()) dir.mkdirs()
-            val file = RandomAccessFile(File(dir, FILE_NAME), "rw")
-            // 同一 JVM 内重复加锁会抛 OverlappingFileLockException,同样按"已有实例"处理
-            val lock = file.channel.tryLock()
-            if (lock == null) {
-                file.close()
-                null
-            } else {
-                SingleInstanceLock(file, lock)
+        /**
+         * 进程级强引用。
+         *
+         * 必须持有:一旦 [SingleInstanceLock] 不可达,`RandomAccessFile` / `FileChannel` 被回收时会连带
+         * 释放文件锁,单实例就形同虚设(实测踩到过:第二个实例以为自己拿到了锁,于是两个引擎同时写一份 JSON)。
+         */
+        private val held = mutableListOf<SingleInstanceLock>()
+
+        fun acquire(dir: File): LockResult {
+            val file = try {
+                if (!dir.exists()) dir.mkdirs()
+                RandomAccessFile(File(dir, FILE_NAME), "rw")
+            } catch (error: Throwable) {
+                return LockResult.Unavailable(error.message ?: error::class.simpleName ?: "无法打开锁文件")
             }
-        }.getOrNull()
+            return try {
+                val lock = file.channel.tryLock()
+                if (lock == null) {
+                    runCatching { file.close() }
+                    LockResult.AlreadyRunning
+                } else {
+                    val instance = SingleInstanceLock(file, lock)
+                    held.add(instance)
+                    LockResult.Acquired(instance)
+                }
+            } catch (overlapping: OverlappingFileLockException) {
+                // 同一 JVM 内重复加锁:同样按"已有实例"处理
+                runCatching { file.close() }
+                LockResult.AlreadyRunning
+            } catch (error: Throwable) {
+                runCatching { file.close() }
+                LockResult.Unavailable(error.message ?: error::class.simpleName ?: "加锁失败")
+            }
+        }
     }
+}
+
+/** [SingleInstanceLock.acquire] 的结果 */
+sealed interface LockResult {
+
+    /** 拿到锁,正常启动 */
+    data class Acquired(val lock: SingleInstanceLock) : LockResult
+
+    /** 已有实例在跑:转交深链 / 唤出窗口后退出 */
+    object AlreadyRunning : LockResult
+
+    /** 锁不可用(权限 / IO):不阻断启动,只是没有单实例保护 */
+    data class Unavailable(val reason: String) : LockResult
 }

@@ -76,8 +76,18 @@ sealed class OrdoRoute {
     companion object {
 
         /** 固定清单(快捷键 1–6 的顺序) */
-        val fixed: List<OrdoRoute> = listOf(Inbox, Today, Upcoming, Anytime, Someday, Logbook)
+        val fixed: List<OrdoRoute> = fixedRoutes()
 
+        /** 固定清单的构造:用函数而不是共享列表字面量,避免调用方看到静态初始化期的半成品 */
+        private fun fixedRoutes(): List<OrdoRoute> =
+            listOf(Inbox, Today, Upcoming, Anytime, Someday, Logbook)
+
+        /**
+         * 路由 key → 路由(深链 / 快找用)。
+         *
+         * 未知 key 一律回落到「今天」:**深链绝不能把应用打崩**(外面的进程可能传来任何字符串),
+         * 因此这里逐个比较、并对拿到的元素做非空防御。
+         */
         fun fromKey(key: String): OrdoRoute {
             val clean = key.trim().removePrefix("#").removePrefix("/")
             return when {
@@ -85,7 +95,13 @@ sealed class OrdoRoute {
                 clean.startsWith("area/") -> Area(clean.removePrefix("area/"))
                 clean.startsWith("tag/") -> Tag(decode(clean.removePrefix("tag/")))
                 clean.startsWith("search") -> Search("")
-                else -> fixed.firstOrNull { it.key == clean } ?: Today
+                clean.equals("inbox", true) -> Inbox
+                clean.equals("today", true) -> Today
+                clean.equals("upcoming", true) -> Upcoming
+                clean.equals("anytime", true) -> Anytime
+                clean.equals("someday", true) -> Someday
+                clean.equals("logbook", true) -> Logbook
+                else -> Today
             }
         }
 

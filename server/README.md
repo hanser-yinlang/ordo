@@ -33,7 +33,7 @@ curl -s http://127.0.0.1:8080/metrics | head -20     # Prometheus 文本指标
 
 ```bash
 cp .env.example .env      # 填 DATABASE_URL / JWT_SECRET
-pnpm migrate              # 建表(001_init.sql)
+pnpm migrate              # 建表(001_init.sql)+ 列类型升级(002_device_id_text.sql)
 pnpm start
 ```
 
@@ -55,7 +55,7 @@ src/
 │   ├── memory.ts     MemoryRepository
 │   ├── pg.ts         PgRepository
 │   ├── migrate.ts    SQL 迁移执行器
-│   └── migrations/001_init.sql  契约 §8 表结构
+│   └── migrations/   001_init.sql(契约 §8 表结构)· 002_device_id_text.sql(deviceId 列 uuid → text)
 ├── services/
 │   ├── auth.ts       注册/登录/刷新轮换/登出/JWT 校验
 │   ├── sync.ts       §7 同步核心(push/pull/snapshot + 6 条合并规则)
@@ -73,7 +73,7 @@ src/
 └── index.ts          启动入口(优雅停机,启动清理任务)
 test/                 node:test 测试
 ├── helpers.ts        内存仓储夹具 + 真实 HTTP/WS 服务夹具 + Prometheus 解析
-├── pg-helpers.ts     pg-mem 夹具(真实执行 001_init.sql)
+├── pg-helpers.ts     pg-mem 夹具(真实执行迁移)
 ├── auth/sync/reminders/limits/domain.test.ts   既有单元与接口测试
 ├── pg.test.ts        PgRepository × pg-mem(真实 SQL)
 ├── e2e.test.ts       协议级端到端(真实 HTTP + WS)
@@ -104,10 +104,10 @@ docs/DEPLOY.md        部署、环境变量、迁移、健康检查、备份
 
 ## PgRepository 验证(pg-mem 真实执行 SQL)
 
-本机没有 PostgreSQL,也不允许安装大型服务,因此 `PgRepository` 的验证方式是:
+本机(或 CI)不提供 PostgreSQL 时,`PgRepository` 也不能只靠 mock 验证,因此第一层验证是:
 用 **`pg-mem`**(纯 JS 的内存 Postgres 实现,无原生扩展,`devDependencies`)**真实执行**
-`src/repo/migrations/001_init.sql`,再让真正的 `PgRepository` 代码跑完整 push/pull/snapshot/
-LWW/墓碑流程。
+`src/repo/migrations/*.sql`(001 建表 + 002 列类型升级),再让真正的 `PgRepository` 代码跑完整
+push/pull/snapshot/LWW/墓碑流程。
 
 ```bash
 node --import tsx --test test/pg.test.ts    # 30 个用例
@@ -125,9 +125,9 @@ const repo = new PgRepository('postgres://pg-mem.local/ordo', 2, [MIGRATIONS_DIR
 
 | 类别 | 语句 | 覆盖用例 |
 |---|---|---|
-| 迁移 | `001_init.sql` 全部 12 条 DDL(7 张表 + 5 个索引,含**部分索引** `where fired = false`) | 建表、索引重放、幂等 |
+| 迁移 | `001_init.sql` 全部 12 条 DDL(7 张表 + 5 个索引,含**部分索引** `where fired = false`)、`002_device_id_text.sql` | 建表、索引重放、幂等、迁移版本 `[1,2]` |
 | 用户 | `insert ... returning *`、`select ... where email = $1`、`update ... set password_hash` | 注册/查找/改密 |
-| 设备 | `insert ... on conflict (id) do update set ... excluded.*` | upsert 不产生第二行、`created_at` 不被覆盖 |
+| 设备 | `insert ... on conflict (id) do update set ... excluded.*` | upsert 不产生第二行、`created_at` 不被覆盖、`dev_` 形态 id 可写 |
 | 令牌 | `insert`、`update ... set revoked_at = coalesce(revoked_at, $2)`、`delete ... where expires_at < $1` | 轮换链、撤销幂等、过期清理 |
 | 实体 | `insert ... on conflict (user_id, entity, entity_id) do update`、`select ... where user_id = $1 [and entity = $2]`、`delete ... where deleted = true and updated_at < $1` | putEntity/LWW、两种 list 分支、墓碑清理 |
 | op 日志 | `insert ... on conflict (user_id, op_id) do nothing`、`select ... where server_seq > $1 order by server_seq asc limit $2`、`op_id = any($2::text[])`、`select max(server_seq)` | 幂等、**分页不重不漏**、seq 单调、空表返回 0 |
@@ -140,13 +140,14 @@ const repo = new PgRepository('postgres://pg-mem.local/ordo', 2, [MIGRATIONS_DIR
 
 | # | 差异 | 影响 | 生产是否安全 |
 |---|---|---|---|
-| 1 | **事务内 DDL 的静态 AST 覆盖检查**:pg-mem 在事务里执行 `create table ... (version int primary key, ...)` 会把这些内联列约束报成 "planner 未读取的 AST 部分" 并抛 `NotSupported` | 迁移执行器 `runMigrations` 用 `begin/commit` 包住 DDL,所以 `PgRepository.init()` 在 pg-mem 上会失败 | **安全**。夹具用 `newDb({ noAstCoverageCheck: true })` 关闭这项**静态检查**;约束本身是运行时强制的,测试里用重复主键插入验证过 `23505`。迁移 SQL 一个字符都没改(契约冻结)。 |
-| 2 | **不支持事务回滚**:`begin` → 写入 → `rollback` 后数据仍在(已用探针确认) | `runMigrations` / `appendOps` 的 `rollback` 分支无法在 pg-mem 上验证"失败后不留残留" | **安全**。真实 Postgres 回滚是标准行为;测试只断言"错误被抛出",并把"回滚后无残留"留给真实 Postgres 复跑(见下节)。 |
+| 1 | **事务内 DDL 的静态 AST 覆盖检查**:pg-mem 在事务里执行 `create table ... (version int primary key, ...)` 会把这些内联列约束报成 "planner 未读取的 AST 部分" 并抛 `NotSupported` | 迁移执行器 `runMigrations` 用 `begin/commit` 包住 DDL,所以 `PgRepository.init()` 在 pg-mem 上会失败 | **安全**。夹具用 `newDb({ noAstCoverageCheck: true })` 关闭这项**静态检查**;约束本身是运行时强制的,测试里用重复主键插入验证过 `23505`。迁移 SQL 不为测试改写。 |
+| 2 | **不支持事务回滚**:`begin` → 写入 → `rollback` 后数据仍在(已用探针确认) | `runMigrations` / `appendOps` 的 `rollback` 分支无法在 pg-mem 上验证"失败后不留残留" | **安全**。真实 Postgres 回滚是标准行为;测试只断言"错误被抛出",回滚语义由真实 Postgres 复跑覆盖(见下节)。 |
 | 3 | **`ON CONFLICT DO UPDATE` 的 SET 求值顺序**:pg-mem 让后面的 SET 表达式读到**前面刚赋的值**;Postgres 语义是所有 SET 表达式都基于**旧行**求值([INSERT 文档](https://www.postgresql.org/docs/16/sql-insert.html):"SET 和 WHERE 子句可以用表名访问已存在的行") | 若先写 `at = excluded.at` 再写 `fired = case when reminders.at = excluded.at ...`,pg-mem 下 `fired` 永不复位 → 改过时间的提醒再也不会投递 | **安全**。已把 `fired` 放到 SET 最前面(Postgres 下语义完全不变),并加了回归用例锁死顺序。这是测试**真实抓到的一个隐患**,不是绕过。 |
 | 4 | **`insert ... on conflict do nothing returning *` 在冲突时把冲突行返回**(Postgres 返回 0 行) | `appendOps` 无法用 `returning` 判断"本次到底写入了哪些 op",幂等语义会被悄悄破坏 | **安全**。`appendOps` 改为两阶段(插入 → 回查 opId,排除插入前已存在的),与 `returning *` 等价,只是多一次 SELECT;并有"混合批次只返回新写入那条"的用例。 |
-| 5 | **没有索引目录**:`pg_indexes` / `pg_index` 不存在或为空,`pg_class` 恒空,`table.indexHandlers` 也是空的;`EXPLAIN` / `pg_typeof` 未实现 | 无法在 pg-mem 里 `select * from pg_indexes` 或看执行计划 | **安全**。索引验证改为两步:① 解析 `001_init.sql` 的 `create index` 声明,断言**索引名、列顺序、部分索引 where 子句**与契约一致;② 把每条 DDL **换个名字逐条真实重放**,证明 pg-mem 能解析并创建(含 `where fired = false`)。索引目录与执行计划留给真实 Postgres 复跑。 |
-| 6 | **`bigint` 在 `information_schema` 里报告为 `integer`**;`unique` 的文本比较对大小写不敏感(pg-mem 默认 `nocase` 排序规则) | 元数据层面与生产不一致 | **安全**。读写往返保持 `Date.now()` 级别精度(已断言);仓储在 SQL 之前就做了 `email.toLowerCase()`,大小写语义由应用层保证。生产用 `text`(默认 `C`/`ICU` 排序规则)不会出现 pg-mem 那种"大小写不等即冲突"的行为。 |
-| 7 | **`bigserial` 在冲突时也会消耗序列值**(Postgres 的 `DO NOTHING` 不消耗) | 序列号在 pg-mem 上会出现空洞 | **安全**。契约只要求 `server_seq` **单调**,不要求连续;测试断言的是严格递增与分页不重不漏。 |
+| 5 | **没有索引目录**:`pg_indexes` / `pg_index` 不存在或为空,`pg_class` 恒空,`table.indexHandlers` 也是空的;`EXPLAIN` / `pg_typeof` 未实现 | 无法在 pg-mem 里 `select * from pg_indexes` 或看执行计划 | **安全**。索引验证改为两步:① 解析迁移的 `create index` 声明,断言**索引名、列顺序、部分索引 where 子句**与契约一致;② 把每条 DDL **换个名字逐条真实重放**。索引目录与执行计划由真实 Postgres 复跑覆盖。 |
+| 6 | **`bigint` 在 `information_schema` 里报告为 `integer`**;`unique` 的文本比较对大小写不敏感(pg-mem 默认 `nocase` 排序规则) | 元数据层面与生产不一致 | **安全**。读写往返保持 `Date.now()` 级别精度(已断言);仓储在 SQL 之前就做了 `email.toLowerCase()`。但要注意:**pg-mem 的类型检查偏宽松**,真实 Postgres 才会拦住类型错误 —— 见"真实 PostgreSQL 抓到的生产级 Bug"。 |
+| 7 | **`bigserial` 在冲突时也会消耗序列值**(Postgres 的 `DO NOTHING` 同样会消耗:`nextval` 在冲突判定前已求值) | 序列号出现空洞 | **安全**。契约只要求 `server_seq` **单调**,不要求连续;测试断言的是严格递增与分页不重不漏。 |
+| 8 | **不实现 plpgsql**:`002_device_id_text.sql` 用 `DO $$ ... $$` 做条件 DDL,pg-mem 的 `DO` 块需要注册"语言编译器" | 002 里的条件逻辑在 pg-mem 上不执行 | **安全**。夹具注册 **no-op plpgsql 编译器**让 `DO` 块通过;因为夹具的 001 已建出 `text` 列,"什么都不做"恰好等于真实 Postgres 上该迁移的正确行为(no-op 分支)。真正的 ALTER 语义由真实 Postgres 复跑覆盖(第 9 节)。 |
 
 ### 用真实 PostgreSQL 16 复跑(两选一)
 
@@ -162,22 +163,21 @@ docker run --rm -d --name ordo-pg -p 55432:5432 \
   -e POSTGRES_PASSWORD=secret -e POSTGRES_USER=ordo -e POSTGRES_DB=ordo \
   postgres:16-alpine
 
-# 2. 等它就绪(会打印 "accepting connections")
+# 2. 等它就绪
 until docker exec ordo-pg pg_isready -U ordo -d ordo; do sleep 1; done
 
-# 3. 指向真实库:同一套测试全部改跑 PgRepository
+# 3. 指向真实库:一条命令跑完全部真库断言
 export DATABASE_URL="postgres://ordo:secret@127.0.0.1:55432/ordo"
 pnpm install
-pnpm migrate                       # 执行 001_init.sql
-node --import tsx --test test/pg-real.test.ts   # 见下方"复跑脚本"说明
+node --import tsx scripts/pg-real-verify.mts
 
 # 4. 人工核对索引目录(方式 B 也适用)
-psql "postgres://ordo:secret@127.0.0.1:55432/ordo" -c "
+psql "$DATABASE_URL" -c "
   select indexname, indexdef from pg_indexes
   where schemaname = 'public' order by indexname;"
 ```
 
-**方式 B:裸机(已装 Postgres 16)**
+**方式 B:裸机 / Windows(已装 PostgreSQL 16)**
 
 ```bash
 # macOS:  brew install postgresql@16 && brew services start postgresql@16
@@ -191,10 +191,7 @@ psql -d ordo -c "alter user ordo password 'secret';"
 cd ordo/server
 export DATABASE_URL="postgres://ordo:secret@127.0.0.1:5432/ordo"
 pnpm install && pnpm migrate
-psql "$DATABASE_URL" -c "\dt"           # 应看到 7 张表
-psql "$DATABASE_URL" -c "
-  select indexname, indexdef from pg_indexes
-  where schemaname = 'public' order by indexname;"
+node --import tsx scripts/pg-real-verify.mts
 ```
 
 **两者都要人工确认的点**(pg-mem 覆盖不到的部分):
@@ -207,6 +204,8 @@ psql "$DATABASE_URL" -c "
 4. `appendOps` 批量中夹一条不存在的 `user_id`,确认 `ops` 行数**没有增加**(事务回滚)。
 5. `insert ... on conflict (user_id, op_id) do nothing returning *` 在冲突时返回 **0 行**
    (pg-mem 会返回冲突行,这是差异 #4 的根源,`appendOps` 已改为不依赖该行为)。
+
+> 以上 5 点已全部脚本化,由 `scripts/pg-real-verify.mts` 自动断言(见下节)。
 
 ### 无管理员权限装一个本地 PostgreSQL(Windows)
 
@@ -235,16 +234,16 @@ Remove-Item "$root\pw.txt"
 & "$bin\pg_ctl.exe" -D $data -m fast stop  # 停止
 ```
 
-- 这个 bin-only 发行版**没有 `psql` / `createdb`**,建库用项目自带的 `pg` 驱动即可
-  (`create database ordo with encoding 'UTF8' template template0`),或直接用安装包版 PostgreSQL。
+- 建库用项目自带的 `pg` 驱动即可(这个 bin-only 发行版**没有 `psql` / `createdb`**):
+  `create database ordo with encoding 'UTF8' template template0`。
 - ⚠️ **不要**对整个解压目录执行 `icacls /inheritance:r /grant:r <user>`:那会把继承来的
   执行权限一起剥掉,导致 `initdb.exe` 直接 "Access is denied"。要恢复用
-  `icacls <dir> /reset /T`。数据目录(只有数据)才需要独占 ACL。
+  `icacls <dir> /reset /T`。只有**数据目录**需要独占 ACL。
 - ⚠️ **`pg_ctl start` 的进程归属**:在 PowerShell 里直接 `pg_ctl start` 时,postgres 会成为
   该 shell 子进程(job object 成员);一旦这个 shell 结束/被中断,postgres 会**一起被终止**
   (实测:杀掉持有它的 shell,数据库立刻退出)。要让它长期存活,二选一:
   1. **单独开一个终端**跑 `pg_ctl start`,保持该窗口不关;或
-  2. 用一次性计划任务把它"解绑"(本仓库就是这么做的,之后即可删掉任务):
+  2. 用一次性计划任务把它"解绑"(本仓库就是这么做的,起来后即可删掉任务):
 
      ```powershell
      # start-pg.bat 内容:pg_ctl.exe -D <data> -l <log> -o "-p 55432 -h 127.0.0.1" start
@@ -252,8 +251,6 @@ Remove-Item "$root\pw.txt"
      schtasks /run    /tn "ordo-pg-start"
      schtasks /delete /tn "ordo-pg-start" /f      # 起来后即可删除
      ```
-
-  停止:`pg_ctl.exe -D <data> -m fast stop`(同样建议在独立终端里执行)。
 
 ### 对真实 PostgreSQL 16 复跑(本仓库已执行)
 
@@ -263,13 +260,14 @@ Remove-Item "$root\pw.txt"
 cd ordo/server
 export DATABASE_URL="postgres://ordo:ordo_secret@127.0.0.1:55432/ordo"
 node --import tsx scripts/pg-real-verify.mts
-# => 真实 PostgreSQL 验证:53 通过 / 0 失败
+# => 真实 PostgreSQL 验证:66 通过 / 0 失败
 ```
 
-脚本会从干净 schema 开始重跑 `001_init.sql`,覆盖:索引目录与部分索引谓词、列类型
+脚本会从干净 schema 开始重跑迁移,覆盖:索引目录与部分索引谓词、列类型
 (`bigint` / `jsonb` / `text`)、失败迁移的事务回滚、`appendOps` 的批量回滚、
 `on conflict do nothing returning *` 的 0 行语义、完整 push/pull/snapshot/LWW/墓碑/提醒流程、
-级联删除,以及 `EXPLAIN` 走索引。结束时清空 `public` schema,不残留验证数据。
+级联删除、**迁移 002 在"旧库形状"上的升级路径**,以及 `EXPLAIN` 走索引。
+结束时清空 `public` schema,不残留验证数据(设 `ORDO_KEEP_SCHEMA=1` 可保留)。
 
 另外把整个服务指向真库跑一遍冒烟(这一步才会暴露类型级问题,见下节):
 
@@ -278,7 +276,7 @@ powershell -File scripts/verify-smoke.ps1 -DatabaseUrl "postgres://ordo:ordo_sec
 # => storage=postgres,冒烟 10/10 全部通过
 ```
 
-### 真实 PostgreSQL 抓到的一个生产级 Bug(已修)
+### 真实 PostgreSQL 抓到的生产级 Bug(已修 + 已补迁移)
 
 `scripts/verify-smoke.ps1 -DatabaseUrl ...` 首次运行时,**注册直接 500**:
 
@@ -288,28 +286,66 @@ err: invalid input syntax for type uuid: "dev_smoke_f0307630"   code=22P02
 
 根因:`001_init.sql` 里 `devices.id` 与 `refresh_tokens.device_id` 写成了 `uuid`,而契约
 §7.2 的示例是 **`"deviceId":"dev_7f3a..."`** —— 客户端设备 id 是**不透明短串,不是 uuid**
-(契约 §7.4 还规定用 `X-Ordo-Device: <deviceId>` 传它)。也就是说:**任何按契约实现的客户端都注册不上**,
-而且服务端无法单方面兜底(要么改列类型,要么让所有客户端改用 uuid,后者违反契约示例)。
-`ops.device_id` 本来就是 `text`,三张表类型不一致。
+(契约 §7.4 还规定用 `X-Ordo-Device: <deviceId>` 传它)。
 
-修复:把 `devices.id` 与 `refresh_tokens.device_id` 改为 `text`,与 `ops.device_id` 对齐。
-用真实 PostgreSQL 复跑后,契约形态的 `dev_smoke_...` 设备 id 注册/登录/push 全部通过。
+**影响面是四端全部**:四端生成的 deviceId 都是 `dev_<opaque>` 形态 ——
+iOS `newDeviceId()` → `dev_` + uuid 去连字符前 10 位;Harmony `newIdWithPrefix('dev')` →
+`dev_` + 16 进制 20 位;Android/Windows 走共享核心 `OrdoEngine` → `dev_` + ULID 后 10 位小写。
+所以**任何按契约实现的客户端都注册不上**,服务端也无法单方面兜底(要么改列类型,
+要么让所有客户端改用 uuid,后者违反契约示例)。`ops.device_id` 本来就是 `text`,三张表还不一致。
 
-为什么之前没发现:**内存仓储不校验列类型;pg-mem 的类型检查也偏宽松**(差异 #6 已提示过这一点)。
-这正好印证了"必须对真实 PostgreSQL 复跑一次"的必要性。
+修复:`001_init.sql` 里两列改为 `text`(全新库直接正确),并新增
+**`002_device_id_text.sql`** 让已经建过表的库自动升级。
 
-回归防护已补两处:
+为什么之前没发现:**内存仓储不校验列类型;pg-mem 的类型检查也偏宽松**(差异 #6 已提示过)。
+只有真实 PostgreSQL 会执行类型检查与 ALTER —— 这正是"必须对真库复跑一次"的价值。
+
+回归防护已补三处:
 
 - `test/pg.test.ts` → `deviceId 相关列是 text 而不是 uuid(契约 §7.2 的 dev_xxx 形态)`:
   从 `information_schema.columns` 断言三张表的列类型,并用 `dev_7f3a9c2e` 真写一条
   (含 `refresh_tokens` 外键)。
-- `scripts/pg-real-verify.mts` 第 0 节:真库上同样的列类型断言 + 真写 `dev_...`。
+- `test/pg.test.ts` → 迁移用例断言 `schema_migrations` 同时记录 `[1, 2]`,且重复 `init()` 幂等。
+- `scripts/pg-real-verify.mts` 第 0 节(真库列类型 + 真写 `dev_...`)与**第 9 节(002 的旧库升级路径)**。
 
-> ⚠️ 部署提示:`001_init.sql` 被修改过(仅列类型)。**已经跑过旧版 001 的库不会自动变更**
-> (`create table if not exists` 不会改已存在的表)。若你的库已经建过表,需要手工执行:
-> `alter table devices alter column id type text;`
-> `alter table refresh_tokens alter column device_id type text;`
-> 全新库直接 `pnpm migrate` 即可。正式发布后应改为新增 `002_*.sql` 而不是改 001。
+### 迁移 002:`002_device_id_text.sql`(旧库升级)
+
+对**全新库**是 no-op(001 已建出 `text`);对**跑过旧版 001 的库**执行真正的类型变更。整体幂等。
+
+⚠️ 这里有一个容易踩的坑:`devices.id` 被 `refresh_tokens.device_id` 的外键引用,
+而 **PostgreSQL 不允许直接改变被引用列的类型**(`foreign key constraint ... cannot be implemented`)。
+所以顺序必须是:
+
+1. 删掉 `refresh_tokens → devices` 的外键(并记下它的 `ON DELETE` 行为)
+2. **先**改引用列 `refresh_tokens.device_id type text`
+3. **再**改被引用列 `devices.id type text`
+4. 按 `text` 重建外键,保留原 `on delete set null`
+
+整个过程包在**一个 `DO` 块**里(失败则整体回滚);末尾再用一个 `DO` 块自检三列都必须是 `text`,
+否则 `raise exception` 让迁移回滚。第一版就是因为在同一块里先改 `devices.id` 才失败的 ——
+只有真实 PostgreSQL 上跑一次才暴露出来。
+
+升级路径已在真实库上自动验证(`scripts/pg-real-verify.mts` 第 9 节会造一个"旧库形状"的
+临时库:`uuid` 列 + 外键 + 一条旧数据,再跑 002):
+
+```
+PASS  旧库:devices.id 起初是 uuid
+PASS  002 后 devices.id 变成 text / refresh_tokens.device_id 变成 text
+PASS  类型转换不丢旧数据
+PASS  外键仍是 on delete set null / 外键仍然生效(未知 device_id 被拒)
+PASS  升级后可写入契约形态 dev_ id(旧 uuid 列做不到)
+PASS  002 可重复执行(幂等) / 幂等重跑后列类型仍为 text / 外键仍只有一个
+```
+
+> 已有库直接 `pnpm migrate` 即可自动升级(迁移器按 `schema_migrations` 跳过已应用的版本)。
+> 应急用的等价裸 SQL 顺序:
+> ```sql
+> alter table refresh_tokens drop constraint refresh_tokens_device_id_fkey;
+> alter table refresh_tokens alter column device_id type text;
+> alter table devices alter column id type text;
+> alter table refresh_tokens add constraint refresh_tokens_device_id_fkey
+>   foreign key (device_id) references devices (id) on delete set null;
+> ```
 
 ### `scripts/smoke.mjs` 与 `test/e2e.test.ts` 的关系
 
@@ -342,7 +378,7 @@ err: invalid input syntax for type uuid: "dev_smoke_f0307630"   code=22P02
 | `ordo_reminders_pending` | gauge | 1 小时内待投递的提醒条数 |
 | `ordo_tombstones_purged_total` / `ordo_tombstone_purge_runs_total{result}` / `_errors_total` | counter | 墓碑清理删除行数 / 轮次 / 失败次数 |
 | `ordo_rate_limited_total` / `ordo_rate_limit_checks_total{result}` | counter | **限流命中数** / 限流判断次数 |
-| `ordo_http_requests_total{method,status,route}` | counter | HTTP 请求数(`route` 是模板化路径,uuid 会被替换为 `:id`,防止高基数) |
+| `ordo_http_requests_total{method,status,route}` | counter | HTTP 请求数(`route` 模板化,uuid 替换为 `:id`,防高基数) |
 | `ordo_storage_degraded` | gauge | **仓储降级状态**:`1` = 已降级为内存仓储,`0` = 正常 |
 | `ordo_storage_info{storage}` | gauge | 存储类型信息,值恒为 1 |
 | `ordo_uptime_seconds` | gauge | 进程启动至今秒数 |
@@ -407,6 +443,7 @@ curl -s "http://127.0.0.1:8080/v1/health?token=SHOULD-NOT-APPEAR" >/dev/null
 - **项目完成硬约束**:子待办未全部结束或标题未全部归档时,`status=done` 被拒(`project_incomplete`)。
 - **Heading 是顶层实体**(契约 §2.2 修订版):Project payload 不含 `headings`;快照的 `headings` 只来自 heading 实体,按 `order` 排序。
 - **serverSeq**:`ops.server_seq`(bigserial)保证每用户单调递增;`entities.server_seq` 记录该实体最后一次变更的 seq。
+- **deviceId**:客户端生成的不透明短串(契约 §7.2 示例 `dev_7f3a...`),服务端按 `text` 存储;`devices.id` / `refresh_tokens.device_id` / `ops.device_id` 三处类型必须一致。
 
 ## 测试
 
@@ -423,50 +460,14 @@ pnpm test        # node --import tsx --test test/*.test.ts
 | `test/reminders.test.ts` | 4 | WS 鉴权与 hello / 提醒到点下发且只发一次 / ops 广播 / 完成即移除索引 |
 | `test/limits.test.ts` | 7 | 501 ops / 500 ops 边界 / 256 KB op / 请求体超限 / pull limit / 10 req/s 限流 |
 | `test/domain.test.ts` | 22 | §3 不变量 / §4 派生清单 / §5 NLP / §6 重复规则 |
-| `test/pg.test.ts` | **30**(新增) | PgRepository × pg-mem:建表 / 索引重放 / **deviceId 列类型回归** / op_id 唯一约束 / serverSeq 单调 / pull 分页 / 墓碑不复活与清理 / 级联删除 / 提醒只投一次 / jsonb 中文往返 |
+| `test/pg.test.ts` | **30**(新增) | PgRepository × pg-mem:建表 / 索引重放 / **deviceId 列类型回归** / 迁移版本 `[1,2]` / op_id 唯一约束 / serverSeq 单调 / pull 分页 / 墓碑不复活与清理 / 级联删除 / 提醒只投一次 / jsonb 中文往返 |
 | `test/e2e.test.ts` | **20**(新增) | 真实 HTTP + WS:注册→登录→push→捎带拉取→pull 分页→WS hello/ops→Fastlane 只投一次→401 刷新重放→限流 429→500 ops 与 256 KB 上限→SYNC_SEQ_GAP→运维端点 |
 | `test/observability.test.ts` | **18**(新增) | /metrics 内容与取值 / Prometheus 文本格式与解析 / 日志 JSON 行与脱敏断言 / 墓碑清理任务(周期、日志、指标、错误处理) |
 | `scripts/verify-*.ps1` | 3 个脚本(新增) | 起真实服务跑冒烟 / 断言 stdout 纯 JSON / 断言清理任务按周期触发(非 node:test) |
-| `scripts/pg-real-verify.mts` | **53 项断言**(新增) | **对真实 PostgreSQL 16 复跑**:索引目录 / 列类型 / 事务回滚 / RETURNING 语义 / 全流程 / EXPLAIN |
+| `scripts/pg-real-verify.mts` | **66 项断言**(新增) | **对真实 PostgreSQL 16 复跑**:索引目录 / 列类型 / 事务回滚 / RETURNING 语义 / 全流程 / **迁移 002 旧库升级** / EXPLAIN |
 
 > 12 + 15 + 4 + 7 + 22 + 30 + 20 + 18 = **128**(本轮新增 **68** 个 node:test 用例:30 + 20 + 18;
-> 另有 `scripts/pg-real-verify.mts` 的 53 项真实 PostgreSQL 断言,见下节)。
-
-新增用例名(节选):
-
-```text
-test/pg.test.ts
-  ✔ 001_init.sql 建出契约 §8 的全部表
-  ✔ 迁移被记录到 schema_migrations,重复执行幂等
-  ✔ 迁移里的每条 create index 都能被 pg-mem 真实执行(含部分索引 where 子句)
-  ✔ 索引声明覆盖契约要求的表与列
-  ✔ (user_id, op_id) 唯一约束生效:重复 opId 触发 23505;不同用户可用同一 opId
-  ✔ appendOps 返回 bigserial 分配的单调 serverSeq
-  ✔ where server_seq > $1 order by server_seq asc limit $2 语义正确
-  ✔ putEntity 走 on conflict do update:同一实体只保留一行且 server_seq 前移
-  ✔ purgeTombstones 只删 deleted=true 且 updated_at < 阈值的行
-  ✔ deleteUser 级联删除该用户的全部数据
-  ✔ upsertReminder:同 (user_id, todo_id) 唯一 + case when 决定 fired 是否复位
-  ✔ 回归防护:upsertReminder 的 SET 顺序不能把已赋的 at 泄漏给 fired 表达式
-  ✔ push → 快照 → LWW → 墓碑 → 不复活 → pull 分页
-  ✔ jsonb 往返保持中文、emoji、嵌套对象与 null(无乱码)
-
-test/e2e.test.ts
-  ✔ WS 未带 token → 4401 + error 帧
-  ✔ pull 分页:limit 生效、hasMore 正确、翻页不重不漏
-  ✔ Fastlane:到点提醒经 WS 只投递一次
-  ✔ 限流:写接口超过桶容量返回 429 RATE_LIMITED + Retry-After
-  ✔ 单批上限:501 个 op → 400;恰好 500 个 op → 200
-  ✔ pull limit > 1000 → 400;SYNC_SEQ_GAP:sinceSeq 超前 → 409(HTTP 与详情)
-  ✔ 刷新令牌:轮换后旧令牌重放 → 401 且撤销全部会话
-
-test/observability.test.ts
-  ✔ 结构化日志是 JSON 行,且绝不包含 token / 口令 / 备注正文
-  ✔ 日志脱敏:即便有人把秘密塞进 URL 查询串也会被剥掉
-  ✔ push 路径不再顺带清理墓碑,清理只由定时任务完成
-```
-
-另有 `node scripts/smoke.mjs [baseUrl]` 对**已运行的服务**做真实冒烟(见上节)。
+> 另有 `scripts/pg-real-verify.mts` 的 66 项真实 PostgreSQL 断言,见上节)。
 
 ### 一键复现证据(三个 PowerShell 脚本)
 
@@ -474,18 +475,22 @@ test/observability.test.ts
 
 | 脚本 | 做什么 | 关键断言 |
 |---|---|---|
-| `scripts/verify-smoke.ps1` | 起服务 + `node scripts/smoke.mjs` + 抓 `/metrics` 与 `/v1/ops/status` | 冒烟 10 项全绿;退出码 0;端口释放 |
+| `scripts/verify-smoke.ps1` | 起服务 + `node scripts/smoke.mjs` + 抓 `/metrics` 与 `/v1/ops/status`;加 `-DatabaseUrl` 可指向真实 PostgreSQL | 冒烟 10 项全绿;退出码 0;端口释放 |
 | `scripts/verify-json-logs.ps1` | 起服务、制造流量、停止 | **stdout 零非 JSON 行** + 日志行数 ≥5 + 启动横幅在 stderr + 端口释放 |
 | `scripts/verify-purge.ps1` | 用 `TOMBSTONE_PURGE_INTERVAL_MS=200` 起服务,跑 1.5 秒 | 清理轮次 ≥3(实测 7),日志有 `event: "tombstone_purge"`,端口释放 |
 
 ```powershell
 powershell -File scripts/verify-smoke.ps1
+powershell -File scripts/verify-smoke.ps1 -DatabaseUrl "postgres://ordo:ordo_secret@127.0.0.1:55432/ordo"
 powershell -File scripts/verify-json-logs.ps1
 powershell -File scripts/verify-purge.ps1
 ```
 
 > 三个脚本与 `tools/verify.ps1` 一样**刻意只用 ASCII**:Windows PowerShell 5.1 会把无 BOM 的
 > UTF-8 `.ps1` 当 ANSI 解析,非 ASCII 字面量会在解析期被破坏。
+> **同理:不要用 PowerShell 的 `Get-Content -Raw` + `Set-Content`(或 `[IO.File]::WriteAllText`
+> 配合错误的编码推导)去改含中文的源文件** —— 会把 UTF-8 当 GBK 往返,造成**不可逆**损坏
+> (本项目就踩过一次 `README.md`)。改中文文件请用编辑工具直接写 UTF-8。
 
 ## 已知取舍
 
@@ -493,13 +498,14 @@ powershell -File scripts/verify-purge.ps1
 - `SERVER_SIDE_REPEAT` 默认关闭:重复实例由客户端生成(本地优先),服务端只提供 §6 参考实现与测试。
 - 内存仓储用于开发/测试;生产必须配 `DATABASE_URL`,否则重启丢数据(启动横幅会提示)。
 - 服务端不代做 NLP:`src/domain/nlp.ts` 是给四端对齐用的参考实现,并通过 `domain.test.ts` 与契约逐条校验。
-- **PgRepository 的验证有两层**:① `pg-mem`(纯 JS、无原生扩展)真实执行 `001_init.sql`,
-  让 `PgRepository` 的每段 SQL 都跑到;② `scripts/pg-real-verify.mts` 对**真实 PostgreSQL 16**
-  复跑同一批断言 + `pg_indexes` / `EXPLAIN` / 事务回滚等 pg-mem 覆盖不到的部分。
-  真实库那一层已经抓到过一个生产级 Bug(`devices.id` 误用 `uuid`,见上节),因此**合入前务必跑一次**。
-- **`001_init.sql` 在本轮被修过一次**(`devices.id`、`refresh_tokens.device_id`:`uuid` → `text`)。
-  已经建过表的库不会自动变更,需手工 `alter table`(见上节 SQL)。正式发版后应新增 `002_*.sql`。
-- 指标为**进程内累计值**,多副本各自暴露自己的一份;聚合交给 Prometheus(不要在这里做跨实例求和)。
+- **PgRepository 的验证有两层**:① `pg-mem`(纯 JS、无原生扩展)真实执行迁移,让 `PgRepository`
+  的每段 SQL 都跑到;② `scripts/pg-real-verify.mts` 对**真实 PostgreSQL 16** 复跑同一批断言 +
+  `pg_indexes` / `EXPLAIN` / 事务回滚 / 迁移升级路径等 pg-mem 覆盖不到的部分。
+  真实库这一层已经抓到过两个生产级问题(设备 id 列类型、迁移 002 的 ALTER 顺序),
+  因此**合入前务必跑一次**。
+- **`001_init.sql` 在开发期被修过一次**(`devices.id`、`refresh_tokens.device_id`:`uuid` → `text`),
+  并用 `002_device_id_text.sql` 覆盖已建表的库。发版后应只新增迁移,不再改已发布的 `001`。
+- 指标为**进程内累计值**,多副本各自暴露自己的一份;聚合交给 Prometheus。
 - `/metrics` 未做鉴权(与 Prometheus 生态惯例一致,且不输出任何用户标识);若环境要求鉴权,
   在网关层限制即可。
 - 本机 Node 为 v24,`engines` 仍声明 `>=20`:所有测试在 Node 20+ 均可运行(pg-mem 为纯 JS,

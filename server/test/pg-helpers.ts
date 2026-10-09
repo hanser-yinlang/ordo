@@ -16,11 +16,25 @@
  *    且查询语义正确。因此"索引存在"用**逐条重放迁移里的 create index 语句**
  *    来验证,真正的索引目录核对留给真实 Postgres(见 README 的复跑步骤)。
  * 4. `EXPLAIN` / `pg_typeof` 未实现,无法在这里断言执行计划是否走索引。
+ * 5. **不实现 plpgsql**:迁移 `002_device_id_text.sql` 用 `DO $$ ... $$` 做条件 DDL
+ *    (仅当列还是 uuid 时才 ALTER),而 pg-mem 的 `DO` 块需要一个"语言编译器"。
+ *    夹具注册一个 **no-op plpgsql 编译器**:`DO` 块执行成功但**不产生任何动作**。
+ *    对测试是安全的 —— 夹具的 001 已经建出 `text` 列,所以"什么都不做"恰好等于
+ *    真实 PostgreSQL 上该迁移的正确行为(no-op 分支)。真正的条件 DDL / ALTER 语义
+ *    由 `scripts/pg-real-verify.mts` 在真实 PostgreSQL 16 上验证(见 README)。
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { newDb, type IMemoryDb } from 'pg-mem';
 import { PgRepository, SqlPool } from '../src/repo/pg';
+
+/**
+ * 给 pg-mem 注册 no-op plpgsql:让含 `DO $$ ... $$` 的迁移能跑过,
+ * 但 DO 块内部的条件逻辑不执行(见文件头差异 #5)。
+ */
+export function registerNoopPlpgsql(db: IMemoryDb): void {
+  db.registerLanguage('plpgsql', () => () => undefined);
+}
 
 /** 迁移目录(src 运行) */
 export const MIGRATIONS_DIR = join(__dirname, '..', 'src', 'repo', 'migrations');
@@ -39,9 +53,10 @@ export interface PgMemHarness {
   close(): Promise<void>;
 }
 
-/** 建一个全新的、已执行 001_init.sql 的内存 Postgres */
+/** 建一个全新的、已执行迁移(001 + 002)的内存 Postgres */
 export async function createPgMemRepo(): Promise<PgMemHarness> {
   const db = newDb({ autoCreateForeignKeyIndices: true, noAstCoverageCheck: true });
+  registerNoopPlpgsql(db);
   const adapter = db.adapters.createPg();
   const pool = new adapter.Pool() as unknown as SqlPool;
 

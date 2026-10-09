@@ -48,7 +48,10 @@ class OrdoViewModel(
         val mode = runCatching { ThemeMode.valueOf(storage.kvGet(KEY_THEME) ?: ThemeMode.AUTO.name) }
             .getOrDefault(ThemeMode.AUTO)
         val tray = storage.kvGet(KEY_CLOSE_TO_TRAY)?.toBooleanStrictOrNull() ?: true
-        _state.update { it.copy(themeMode = mode, dark = resolveDark(mode), closeToTray = tray) }
+        val follow = storage.kvGet(KEY_FOLLOW_SELECTION)?.toBooleanStrictOrNull() ?: true
+        _state.update {
+            it.copy(themeMode = mode, dark = resolveDark(mode), closeToTray = tray, followSelection = follow)
+        }
         unsubscribe = engine.subscribe { scope.launch { refresh() } }
         refresh()
     }
@@ -62,7 +65,8 @@ class OrdoViewModel(
         val snapshot = engine.snapshot
         _state.update {
             it.copy(
-                sections = orderedSections(engine.sections(query), route),
+                // 派生清单(含「随时 / 某天」的 order 手工排序)完全由共享核心给出,本端不做任何二次排序
+                sections = engine.sections(query),
                 counts = engine.counts(),
                 areas = snapshot.areas.filter { a -> !a.deleted }.sortedBy { a -> a.order },
                 projects = snapshot.projects.filter { p -> !p.deleted }.sortedBy { p -> p.order },
@@ -92,9 +96,48 @@ class OrdoViewModel(
         refresh()
     }
 
-    fun selectTodo(id: String?) = _state.update { it.copy(selectedId = id) }
+    fun selectTodo(id: String?) {
+        _state.update { it.copy(selectedId = id) }
+        publishSelection(id)
+    }
 
-    fun toggleDetail(id: String) = _state.update { it.copy(selectedId = if (it.selectedId == id) null else id) }
+    fun toggleDetail(id: String) {
+        val next = if (_state.value.selectedId == id) null else id
+        _state.update { it.copy(selectedId = next) }
+        publishSelection(next)
+    }
+
+    // ---------------------------------------------------------------- 多窗口跟随选中
+
+    private var selectionBus: SharedSelection? = null
+    private var selectionJob: kotlinx.coroutines.Job? = null
+
+    /** 订阅跨窗口的"跟随选中";设置里关掉时只发布不接收 */
+    fun attachSelectionBus(bus: SharedSelection) {
+        selectionBus = bus
+        selectionJob?.cancel()
+        selectionJob = scope.launch {
+            bus.current.collect { id ->
+                if (id == null || !followSelection()) return@collect
+                // 只在自己清单里正好有这条待办时高亮,不改动本窗口的路由
+                if (_state.value.flatTodos.any { it.id == id } && _state.value.highlightId != id) {
+                    _state.update { it.copy(highlightId = id) }
+                }
+            }
+        }
+    }
+
+    private fun publishSelection(id: String?) {
+        if (id != null) selectionBus?.publish(id)
+    }
+
+    /** 跨窗口跟随选中(设置页开关,默认开) */
+    fun followSelection(): Boolean = storage.kvGet(KEY_FOLLOW_SELECTION)?.toBooleanStrictOrNull() ?: true
+
+    fun setFollowSelection(enabled: Boolean) {
+        storage.kvSet(KEY_FOLLOW_SELECTION, enabled.toString())
+        _state.update { it.copy(followSelection = enabled) }
+    }
 
     fun moveSelection(delta: Int) {
         val todos = _state.value.flatTodos
@@ -528,6 +571,9 @@ class OrdoViewModel(
         unsubscribe = null
         unsubscribeSync?.invoke()
         unsubscribeSync = null
+        selectionJob?.cancel()
+        selectionJob = null
+        selectionBus = null
     }
 
     companion object {
@@ -538,5 +584,6 @@ class OrdoViewModel(
         const val KEY_WINDOW_Y = "ordo.window.y"
         const val KEY_CLOSE_TO_TRAY = "ordo.closeToTray"
         const val KEY_PROTOCOL_REGISTERED = "ordo.protocol.registered"
+        const val KEY_FOLLOW_SELECTION = "ordo.followSelection"
     }
 }

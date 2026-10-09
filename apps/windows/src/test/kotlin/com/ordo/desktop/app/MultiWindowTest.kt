@@ -208,6 +208,87 @@ class MultiWindowTest {
     }
 
     @Test
+    fun `开启跟随后,一个窗口打开待办会点亮其它窗口的同一条`() {
+        val (storage, engine, scope) = setup()
+        val bus = SharedSelection()
+        val first = window(engine, storage, scope)
+        val second = window(engine, storage, scope)
+        first.attachSelectionBus(bus)
+        second.attachSelectionBus(bus)
+
+        val shared = first.state.value.flatTodos.first { todo ->
+            second.state.value.flatTodos.any { it.id == todo.id }
+        }
+
+        first.toggleDetail(shared.id)
+
+        assertEquals("第一个窗口打开详情", shared.id, first.state.value.selectedId)
+        assertEquals("第二个窗口应高亮同一条", shared.id, second.state.value.highlightId)
+        assertEquals("跟随选中不改动对方路由", OrdoRoute.Today, second.state.value.route)
+        first.dispose()
+        second.dispose()
+    }
+
+    @Test
+    fun `对方清单里没有这条待办时不打扰`() {
+        val (storage, engine, scope) = setup()
+        val bus = SharedSelection()
+        val first = window(engine, storage, scope)
+        val second = window(engine, storage, scope)
+        first.attachSelectionBus(bus)
+        second.attachSelectionBus(bus)
+        second.navigate(OrdoRoute.Inbox)
+
+        val onlyInToday = first.state.value.flatTodos.first { todo -> todo.`when` != com.ordo.core.model.When.INBOX }
+        first.toggleDetail(onlyInToday.id)
+
+        assertNull("第二个窗口看不到这条,就不该高亮", second.state.value.highlightId)
+        first.dispose()
+        second.dispose()
+    }
+
+    @Test
+    fun `关掉跟随选中后不再联动,设置会持久化`() {
+        val (storage, engine, scope) = setup()
+        val bus = SharedSelection()
+        val first = window(engine, storage, scope)
+        val second = window(engine, storage, scope)
+        first.attachSelectionBus(bus)
+        second.attachSelectionBus(bus)
+
+        second.setFollowSelection(false)
+        assertFalse(second.followSelection())
+        assertEquals("false", storage.kvGet(OrdoViewModel.KEY_FOLLOW_SELECTION))
+
+        val shared = first.state.value.flatTodos.first()
+        first.toggleDetail(shared.id)
+        assertNull("关掉之后不再跟随", second.state.value.highlightId)
+
+        val third = window(engine, storage, scope)
+        assertFalse("偏好是全局的", third.followSelection())
+
+        first.dispose()
+        second.dispose()
+        third.dispose()
+    }
+
+    @Test
+    fun `dispose 之后不再跟随`() {
+        val (storage, engine, scope) = setup()
+        val bus = SharedSelection()
+        val first = window(engine, storage, scope)
+        val second = window(engine, storage, scope)
+        first.attachSelectionBus(bus)
+        second.attachSelectionBus(bus)
+        second.dispose()
+
+        first.toggleDetail(first.state.value.flatTodos.first().id)
+
+        assertNull(second.state.value.highlightId)
+        first.dispose()
+    }
+
+    @Test
     fun `清单查询与计数仍然来自共享核心`() {
         val (storage, engine, scope) = setup()
         val vm = window(engine, storage, scope)

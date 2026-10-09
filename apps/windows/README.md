@@ -77,13 +77,13 @@ Get-Content $env:TEMP\ordo.txt
 apps/windows/src/main/kotlin/com/ordo/desktop/
 ├── Main.kt                    应用入口:单实例锁 + 多窗口 + 托盘常驻 + 全局快捷键 + 窗口尺寸位置记忆 + --version/--selftest
 ├── app/                       OrdoViewModel(状态,一窗口一份)、UiState、OrdoRoute(路由)
-│                              · SectionOrder.kt:随时/某天的 order 排序适配层(待核心补齐后删除)
+│                              · SharedSelection.kt:多窗口"跟随选中"总线
 ├── data/JsonFileStorage.kt    OrdoStorage 实现(snapshot/outbox/tombstones/kv 四个文件)
 ├── net/OrdoNet.kt             KtorSyncApi · KtorAuthApi · KtorRealtimeChannel · OrdoHttp
 ├── sync/SyncCoordinator.kt    周期 30s + 写操作后 2s 防抖 + 登录态切换 + 上次错误留存 + 多窗口广播
 ├── sync/SyncDiagnostics.kt    「同步诊断」数据源:待推送条数 / 最后 serverSeq / 上次错误 / outbox 前 10 条
-├── system/                    TrayNotifications + ReminderScheduler · DeepLink · WindowsTheme
-│                              · AutoStart(开机自启)· ProtocolRegistration(ordo:// 协议)· SingleInstanceLock
+├── system/                    TrayNotifications + ReminderScheduler · DeepLink · DeepLinkInbox(跨进程深链转交)
+│                              · WindowsTheme · AutoStart(开机自启)· ProtocolRegistration(ordo:// 协议)· SingleInstanceLock
 └── ui/
     ├── theme/                 设计令牌(OrdoTokens)与主题(浅/深)
     ├── shell/                 OrdoApp(三栏骨架 + 确认浮层)· Sidebar · StatusBar
@@ -108,9 +108,8 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 - **Esc 取消**:拖动中按 Esc 只取消拖动(`UiState.dragActive` + `dragCancelToken`),不会顺手关掉详情/浮层;松手位置不变则不写 outbox。
 - **适用范围**:今天 / 收件箱 / 计划 / **随时 / 某天** / 项目 / 区域清单共用同一个列表容器,都能拖;
   日志簿(按完成时间)、标签与搜索(按更新时间)不提供手柄,因为那里的顺序与 `order` 无关。
-- **随时 / 某天的排序**:共享核心在这两个清单按创建顺序返回(`order` 被忽略),本模块用 `app/SectionOrder.kt`
-  的适配层按与核心一致的 `(order, createdAt)` 口径重排分组,拖拽因此**立刻可见**且重启后保持;
-  核心补上同样排序后这个文件即可删除(见 §10)。
+- **顺序来源**:`order` 排序**完全由共享核心给出**(`QueryEngine.byManualOrder()` 已覆盖随时 / 某天),
+  本端只消费 `engine.sections(query)`,不做任何二次排序 —— 端上不再存在口径漂移的可能。
 
 ## 6. 快捷键(04-UI规范 §6 桌面列)
 
@@ -149,15 +148,21 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 - **`ordo://` 协议注册**(04-UI规范 §7):首次启动自动写当前用户注册表
   `HKCU\Software\Classes\ordo`(默认值 + `URL Protocol` 标记 + `shell\open\command` = `"<exe>" "%1"`),
   不需要管理员权限;失败不影响启动,设置页可手动重试。注册后浏览器点击 `ordo://today` 直接拉起应用。
+- **深链跨进程转交**:已经有实例在跑时,新进程拿不到单实例锁,于是把链接写进数据目录的 `.ordo.inbox/`
+  (先写 `.tmp` 再原子改名),运行中的实例每 500ms 轮询消费 → 唤出窗口 → 导航到目标清单 / 选中目标待办,
+  新进程自己立刻退出。这样"浏览器点链接"在托盘常驻(窗口已关闭)时同样有效。
+  用文件而不是命名管道 / 本地 socket:前者要 JNI,后者要占端口,文件转交零依赖且可单测。
+- **多窗口跟随选中**(设置页开关,默认开):任一窗口打开某条待办,其它窗口**如果正好显示这条**就把它高亮,
+  不改动对方路由 —— 既满足"每窗口独立路由",又能在多窗口下快速定位同一条内容。
 
-## 8. 测试(本机可跑,72 个用例)
+## 8. 测试(本机可跑,85 个用例)
 
 ```
 JsonFileStorageTest    10 个:快照往返 / 损坏自愈 / outbox 幂等与清理 / 墓碑 / kv / 引擎落盘与重启 / 原子写
 ReorderTest             8 个:插入位与指示线计算 / 同分组下移与上移 / 整表顺序拼接 / 不产生空写 /
                               收件箱与今天清单"拖拽 → reorder → 重启引擎"顺序不变
-SectionOrderTest        4 个:随时/某天拖拽后显示顺序立刻跟随 order(重启后仍保持)/ 适配层只作用于这两个清单 /
-                              适配层口径与核心一致
+AnytimeOrderTest        5 个:随时/某天"拖拽 → 显示顺序立刻跟随 → 重启仍保持" / 核心 order+createdAt 兜底 /
+                              视图模型分组与核心输出逐字段一致(守住"端上不二次排序")
 ConfirmDeleteTest       8 个:项目·区域·标题"请求 → 确认"才落库 / 取消与 Esc 不落库 / 删除进 outbox /
                               删除后从侧栏与清单消失
 AutoStartTest           9 个:内存实现 / HKCU Run 键 add·delete·query 参数 / 缺 exe 路径不触注册表 /
@@ -165,8 +170,11 @@ AutoStartTest           9 个:内存实现 / HKCU Run 键 add·delete·query 参
 ProtocolRegistrarTest   7 个:ordo 协议三条 reg add 的参数与键路径 / 查询判定 / 缺 exe 路径不触注册表 /
                               异常退化 / 真实注册表只读冒烟
 SingleInstanceLockTest  4 个:第二个实例拿不到锁 / 释放后可重拿 / 锁文件位置与内容 / 不同数据目录互不影响
-MultiWindowTest        10 个:两窗口独立路由 / 任一窗口写入其它窗口刷新 / 同步结果广播与 dispose 退订 /
-                              托盘偏好持久化 / 新建窗口回调 / 新窗口不重新播种演示数据 / 窗口标题跟随各自清单
+DeepLinkInboxTest       8 个:第二实例写入→运行实例消费并清空 / 无深链不写文件 / 多链接按序 / 忽略其它参数 /
+                              非法内容丢弃 / 残留 .tmp 清理 / 目录自动创建 / 与 DeepLink 解析一致
+MultiWindowTest        14 个:两窗口独立路由 / 任一窗口写入其它窗口刷新 / 同步结果广播与 dispose 退订 /
+                              托盘偏好持久化 / 新建窗口回调 / 不重新播种演示数据 / 窗口标题 /
+                              跟随选中(开启联动、清单里没有则不打扰、关掉后不联动、dispose 后不联动)
 SyncDiagnosticsTest     4 个:待推送条数与 serverSeq / outbox 明细截断到 10 条 / 上次错误透传 / 只读不写
 RenderSmokeTest         8 个:离屏渲染「今天」与「深色+快加号」PNG、派生清单与计数、中文 NLP 新建、
                               拖拽指示线渲染、设置页(开机自启 + 同步诊断)渲染、删除确认框渲染、
@@ -185,18 +193,16 @@ RenderSmokeTest         8 个:离屏渲染「今天」与「深色+快加号」P
 
 ## 9. 已知限制
 
-- 深链的"唤醒已有窗口"只做到**进程内**(第二个实例会被单实例锁挡下并提示);跨进程把链接转交给已运行实例需要
-  IPC(命名管道 / 本地 socket),留待后续。
-- 多窗口共享同一个数据目录与引擎,窗口间没有"跟随选中"的联动(规范只要求每窗口独立路由)。
-- 随时 / 某天的排序靠本模块的适配层补齐(§5),核心补上后应删除该层,避免两处口径漂移。
+- 深链转交是**文件轮询**(`.ordo.inbox`,500ms),最坏有半秒延迟;同一秒内的多个链接按写入顺序依次消费。
+- 多窗口共享同一个数据目录与引擎;「跟随选中」只高亮不改路由,没有"把另一个窗口切到同一条待办"的能力(规范只要求独立路由)。
+- 托盘常驻期间"退出"只在托盘右键菜单里;若直接结束进程(任务管理器),未落盘的窗口位置最多丢失 700ms 内的改动。
 - Markdown 备注为轻量渲染(标题/列表/加粗/行内代码/链接),不含表格与图片。
 
-## 10. 需要共享核心新增/调整的 API(本轮不改核心)
+## 10. 需要共享核心新增/调整的 API
 
-1. **`QueryEngine.sections()` 的随时 / 某天分支按 `order` 排序**(一行改动):
-   - `is ListQuery.Anytime -> groupByProject(open().filter { it.\`when\` == When.ANYTIME }.sortedWith(compareBy({ it.order }, { it.createdAt })))`
-   - `else -> list(query)...` 中的 Someday 分支同理(或在 `list()` 里给 Anytime/Someday 加同样的 `sortedWith`)。
-   核心补上后,`apps/windows/.../app/SectionOrder.kt` 适配层即可整体删除(已备好测试与说明)。
+1. ~~`QueryEngine.sections()` 的随时 / 某天分支按 `order` 排序~~ —— **核心已实现**:
+   `QueryEngine.byManualOrder()` = `sortedWith(compareBy({ it.order }, { it.createdAt }))`,已覆盖随时与某天的
+   `list()` 与 `sections()`;本端随之删除了 §5 提到的本地适配层,并由 `AnytimeOrderTest` 守住"端上不再二次排序"。
 2. (可选)按作用域重排的 `reorderTodos(ids, scope)` 或 `moveTodo(id, beforeId)`:
    现接口是按传入下标密集重写 `order`,视图层必须传入整表顺序才能避免跨分组 order 重叠;
    有了作用域版就能只传被拖分组。

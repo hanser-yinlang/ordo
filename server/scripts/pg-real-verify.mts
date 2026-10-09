@@ -376,8 +376,119 @@ const { rows: leftover } = await adminPool.query<{ e: number; o: number; d: numb
 );
 check('deleteUser 级联清空 entities/ops/devices/reminders', leftover[0].e + leftover[0].o + leftover[0].d + leftover[0].r === 0, JSON.stringify(leftover[0]));
 
-/* ---------------- 9) EXPLAIN:索引被真正使用(pg-mem 无法验证)---------------- */
-console.log('\n=== 9) EXPLAIN:执行计划确实走索引(pg-mem 无法验证) ===');
+/* ---------------- 9) 迁移 002:旧库(uuid 列)升级到 text(真库才能验证)---------------- */
+console.log('\n=== 9) 002_device_id_text.sql 在"旧库形状"上真的做类型转换(真库) ===');
+{
+  // 在同一个 PG 实例里建一个独立的临时库,把 devices/refresh_tokens 造成**旧版 001 的形状**
+  // (deviceId 列是 uuid + 外键),然后只跑 002,验证:
+  //   ① 两列都被改成 text  ② 外键被保留(仍是 on delete set null)  ③ 可重复执行  ④ 之后能写入 dev_ 形态 id
+  const tmpDb = `ordo_migrate_probe_${Date.now()}`;
+  await adminPool.query(`create database ${tmpDb}`);
+
+  const tmpUrl = new URL(DATABASE_URL);
+  tmpUrl.pathname = `/${tmpDb}`;
+  const tmpPool = new Pool({ connectionString: tmpUrl.toString(), max: 4 });
+
+  try {
+    // 先跑真实 001 建出完整 schema,再手工把两列退回 uuid —— 这样"旧库形状"与原版 001 逐字一致
+    await runMigrations(tmpPool as unknown as SqlPool, MIGRATIONS_DIR, () => undefined);
+    await tmpPool.query(`alter table refresh_tokens drop constraint refresh_tokens_device_id_fkey`);
+    await tmpPool.query(`alter table refresh_tokens alter column device_id type uuid using device_id::uuid`);
+    await tmpPool.query(`alter table devices alter column id type uuid using id::uuid`);
+    await tmpPool.query(
+      `alter table refresh_tokens add constraint refresh_tokens_device_id_fkey
+       foreign key (device_id) references devices (id) on delete set null`
+    );
+
+    // 放一条旧数据,确认类型转换不丢数据
+    const legacyUser = '44444444-4444-4444-8444-444444444444';
+    const legacyDevice = '55555555-5555-4555-8555-555555555555';
+    await tmpPool.query(
+      `insert into users (id,email,password_hash,password_algo,created_at) values ($1,'old@e.com','h','scrypt',1)`,
+      [legacyUser]
+    );
+    await tmpPool.query(
+      `insert into devices (id,user_id,name,platform,created_at,last_seen_at) values ($1,$2,'old','cli',1,1)`,
+      [legacyDevice, legacyUser]
+    );
+    await tmpPool.query(
+      `insert into refresh_tokens (token_hash,user_id,device_id,created_at,expires_at) values ('old-token',$1,$2,1,2)`,
+      [legacyUser, legacyDevice]
+    );
+
+    const colType = async (table: string, col: string): Promise<string> => {
+      const { rows } = await tmpPool.query<{ data_type: string }>(
+        `select data_type from information_schema.columns where table_schema='public' and table_name=$1 and column_name=$2`,
+        [table, col]
+      );
+      return rows[0]?.data_type ?? 'missing';
+    };
+    check('旧库:devices.id 起初是 uuid', (await colType('devices', 'id')) === 'uuid', await colType('devices', 'id'));
+    check('旧库:refresh_tokens.device_id 起初是 uuid', (await colType('refresh_tokens', 'device_id')) === 'uuid');
+
+    // 直接执行 002 的 SQL(不走 runMigrations —— 此时 schema_migrations 里已记录过 002,
+    // 走 runner 会被当成"已应用"而跳过,测不到升级路径)。
+    // 直接执行也顺带验证了"这个迁移文件在旧形状的库上能独立跑通"。
+    const { readFileSync } = await import('node:fs');
+    const sql002 = readFileSync(join(MIGRATIONS_DIR, '002_device_id_text.sql'), 'utf8');
+    await tmpPool.query(sql002);
+
+    check('002 后 devices.id 变成 text', (await colType('devices', 'id')) === 'text', await colType('devices', 'id'));
+    check('002 后 refresh_tokens.device_id 变成 text', (await colType('refresh_tokens', 'device_id')) === 'text');
+
+    // 旧数据仍在
+    const { rows: kept } = await tmpPool.query<{ c: number }>(`select count(*)::int as c from refresh_tokens where token_hash='old-token'`);
+    check('类型转换不丢旧数据', kept[0].c === 1);
+
+    // 外键被保留且仍是 on delete set null
+    const { rows: fk } = await tmpPool.query<{ conname: string; confdeltype: string; def: string }>(
+      `select conname, confdeltype, pg_get_constraintdef(oid) as def
+       from pg_constraint
+       where conrelid = 'refresh_tokens'::regclass and contype = 'f' and confrelid = 'devices'::regclass`
+    );
+    check('refresh_tokens → devices 外键被保留', fk.length === 1, JSON.stringify(fk.map((f) => f.conname)));
+    check('外键仍是 on delete set null', fk[0]?.confdeltype === 'n', fk[0]?.def ?? '');
+    check('外键引用的列已是 text', /foreign key \(device_id\) references devices\(id\)/i.test(fk[0]?.def ?? ''), fk[0]?.def ?? '');
+
+    // 外键行为仍然有效:插入不存在的 device_id 必须被拒
+    let fkRejected = false;
+    try {
+      await tmpPool.query(`insert into refresh_tokens (token_hash,user_id,device_id,created_at,expires_at) values ('bad',$1,'dev_nonexistent',1,2)`, [legacyUser]);
+    } catch {
+      fkRejected = true;
+    }
+    check('外键仍然生效(未知 device_id 被拒)', fkRejected);
+
+    // 现在必须能写入契约形态的 dev_ id
+    await tmpPool.query(`insert into devices (id,user_id,name,platform,created_at,last_seen_at) values ('dev_7f3a9c2e',$1,'new','android',1,1)`, [legacyUser]);
+    await tmpPool.query(`insert into refresh_tokens (token_hash,user_id,device_id,created_at,expires_at) values ('new-token',$1,'dev_7f3a9c2e',1,2)`, [legacyUser]);
+    check('升级后可写入契约形态 dev_ id(旧 uuid 列做不到)', true);
+
+    // 幂等:再跑一次不报错,且列类型不变
+    let idempotent = true;
+    try {
+      await tmpPool.query(sql002);
+      await tmpPool.query(sql002);
+    } catch (err) {
+      idempotent = false;
+      console.log('    重复执行报错:', (err as Error).message);
+    }
+    check('002 可重复执行(幂等)', idempotent);
+    check('幂等重跑后列类型仍为 text', (await colType('devices', 'id')) === 'text' && (await colType('refresh_tokens', 'device_id')) === 'text');
+    // 幂等重跑不能把外键搞丢
+    const { rows: fkAfter } = await tmpPool.query<{ c: number }>(
+      `select count(*)::int as c from pg_constraint
+       where conrelid = 'refresh_tokens'::regclass and contype = 'f' and confrelid = 'devices'::regclass`
+    );
+    check('幂等重跑后外键仍只有一个', fkAfter[0].c === 1, `count=${fkAfter[0].c}`);
+  } finally {
+    await tmpPool.end();
+    await adminPool.query(`drop database if exists ${tmpDb} with (force)`);
+  }
+}
+
+/* ---------------- 10) EXPLAIN:索引被真正使用(pg-mem 无法验证)---------------- */
+console.log('\n=== 10) EXPLAIN:执行计划确实走索引(pg-mem 无法验证) ===');
 {
   await adminPool.query(`insert into users (id,email,password_hash,password_algo,created_at)
     select gen_random_uuid(), 'p'||g||'@e.com', 'h', 'scrypt', 1 from generate_series(1, 3000) g`);

@@ -140,11 +140,18 @@ WantedBy=multi-user.target
 
 ## 5. 迁移
 
-- 迁移文件:`src/repo/migrations/001_init.sql`(契约 §8 表结构:users / devices / refresh_tokens / entities / ops / reminders / schema_migrations)。
+- 迁移文件:
+  - `src/repo/migrations/001_init.sql` —— 契约 §8 表结构(users / devices / refresh_tokens / entities / ops / reminders / schema_migrations)。
+  - `src/repo/migrations/002_device_id_text.sql` —— 把 `devices.id` / `refresh_tokens.device_id` 从 `uuid` 统一为 `text`(契约 §7.2 的 deviceId 是 `dev_xxx` 不透明短串,不是 uuid)。对全新库是 no-op,对跑过旧版 001 的库执行真正的类型变更。
 - 版本记录:`schema_migrations(version, applied_at)`,按文件名前缀数字升序执行,已应用的跳过(幂等)。
 - 执行方式:源码环境用 `pnpm migrate`(tsx);生产镜像用 `pnpm migrate:prod` / `node dist/scripts/migrate.js`;应用启动时也会自动执行(`PgRepository.init()`)。
 - 迁移文件查找顺序:`dist/repo/migrations`(镜像内已拷贝)→ `../../src/repo/migrations` → `$PWD/src/repo/migrations` → `$PWD/migrations`。
-- 新增迁移:添加 `002_xxx.sql` 即可,**不要**修改已发布的迁移文件。
+- 新增迁移:添加 `00N_xxx.sql` 即可,**不要**修改已发布的迁移文件。
+- **升级注意(002)**:`devices.id` 被 `refresh_tokens.device_id` 的外键引用,而 PostgreSQL
+  不允许直接改变被引用列的类型。002 内部按「删外键 → 改引用列 → 改被引用列 → 重建外键」的顺序处理,
+  整体包在一个 `DO` 块里(失败全部回滚),并在末尾自检三列都是 `text`。已有库直接
+  `pnpm migrate` 即可;**若你的库已经跑过旧版 001 且注册接口报 500
+  `invalid input syntax for type uuid`**,就是这个迁移没跑到,确认 `schema_migrations` 里有 `version = 2`。
 - 客户端兼容:服务端对带 `X-Ordo-Schema` 的请求做版本校验,不匹配返回 `VALIDATION_FAILED`,提示升级客户端(契约 §8)。
 
 ---

@@ -74,7 +74,9 @@ data class UiState(
     /** 待二次确认的删除(项目 / 区域 / 标题) */
     val confirm: ConfirmRequest? = null,
     /** 关闭窗口时最小化到托盘(设置页开关) */
-    val closeToTray: Boolean = true
+    val closeToTray: Boolean = true,
+    /** 多窗口之间跟随选中(设置页开关) */
+    val followSelection: Boolean = true
 ) {
     /** 当前清单的全部待办(按分组顺序拍平,供键盘上下移动使用) */
     val flatTodos: List<Todo> get() = sections.flatMap { it.todos }

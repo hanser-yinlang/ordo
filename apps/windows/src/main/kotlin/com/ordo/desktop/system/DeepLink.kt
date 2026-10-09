@@ -11,8 +11,9 @@ import com.ordo.desktop.app.OrdoRoute
  * - `ordo://todo/<id>` —— 定位到某条待办并展开详情
  * - `ordo://search?q=关键词`
  *
- * 说明:jpackage 生成的 MSI 不注册自定义协议,注册需安装后手工写入注册表(见 README「已知限制」);
- * 这里实现的是**解析**与**命令行参数**入口,进程被拉起时即可生效。
+ * 两个入口:
+ * ① 命令行参数 —— 协议注册([ProtocolRegistrar])后由 Windows 拉起进程时传入;
+ * ② 跨进程转交 —— 已有实例在跑时,第二个进程把链接写进 [DeepLinkInbox],由运行中的实例消费。
  */
 object DeepLink {
 
@@ -20,8 +21,11 @@ object DeepLink {
 
     private const val SCHEME = "ordo://"
 
-    /** 从命令行参数里挑出第一个 `ordo://` 链接 */
-    fun fromArgs(args: Array<String>): Target? = args.firstNotNullOfOrNull { parse(it) }
+    /** 从命令行参数里挑出第一个 `ordo://` 链接;解析失败一律当作"没有深链",绝不抛异常 */
+    fun fromArgs(args: Array<String>): Target? = args.firstNotNullOfOrNull { safeParse(it) }
+
+    /** 解析单个链接:任何异常都退化为 null(外部传来的字符串不可信) */
+    fun safeParse(raw: String?): Target? = runCatching { parse(raw) }.getOrNull()
 
     fun parse(raw: String?): Target? {
         val value = raw?.trim() ?: return null

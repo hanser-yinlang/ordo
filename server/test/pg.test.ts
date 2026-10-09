@@ -20,6 +20,7 @@ import { baseConfig } from './helpers';
 import {
   createPgMemRepo,
   type IndexDeclaration,
+  MIGRATIONS_DIR,
   type PgMemHarness,
   parseIndexDeclarations,
   parseTableNames,
@@ -27,6 +28,7 @@ import {
   renameIndex,
   uuid
 } from './pg-helpers';
+import { loadMigrations } from '../src/repo/migrate';
 import type { AnyEntity, Todo } from '../src/domain/model';
 import { SyncService } from '../src/services/sync';
 
@@ -85,14 +87,28 @@ describe('PgRepository × pg-mem(真实执行 001_init.sql)', () => {
     });
 
     it('迁移被记录到 schema_migrations,重复执行幂等', async () => {
-      const before = await h.sql<{ version: number; applied_at: string | number }>('select * from schema_migrations');
-      assert.equal(before.length, 1, '初始迁移只应记录一行');
-      assert.equal(Number(before[0].version), 1);
+      const before = await h.sql<{ version: number; applied_at: string | number }>(
+        'select * from schema_migrations order by version'
+      );
+      assert.deepEqual(
+        before.map((r) => Number(r.version)),
+        [1, 2],
+        '001_init.sql 与 002_device_id_text.sql 都应被记录'
+      );
 
       // PgRepository.init() 再来一次:已应用的版本会被跳过
       await h.repo.init();
       const after = await h.sql('select * from schema_migrations');
-      assert.equal(after.length, 1, '重复 init 不应重复记录迁移版本');
+      assert.equal(after.length, before.length, '重复 init 不应重复记录迁移版本');
+
+      // 迁移文件要能被发现并按版本号升序执行
+      const files = loadMigrations(MIGRATIONS_DIR);
+      assert.deepEqual(
+        files.map((f) => f.version),
+        [...files.map((f) => f.version)].sort((a, b) => a - b),
+        '迁移必须按版本号升序执行'
+      );
+      assert.ok(files.length >= 2, `应发现至少 2 个迁移文件,实际 ${files.length}`);
     });
 
     it('deviceId 相关列是 text 而不是 uuid(契约 §7.2 的 dev_xxx 形态)', async () => {

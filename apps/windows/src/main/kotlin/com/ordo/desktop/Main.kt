@@ -34,6 +34,7 @@ import com.ordo.core.platform.SystemOrdoClock
 import com.ordo.core.store.OrdoEngine
 import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
+import com.ordo.desktop.app.SharedSelection
 import com.ordo.desktop.app.UiState
 import com.ordo.desktop.data.JsonFileStorage
 import com.ordo.desktop.net.KtorAuthApi
@@ -43,6 +44,7 @@ import com.ordo.desktop.net.OrdoHttp
 import com.ordo.desktop.net.TokenStore
 import com.ordo.desktop.sync.SyncCoordinator
 import com.ordo.desktop.system.DeepLink
+import com.ordo.desktop.system.DeepLinkInbox
 import com.ordo.desktop.system.ReminderScheduler
 import com.ordo.desktop.system.SingleInstanceLock
 import com.ordo.desktop.system.TrayNotifications
@@ -96,8 +98,10 @@ fun main(args: Array<String>) {
     // 单实例:托盘常驻后用户可能再次双击图标,两个引擎写同一份 JSON 会互相覆盖
     val instanceLock = SingleInstanceLock.acquire(dataDir)
     if (instanceLock == null) {
-        println("Ordo 已在运行(可在系统托盘里打开窗口)")
-        notifyAlreadyRunning()
+        // 已有实例在跑:把命令行里的 ordo:// 链接转交给它,再退出(04-UI规范 §7 深链)
+        val forwarded = DeepLinkInbox.of(dataDir).submit(args.toList())
+        println(if (forwarded) "Ordo 已在运行,已把链接转交给它" else "Ordo 已在运行(可在系统托盘里打开窗口)")
+        if (!forwarded) notifyAlreadyRunning()
         return
     }
     Runtime.getRuntime().addShutdownHook(Thread { instanceLock.release() })
@@ -139,6 +143,7 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
     val windowVisible = remember { mutableStateMapOf(FIRST_WINDOW_ID to true) }
     val windowRoutes = remember { mutableStateMapOf<Int, OrdoRoute>(FIRST_WINDOW_ID to OrdoRoute.Today) }
     val vmRegistry = remember { mutableStateMapOf<Int, OrdoViewModel>() }
+    val selectionBus = remember { SharedSelection() }
     var nextWindowId by remember { mutableStateOf(FIRST_WINDOW_ID + 1) }
     val savedLayout = remember { loadWindowLayout(storage) }
 
@@ -216,8 +221,29 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
         }
     }
 
-    // 深链:ordo://today / odo://project/<id> / ordo://todo/<id>(作用于第一个窗口)
+    // 深链:ordo://today / ordo://project/<id> / ordo://todo/<id>(作用于第一个窗口)
     val deepLink = remember { DeepLink.fromArgs(args) }
+
+    // 跨进程深链转交:第二个实例把链接写进 .ordo.inbox,这里轮询消费
+    // (命名管道要 JNI、本地 socket 要占端口,文件转交零依赖且可单测)
+    val linkInbox = remember { DeepLinkInbox.of(dataDir) }
+    LaunchedEffect(Unit) {
+        linkInbox.cleanupTemp()
+        while (true) {
+            linkInbox.drain().forEach { raw ->
+                val target = DeepLink.parse(raw) ?: return@forEach
+                showOrOpenWindow()
+                windowIds.firstOrNull()?.let { id ->
+                    vmRegistry[id]?.let { vm ->
+                        vm.navigate(target.route)
+                        target.todoId?.let { vm.selectTodo(it) }
+                    }
+                }
+                selfTestReport(selfTest, "step=forwarded route=${target.route} todo=${target.todoId}")
+            }
+            kotlinx.coroutines.delay(DeepLinkInbox.POLL_MILLIS)
+        }
+    }
 
     // 自检:额外开一个窗口,验证"多窗口 + 每窗口独立路由"在打包产物里真的能起来
     LaunchedEffect(selfTest) {
@@ -225,6 +251,10 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
         kotlinx.coroutines.delay(SELFTEST_SECOND_WINDOW_DELAY_MILLIS)
         openWindow(OrdoRoute.Inbox)
         selfTestReport(selfTest, "step=second-window requested route=inbox")
+        kotlinx.coroutines.delay(SELFTEST_FORWARD_REPORT_DELAY_MILLIS)
+        windowIds.firstOrNull()?.let { id ->
+            selfTestReport(selfTest, "step=first-window route=${vmRegistry[id]?.state?.value?.route}")
+        }
     }
     LaunchedEffect(selfTest, windowIds.size) {
         if (selfTest == null) return@LaunchedEffect
@@ -242,6 +272,7 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
                 coordinator = coordinator,
                 authApi = authApi,
                 tokens = tokens,
+                selectionBus = selectionBus,
                 savedLayout = savedLayout,
                 cascadeIndex = index,
                 initialRoute = windowRoutes[windowId] ?: OrdoRoute.Today,
@@ -281,6 +312,7 @@ private fun ApplicationScope.DesktopWindow(
     coordinator: SyncCoordinator,
     authApi: KtorAuthApi,
     tokens: TokenStore,
+    selectionBus: SharedSelection,
     savedLayout: WindowLayout,
     cascadeIndex: Int,
     initialRoute: OrdoRoute,
@@ -320,6 +352,7 @@ private fun ApplicationScope.DesktopWindow(
         vm.protocol = WindowsProtocolRegistrar()
         vm.onNewWindow = onRequestNewWindow
         vm.attachSync(coordinator)
+        vm.attachSelectionBus(selectionBus)
         if (initialRoute != OrdoRoute.Today) vm.navigate(initialRoute)
         deepLink?.let { target ->
             vm.navigate(target.route)
@@ -392,10 +425,11 @@ private fun SelfTestHook(window: ComposeWindow, file: File, engine: OrdoEngine, 
     }
 }
 
-/** 自检最长等待(毫秒)、窗口建好后的退出延迟、第二个窗口的开启时刻 */
+/** 自检最长等待(毫秒)、窗口建好后的退出延迟、第二个窗口的开启时刻、转交结果的报告时刻 */
 private const val SELFTEST_TIMEOUT_MILLIS = 20_000L
-private const val SELFTEST_EXIT_DELAY_MILLIS = 4_000L
+private const val SELFTEST_EXIT_DELAY_MILLIS = 9_000L
 private const val SELFTEST_SECOND_WINDOW_DELAY_MILLIS = 2_500L
+private const val SELFTEST_FORWARD_REPORT_DELAY_MILLIS = 3_500L
 
 /** 窗口尺寸/位置落盘的合并窗口(拖动过程中不要每帧写文件) */
 private const val LAYOUT_SAVE_DEBOUNCE_MILLIS = 700L

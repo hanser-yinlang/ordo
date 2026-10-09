@@ -65,6 +65,7 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
     var autoStartOn by remember { mutableStateOf(vm.isAutoStartEnabled()) }
     var autoStartMessage by remember { mutableStateOf<String?>(null) }
     var closeToTray by remember { mutableStateOf(vm.closeToTray()) }
+    var followSelection by remember { mutableStateOf(vm.followSelection()) }
     var protocolRegistered by remember { mutableStateOf(vm.isProtocolRegistered()) }
     var protocolMessage by remember { mutableStateOf<String?>(null) }
     var diagnosticsTick by remember { mutableStateOf(0) }
@@ -157,7 +158,21 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("窗口", style = OrdoType.caption, color = colors.textSecondary, modifier = Modifier.width(90.dp))
                 OrdoTextButton(text = "新建窗口 (Ctrl+Shift+N)", onClick = { vm.openNewWindow() })
+                Spacer(Modifier.width(OrdoSpace.s))
+                OrdoTextButton(
+                    text = if (followSelection) "跟随选中:开" else "跟随选中:关",
+                    onClick = {
+                        followSelection = !followSelection
+                        vm.setFollowSelection(followSelection)
+                    }
+                )
             }
+            Spacer(Modifier.height(OrdoSpace.xs))
+            Text(
+                text = "每个窗口有独立清单与选中;开启「跟随选中」后,在任一窗口打开某条待办,其它窗口会把它高亮出来。",
+                style = OrdoType.micro,
+                color = colors.textTertiary
+            )
 
             SectionDivider()
 

@@ -1,21 +1,24 @@
 name: Ordo CI
 
-# 说明:仓库根为 ordo/。本工作流覆盖"任何环境都能跑"的验证;
-# Android / iOS / 鸿蒙需要各自 SDK 与 macOS,已拆分为独立 job 并按需启用。
+# 说明:仓库根为 ordo/。
+#   · 总是运行的 job:核心、后端、契约检查 —— 任何环境都能跑通
+#   · 需要额外 SDK 的 job(Android / iOS)默认关闭,在仓库
+#     Settings → Secrets and variables → Actions → Variables 里建同名变量并置为 true 才会运行
+#
+# 重要:Gradle 一律用仓库自带的 wrapper(./gradlew),不要用 `gradle` ——
+# GitHub runner 上并没有预装 gradle 命令,只有 wrapper 才能保证版本与本地一致(8.14)。
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   core:
     name: 共享核心(编译 + 单元测试)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -23,8 +26,10 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+      - name: 确认 wrapper 可执行
+        run: chmod +x gradlew
       - name: 运行共享核心测试
-        run: gradle :shared:core:jvmTest --console=plain
+        run: ./gradlew :shared:core:jvmTest --console=plain
       - name: 上传测试报告
         if: always()
         uses: actions/upload-artifact@v4
@@ -42,10 +47,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
       - run: pnpm test
@@ -57,11 +62,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - run: node tools/contract-check.mjs
 
   android:
-    name: Android(需 SDK)
+    name: Android(构建 + 单元测试,需 SDK)
     runs-on: ubuntu-latest
     if: ${{ vars.ENABLE_ANDROID_CI == 'true' }}
     steps:
@@ -71,10 +76,20 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
-      - run: gradle :apps:android:app:assembleDebug --console=plain
+      # runner 镜像自带的 platform 版本不一定有 36,显式装一次(与本地版本矩阵一致)
+      - name: 安装 Android SDK 36
+        run: |
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - name: 确认 wrapper 可执行
+        run: chmod +x gradlew
+      - name: 构建 debug APK
+        run: ./gradlew :apps:android:app:assembleDebug --console=plain
+      - name: 运行 Android 单元测试
+        run: ./gradlew :apps:android:app:testDebugUnitTest --console=plain
 
   ios:
-    name: iOS(需 macOS)
+    name: iOS(构建 + 测试,需 macOS)
     runs-on: macos-14
     if: ${{ vars.ENABLE_IOS_CI == 'true' }}
     steps:
@@ -88,3 +103,19 @@ jobs:
       # 并自动挑选可用的模拟器机型(避免依赖 runner 镜像自带某个具体机型)。
       - name: 生成 XCFramework + 构建 + 测试 + 静态自检
         run: bash apps/ios/tools/verify_ios.sh
+
+  harmony:
+    name: 鸿蒙(ArkTS 编译,需 DevEco SDK)
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_HARMONY_CI == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      # 说明:鸿蒙 CLI 构建依赖 DevEco Studio 自带的 hvigor + HarmonyOS SDK。
+      # GitHub 托管的 runner 没有该 SDK,因此这个 job 默认关闭;
+      # 需要时请改为自建 runner(已装 DevEco),并在其上执行:
+      #   $DEVECO/tools/node/node.exe $DEVECO/tools/hvigor/bin/hvigorw.js \
+      #     --mode module -p product=default assembleHap --no-daemon
+      # 详见 docs/10-环境安装与构建指南.md §3。
+      - run: |
+          echo "鸿蒙构建需要装有 DevEco Studio 的自建 runner,见 docs/10 §3。"
+          echo "本 job 仅作占位,避免把无法在托管 runner 上完成的步骤伪装成可通过。"

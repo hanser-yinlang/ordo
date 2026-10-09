@@ -98,10 +98,16 @@ fun main(args: Array<String>) {
     val dataDir = resolveDataDir(args)
     // 单实例:托盘常驻后用户可能再次双击图标,两个引擎写同一份 JSON 会互相覆盖
     val lockResult = SingleInstanceLock.acquire(dataDir)
+    selfTestReport(
+        selfTest,
+        "step=lock result=${lockResult::class.simpleName} held=${SingleInstanceLock.isHeldByThisProcess()} " +
+            "count=${SingleInstanceLock.heldCount()} dir=${dataDir.absolutePath}"
+    )
     when (lockResult) {
         is LockResult.Unavailable -> {
             // 环境问题(权限 / IO)不该把用户挡在门外:继续启动,只是没有单实例保护
-            println("单实例锁不可用(${lockResult.reason}),继续启动")
+            System.err.println("Ordo: 单实例锁不可用(${lockResult.reason}),继续启动")
+            System.err.flush()
         }
         LockResult.AlreadyRunning -> {
             // 已有实例在跑:把 ordo:// 链接转交给它(没有链接就只要求唤出窗口),然后自己退出
@@ -115,6 +121,7 @@ fun main(args: Array<String>) {
                     else -> "Ordo 已在运行(可在系统托盘里打开窗口)"
                 }
             )
+            System.out.flush()
             if (!focused) notifyAlreadyRunning()
             return
         }
@@ -127,12 +134,14 @@ fun main(args: Array<String>) {
 /** `--selftest=<报告文件>` */
 private const val SELFTEST_FLAG = "--selftest="
 
-/** 自检报告:逐行追加,便于定位卡在启动的哪一步 */
+/** 自检报告:逐行追加(带相对时间戳),便于定位启动与转交的时序 */
+private val selfTestStart = System.currentTimeMillis()
+
 private fun selfTestReport(file: File?, line: String) {
     if (file == null) return
     runCatching {
         file.parentFile?.mkdirs()
-        file.appendText(line + System.lineSeparator())
+        file.appendText("+${System.currentTimeMillis() - selfTestStart}ms $line" + System.lineSeparator())
     }
 }
 
@@ -158,6 +167,7 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
     val windowVisible = remember { mutableStateMapOf(FIRST_WINDOW_ID to true) }
     val windowRoutes = remember { mutableStateMapOf<Int, OrdoRoute>(FIRST_WINDOW_ID to OrdoRoute.Today) }
     val vmRegistry = remember { mutableStateMapOf<Int, OrdoViewModel>() }
+    val windowRaise = remember { mutableStateMapOf<Int, Int>() }
     val selectionBus = remember { SharedSelection() }
     var nextWindowId by remember { mutableStateOf(FIRST_WINDOW_ID + 1) }
     val savedLayout = remember { loadWindowLayout(storage) }
@@ -169,10 +179,23 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
         windowIds.add(id)
     }
 
-    /** 托盘「打开 Ordo」:先把隐藏的窗口叫回来,一个都没有就新开一个 */
+    /** 把某个窗口叫出来并提到最前(每次请求自增令牌,即使它本来就可见也会重新 raise) */
+    fun raiseWindow(id: Int) {
+        windowVisible[id] = true
+        windowRaise[id] = (windowRaise[id] ?: 0) + 1
+    }
+
+    /**
+     * 托盘「打开 Ordo」/ 无参启动的第二次实例:优先复用已有窗口 ——
+     * 有隐藏的就叫回来,一个窗口都没有才新建;已经有可见窗口时只把它提到最前,不再多开一个。
+     */
     fun showOrOpenWindow() {
         val hidden = windowIds.firstOrNull { windowVisible[it] != true }
-        if (hidden != null) windowVisible[hidden] = true else openWindow(OrdoRoute.Today)
+        when {
+            hidden != null -> raiseWindow(hidden)
+            windowIds.isEmpty() -> openWindow(OrdoRoute.Today)
+            else -> windowIds.first().let { raiseWindow(it) }
+        }
     }
 
     val tray = remember {
@@ -252,14 +275,23 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
                     return@forEach
                 }
                 val target = DeepLink.safeParse(raw) ?: return@forEach
-                showOrOpenWindow()
-                windowIds.firstOrNull()?.let { id ->
+                // 复用已有窗口导航,不因为一条链接多开一个窗口;一个窗口都没有(极端情况)才新建
+                val reuse = windowIds.isNotEmpty()
+                if (!reuse) {
+                    openWindow(target.route)
+                } else {
+                    val id = windowIds.first()
+                    raiseWindow(id)
                     vmRegistry[id]?.let { vm ->
                         vm.navigate(target.route)
                         target.todoId?.let { vm.selectTodo(it) }
                     }
                 }
-                selfTestReport(selfTest, "step=forwarded route=${target.route} todo=${target.todoId}")
+                selfTestReport(
+                    selfTest,
+                    "step=forwarded route=${target.route} todo=${target.todoId} " +
+                        "branch=${if (reuse) "reuse-window" else "new-window"}"
+                )
             }
             kotlinx.coroutines.delay(DeepLinkInbox.POLL_MILLIS)
         }
@@ -278,7 +310,11 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
     }
     LaunchedEffect(selfTest, windowIds.size) {
         if (selfTest == null) return@LaunchedEffect
-        selfTestReport(selfTest, "step=windows count=${windowIds.size} visible=${windowIds.count { windowVisible[it] == true }}")
+        selfTestReport(
+            selfTest,
+            "step=windows count=${windowIds.size} visible=${windowIds.count { windowVisible[it] == true }} " +
+                "ids=${windowIds.joinToString("/")}"
+        )
     }
 
     windowIds.toList().forEachIndexed { index, windowId ->
@@ -298,6 +334,7 @@ private fun ApplicationScope.desktopApp(args: Array<String>, dataDir: File, self
                 initialRoute = windowRoutes[windowId] ?: OrdoRoute.Today,
                 deepLink = if (index == 0) deepLink else null,
                 visible = windowVisible[windowId] != false,
+                raiseToken = windowRaise[windowId] ?: 0,
                 selfTest = if (index == 0) selfTest else null,
                 onRequestNewWindow = { openWindow(windowRoutes[windowId] ?: OrdoRoute.Today) },
                 onPersistLayout = { state, location -> saveWindowLayout(storage, state.size, location) },
@@ -338,6 +375,7 @@ private fun ApplicationScope.DesktopWindow(
     initialRoute: OrdoRoute,
     deepLink: DeepLink.Target?,
     visible: Boolean,
+    raiseToken: Int,
     selfTest: File?,
     onRequestNewWindow: () -> Unit,
     onPersistLayout: (WindowState, Point?) -> Unit,
@@ -411,8 +449,8 @@ private fun ApplicationScope.DesktopWindow(
                     saveWindowLayout(storage, windowState.size, windowRef.value?.location)
                 }
         }
-        // 从托盘恢复时把窗口提到最前
-        LaunchedEffect(visible) {
+        // 从托盘 / 深链恢复时把窗口提到最前(令牌每请求一次自增,本来就可见也会生效)
+        LaunchedEffect(visible, raiseToken) {
             if (visible) runCatching { window.toFront() }
         }
         if (selfTest != null) {
@@ -438,6 +476,7 @@ private fun SelfTestHook(window: ComposeWindow, file: File, engine: OrdoEngine, 
                 "size=${window.width}x${window.height} at=${window.location.x},${window.location.y}"
         )
         selfTestReport(file, "step=data dir=${dataDir.absolutePath} todos=${engine.snapshot.todos.size}")
+        selfTestReport(file, "step=lock-held-now=${com.ordo.desktop.system.SingleInstanceLock.isHeldByThisProcess()}")
         kotlinx.coroutines.delay(SELFTEST_EXIT_DELAY_MILLIS)
         selfTestReport(file, "step=still-showing=${runCatching { window.isShowing }.getOrDefault(false)}")
         selfTestReport(file, "step=done ok=$shown")

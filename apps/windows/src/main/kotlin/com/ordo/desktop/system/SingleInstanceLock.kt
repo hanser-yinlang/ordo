@@ -38,7 +38,30 @@ class SingleInstanceLock private constructor(
          */
         private val held = mutableListOf<SingleInstanceLock>()
 
+        /** 自检 / 诊断用:本进程当前是否真的还持有锁 */
+        fun isHeldByThisProcess(): Boolean = held.any { runCatching { it.lock.isValid }.getOrDefault(false) }
+
+        /** 自检 / 诊断用:本进程持有的锁数量 */
+        fun heldCount(): Int = held.size
+
         fun acquire(dir: File): LockResult {
+            // 瞬时失败(杀毒/索引器刚碰过这个文件、上一个实例刚退出)重试几次再判定,
+            // 否则会误判成"环境不可用"从而放行第二个实例
+            var lastReason = "未知原因"
+            repeat(ACQUIRE_ATTEMPTS) { attempt ->
+                when (val result = tryAcquireOnce(dir)) {
+                    is LockResult.Acquired -> return result
+                    LockResult.AlreadyRunning -> return result
+                    is LockResult.Unavailable -> {
+                        lastReason = result.reason
+                        if (attempt < ACQUIRE_ATTEMPTS - 1) Thread.sleep(ACQUIRE_RETRY_MILLIS)
+                    }
+                }
+            }
+            return LockResult.Unavailable(lastReason)
+        }
+
+        private fun tryAcquireOnce(dir: File): LockResult {
             val file = try {
                 if (!dir.exists()) dir.mkdirs()
                 RandomAccessFile(File(dir, FILE_NAME), "rw")
@@ -64,6 +87,10 @@ class SingleInstanceLock private constructor(
                 LockResult.Unavailable(error.message ?: error::class.simpleName ?: "加锁失败")
             }
         }
+
+        /** 重试次数与间隔(合计约 0.3 秒) */
+        private const val ACQUIRE_ATTEMPTS = 3
+        private const val ACQUIRE_RETRY_MILLIS = 150L
     }
 }
 

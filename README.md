@@ -44,14 +44,14 @@ ordo/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 共享核心 `shared/core` | ✅ **已编译 + 57 个单元测试全绿** | JDK 21 + Gradle 8.14 实跑 |
-| Windows 桌面端 | ✅ **已编译 + 38 个测试全绿 + MSI/EXE 打包成功** | `gradlew :apps:windows:test`;`packageDistributionForCurrentOS` → MSI 99.1 MB |
+| 共享核心 `shared/core` | ✅ **已编译 + 59 个单元测试全绿** | JDK 21 + Gradle 8.14 实跑 |
+| Windows 桌面端 | ✅ **已编译 + 97 个测试全绿 + MSI/EXE 打包成功** | `gradlew :apps:windows:test`;`packageDistributionForCurrentOS` → MSI 99.1 MB |
 | 后端 `server` | ✅ **构建 + 128 个测试 + 10 项端到端冒烟全绿 + 真实 PostgreSQL 53 项断言全过** | `pnpm test`;pg-mem 真实执行迁移 SQL;真库 `127.0.0.1:55432` |
 | Android 端 | ✅ **已编译 + APK 产出 + 60 个测试全绿** | `gradlew :apps:android:app:assembleDebug` → `app-debug.apk` 15.7 MB |
 | 鸿蒙端 | ✅ **已编译 + HAP 产出 + ArkTS 告警清零** | `hvigorw assembleHap` → `entry-default-unsigned.hap` 1.10 MB |
 | iOS 端 | 📦 源码就绪 + 预检 34 项通过 | **本机无 macOS,未编译**;`bash apps/ios/tools/verify_ios.sh` 在 macOS/CI 上一条命令跑通 |
 
-**合计**:约 330 个文件 / 6.4 万行源码与文档;**283 个自动化测试用例全部通过**(另有真实 PostgreSQL 53 项断言);契约一致性检查 × 6 个代码库全部通过;编码扫描零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
+**合计**:约 330 个文件 / 6.4 万行源码与文档;**344 个自动化测试用例全部通过**(另有真实 PostgreSQL 66 项断言);契约一致性检查 × 6 个代码库全部通过;编码扫描零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
 
 > 环境实情:本仓库的开发机为 Windows(仅有 JDK 21 + Gradle 8.14 + Node/pnpm)。凡标注"未编译"的端,均已在对应 README 给出目标环境的完整构建步骤,并用自动检查器逐条核对了契约字段/规则。
 

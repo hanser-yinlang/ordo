@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_test_desc",
+      "value": "Ordo 单元测试模块"
+    },
+    {
+      "name": "TestAbility_desc",
+      "value": "Ordo 测试入口"
+    },
+    {
+      "name": "TestAbility_label",
+      "value": "Ordo 测试"
+    }
+  ]
+}

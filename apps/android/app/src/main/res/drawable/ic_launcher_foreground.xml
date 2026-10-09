@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ordo 启动图标：开口圆环 + 向内的短划线（04 文档 §1 Logo 概念），单色可印刷 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#5B5BD6"
+        android:pathData="M54,20a34,34 0 1,1 -24.04,9.96l6.36,6.36A25,25 0 1,0 54,29Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46,54h16v6h-16z" />
+</vector>

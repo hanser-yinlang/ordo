@@ -1,0 +1,17 @@
+# Ordo 混淆规则(默认保留 Ability 与结构化实体名,便于崩溃栈定位)
+-keep-property-name
+  id
+  title
+  when
+  date
+  reminder
+  deadline
+  status
+  updatedAt
+  createdAt
+  completedAt
+  deleted
+-keep-file-name
+  EntryAbility
+  OrdoEngine
+  SyncEngine

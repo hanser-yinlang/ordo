@@ -1,0 +1,68 @@
+{
+  "float": [
+    {
+      "name": "space_xs",
+      "value": "4"
+    },
+    {
+      "name": "space_s",
+      "value": "8"
+    },
+    {
+      "name": "space_m",
+      "value": "12"
+    },
+    {
+      "name": "space_l",
+      "value": "16"
+    },
+    {
+      "name": "space_xl",
+      "value": "24"
+    },
+    {
+      "name": "space_xxl",
+      "value": "32"
+    },
+    {
+      "name": "radius_row",
+      "value": "10"
+    },
+    {
+      "name": "radius_card",
+      "value": "14"
+    },
+    {
+      "name": "radius_sheet",
+      "value": "14"
+    },
+    {
+      "name": "row_height",
+      "value": "38"
+    },
+    {
+      "name": "sidebar_width",
+      "value": "248"
+    },
+    {
+      "name": "font_display",
+      "value": "28"
+    },
+    {
+      "name": "font_title",
+      "value": "20"
+    },
+    {
+      "name": "font_body",
+      "value": "15"
+    },
+    {
+      "name": "font_caption",
+      "value": "13"
+    },
+    {
+      "name": "font_micro",
+      "value": "11"
+    }
+  ]
+}

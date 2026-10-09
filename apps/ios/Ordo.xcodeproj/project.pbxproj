@@ -1,0 +1,775 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C8A40F4E0650574887849B0F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 689DB79FCE5B63390645FA9B /* AppEnvironment.swift */; };
+		11F88A7062B4F92CB81070CC /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A512AF9A67C85E55345A21F1 /* DeepLink.swift */; };
+		6E03E7A757519618B699F566 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 032DEBDC81A0638AA4858B15 /* OrdoApp.swift */; };
+		48FB3EB9565D1DD762F411C1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2B071FB8DD2891329F94063E /* EmptyStateView.swift */; };
+		5B5A6FE1A9D3661275F83D1F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 12A43E868050FDA9083A80BB /* MarkdownNoteView.swift */; };
+		E4BFE86E53084F6A2B5B6060 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 054ED79BD05642DA32321EB6 /* OrdoToast.swift */; };
+		5D2670713ABFB74C028D2723 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2191129DFE497104D6B94CA7 /* ProgressRingView.swift */; };
+		FB35FEBB4300381F40B9CE93 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 590F07773A9BFAC3CC53733E /* OrdoAPIProtocols.swift */; };
+		22E0F0765677856E796B0E07 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 89AE6CF3472479B52916D0F3 /* OrdoCoreBridge.swift */; };
+		B1628DF0006410C1E66FF728 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A1C2C24F837F0C741D2B2501 /* OrdoCoreMapping.swift */; };
+		3AA955100A513EB267382150 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 934A66FAC3C28F3D62193F5B /* OrdoDateFormatter.swift */; };
+		7FE85EF90E31FAF895CB9C34 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 55477FF8B2A550F3B210A64F /* OrdoEngineProtocol.swift */; };
+		551E34820ABA1EEBDC5E9B09 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = D239E8D33AF1D1D5457B8DE1 /* OrdoJSONValue.swift */; };
+		2210CDF2CC66AA2ACE552270 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1CE17B2C010EF93C74FC925B /* OrdoModel.swift */; };
+		161456395271F7D20C1D13A5 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 147C7C99CFC4FFA1D968999A /* OrdoNaturalLanguage.swift */; };
+		C4BF9D6E3D783E8D273FE2B1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BE384C4F03EE6952D6279A0C /* OrdoPayloadCoding.swift */; };
+		1CBD1421B67E7DDC09EA34A9 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8F73D4A4B3EFBF7E5969BD06 /* OrdoStorageProtocol.swift */; };
+		8AC7F1760CBE494CEBAA834B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 80AB3012DE38D610D90013FB /* EventKitAgenda.swift */; };
+		09337F515A8DB0AD9F20DB8F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = E1CB9B741C0EE5273A41EDD4 /* SeedData.swift */; };
+		36D2DCA0388F3039FC81C075 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1F0C633278186EB0FFA84080 /* SwiftDataStorage.swift */; };
+		3B8297AE609C1A8CD6F5C603 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 9B3FA54BAACDE27C03B880F1 /* TokenStore.swift */; };
+		DE6F598214DACB6A55DE3956 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 93A27583A2C673C638F6D6B9 /* OrdoColor.swift */; };
+		A566BCD1C4D5CF6D9F3C7FF2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1583ADC0337F6AD872941BAD /* OrdoFont.swift */; };
+		3C176259EA5A81665A7FD44D /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BAC631909C6C51357282E0B1 /* OrdoMotion.swift */; };
+		F3AB5C0F83E6C5E3E45CE38A /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 0D27725885AFA176D9F666D8 /* OrdoRadius.swift */; };
+		3E95A0EDFE9BBDA382437A1B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 394F1058196DD1219D7D46F2 /* OrdoSpacing.swift */; };
+		1C3D74BC5403D76BA48A5B86 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 998117899D03A8C95FE5A078 /* TodoDetailView.swift */; };
+		B808B439C35CE47EBC40679E /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = CA67E3511D1676351A268B5B /* OrdoAppIntents.swift */; };
+		484C54F57557E4F96F190C52 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A663747935AC7E4D666F65C0 /* AgendaSectionView.swift */; };
+		D810BC66A1995A59A6B6418C /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 79A73D88457EA009DC838DAC /* CheckboxView.swift */; };
+		52C7C341B4AE620C7BF954C2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1E3A9EDFFDD1AE1EA98E43D1 /* GroupHeaderView.swift */; };
+		3A298C91ED1BBACDC0BB95E7 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = CE6191E5F9211374D157B75D /* ListScreenView.swift */; };
+		A3D88480B24A2688F9726ED0 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 63427A82AE7C993A6F8F68E4 /* MetaPillView.swift */; };
+		F7ED454DF2B036E5BA6887E4 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B8A60E29FD2134275E0D58CC /* SwipeActions.swift */; };
+		935B4F0911E34B572A4DF074 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8E823FE04B188B962E1A2816 /* TodoRowView.swift */; };
+		1873D22831AA8F0387851620 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 3552895B99467EF776EE61E7 /* AuthApi.swift */; };
+		92EBAF8508AB98B60385F918 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = D298D572C67FD19B1F3EA868 /* OrdoHTTPClient.swift */; };
+		6E7E900979B632E0D5249D48 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2A6C38E890844513D73606F6 /* RealtimeClient.swift */; };
+		F5CBB19C47F38700C30D72A1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = DD2FAF928C9504706628DCB3 /* URLSessionSyncApi.swift */; };
+		1B6DD8EDD3A47C2E746CDD84 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 71FD3E268A2DCCD4D6D67252 /* ReminderScheduler.swift */; };
+		C5B73A9361F2DF842FCDEA6A /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 5B30A50FEA030EC39A6D6E2E /* QuickAddButton.swift */; };
+		E86C738F2CF96A9F0406D0DC /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = C72EBE93CF5A2112AF7BA104 /* ScheduleSheet.swift */; };
+		63078BD257D1AB6FB1AF3EF2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 87A236DF9FCD6B900F4C0437 /* FastFindView.swift */; };
+		DD0C7D6E5EE50766CF2ADABD /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = DDFF16E538A3840FA93A1270 /* SettingsView.swift */; };
+		8CDDDAC29F0704E52284D9CE /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = CC646568F291529B904C1AB4 /* OrdoShellView.swift */; };
+		060D8D230BE178CE246892D4 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B13E89E1D8E64438BA7274D1 /* ShellViewModel.swift */; };
+		802EAACC4ABA1C8C6E881535 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 7A5870C8021887BBAF5099A9 /* SidebarView.swift */; };
+		E3269373AD6954B16A41EF82 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8469D5BC9CA490CED5733ED1 /* StatusBarView.swift */; };
+		13AC0155FD5CC4420DAC702B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 64137C3AD845DD32ABFB2B58 /* SyncCoordinator.swift */; };
+		DB249DB9D0FF833647E29581 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 0CD3EC18796A47DC70E540B6 /* Assets.xcassets */; };
+		97837162CF2D7ECD2B4E38F4 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 5012B9ECED3782978D2EB1DC /* NlpParsingTests.swift */; };
+		39D5641BA6B4CDCB31F139C2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1B4DACFC5B04EE29ED12A8FC /* OrdoTestSupport.swift */; };
+		075C2E2DE42048B46ECBCC56 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 364D0E789C4CFC11D704181C /* QueryRulesTests.swift */; };
+		FD65D95EEF49CC916804A231 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 4EA973DE77F98BAAF0CC742F /* RepeatEngineTests.swift */; };
+		CF8400DB07A04209702586DB /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 6180A500789190B0C10F9825 /* SyncMergeTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		193D0A8035DE97CF1A3652FD /* PBXContainerItemProxy */ = { isa = PBXContainerItemProxy; containerPortal = 46F86FAA6BBF9AC94A7E4595; proxyType = 1; remoteGlobalIDString = E3435DDA2687639586BF0B70; remoteInfo = Ordo; };
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		689DB79FCE5B63390645FA9B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppEnvironment.swift; path = Ordo/App/AppEnvironment.swift; sourceTree = SOURCE_ROOT; };
+		A512AF9A67C85E55345A21F1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeepLink.swift; path = Ordo/App/DeepLink.swift; sourceTree = SOURCE_ROOT; };
+		032DEBDC81A0638AA4858B15 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoApp.swift; path = Ordo/App/OrdoApp.swift; sourceTree = SOURCE_ROOT; };
+		2B071FB8DD2891329F94063E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EmptyStateView.swift; path = Ordo/Common/EmptyStateView.swift; sourceTree = SOURCE_ROOT; };
+		12A43E868050FDA9083A80BB /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MarkdownNoteView.swift; path = Ordo/Common/MarkdownNoteView.swift; sourceTree = SOURCE_ROOT; };
+		054ED79BD05642DA32321EB6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoToast.swift; path = Ordo/Common/OrdoToast.swift; sourceTree = SOURCE_ROOT; };
+		2191129DFE497104D6B94CA7 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProgressRingView.swift; path = Ordo/Common/ProgressRingView.swift; sourceTree = SOURCE_ROOT; };
+		590F07773A9BFAC3CC53733E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoAPIProtocols.swift; path = Ordo/Core/OrdoAPIProtocols.swift; sourceTree = SOURCE_ROOT; };
+		89AE6CF3472479B52916D0F3 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoCoreBridge.swift; path = Ordo/Core/OrdoCoreBridge.swift; sourceTree = SOURCE_ROOT; };
+		A1C2C24F837F0C741D2B2501 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoCoreMapping.swift; path = Ordo/Core/OrdoCoreMapping.swift; sourceTree = SOURCE_ROOT; };
+		934A66FAC3C28F3D62193F5B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoDateFormatter.swift; path = Ordo/Core/OrdoDateFormatter.swift; sourceTree = SOURCE_ROOT; };
+		55477FF8B2A550F3B210A64F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoEngineProtocol.swift; path = Ordo/Core/OrdoEngineProtocol.swift; sourceTree = SOURCE_ROOT; };
+		D239E8D33AF1D1D5457B8DE1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoJSONValue.swift; path = Ordo/Core/OrdoJSONValue.swift; sourceTree = SOURCE_ROOT; };
+		1CE17B2C010EF93C74FC925B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoModel.swift; path = Ordo/Core/OrdoModel.swift; sourceTree = SOURCE_ROOT; };
+		147C7C99CFC4FFA1D968999A /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoNaturalLanguage.swift; path = Ordo/Core/OrdoNaturalLanguage.swift; sourceTree = SOURCE_ROOT; };
+		BE384C4F03EE6952D6279A0C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoPayloadCoding.swift; path = Ordo/Core/OrdoPayloadCoding.swift; sourceTree = SOURCE_ROOT; };
+		8F73D4A4B3EFBF7E5969BD06 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoStorageProtocol.swift; path = Ordo/Core/OrdoStorageProtocol.swift; sourceTree = SOURCE_ROOT; };
+		80AB3012DE38D610D90013FB /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EventKitAgenda.swift; path = Ordo/Data/EventKitAgenda.swift; sourceTree = SOURCE_ROOT; };
+		E1CB9B741C0EE5273A41EDD4 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SeedData.swift; path = Ordo/Data/SeedData.swift; sourceTree = SOURCE_ROOT; };
+		1F0C633278186EB0FFA84080 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SwiftDataStorage.swift; path = Ordo/Data/SwiftDataStorage.swift; sourceTree = SOURCE_ROOT; };
+		9B3FA54BAACDE27C03B880F1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TokenStore.swift; path = Ordo/Data/TokenStore.swift; sourceTree = SOURCE_ROOT; };
+		93A27583A2C673C638F6D6B9 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoColor.swift; path = Ordo/DesignSystem/OrdoColor.swift; sourceTree = SOURCE_ROOT; };
+		1583ADC0337F6AD872941BAD /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoFont.swift; path = Ordo/DesignSystem/OrdoFont.swift; sourceTree = SOURCE_ROOT; };
+		BAC631909C6C51357282E0B1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoMotion.swift; path = Ordo/DesignSystem/OrdoMotion.swift; sourceTree = SOURCE_ROOT; };
+		0D27725885AFA176D9F666D8 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoRadius.swift; path = Ordo/DesignSystem/OrdoRadius.swift; sourceTree = SOURCE_ROOT; };
+		394F1058196DD1219D7D46F2 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoSpacing.swift; path = Ordo/DesignSystem/OrdoSpacing.swift; sourceTree = SOURCE_ROOT; };
+		998117899D03A8C95FE5A078 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TodoDetailView.swift; path = Ordo/Detail/TodoDetailView.swift; sourceTree = SOURCE_ROOT; };
+		CA67E3511D1676351A268B5B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoAppIntents.swift; path = Ordo/Intents/OrdoAppIntents.swift; sourceTree = SOURCE_ROOT; };
+		A663747935AC7E4D666F65C0 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AgendaSectionView.swift; path = Ordo/Lists/AgendaSectionView.swift; sourceTree = SOURCE_ROOT; };
+		79A73D88457EA009DC838DAC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CheckboxView.swift; path = Ordo/Lists/CheckboxView.swift; sourceTree = SOURCE_ROOT; };
+		1E3A9EDFFDD1AE1EA98E43D1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GroupHeaderView.swift; path = Ordo/Lists/GroupHeaderView.swift; sourceTree = SOURCE_ROOT; };
+		CE6191E5F9211374D157B75D /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListScreenView.swift; path = Ordo/Lists/ListScreenView.swift; sourceTree = SOURCE_ROOT; };
+		63427A82AE7C993A6F8F68E4 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MetaPillView.swift; path = Ordo/Lists/MetaPillView.swift; sourceTree = SOURCE_ROOT; };
+		B8A60E29FD2134275E0D58CC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SwipeActions.swift; path = Ordo/Lists/SwipeActions.swift; sourceTree = SOURCE_ROOT; };
+		8E823FE04B188B962E1A2816 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TodoRowView.swift; path = Ordo/Lists/TodoRowView.swift; sourceTree = SOURCE_ROOT; };
+		3552895B99467EF776EE61E7 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AuthApi.swift; path = Ordo/Net/AuthApi.swift; sourceTree = SOURCE_ROOT; };
+		D298D572C67FD19B1F3EA868 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoHTTPClient.swift; path = Ordo/Net/OrdoHTTPClient.swift; sourceTree = SOURCE_ROOT; };
+		2A6C38E890844513D73606F6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeClient.swift; path = Ordo/Net/RealtimeClient.swift; sourceTree = SOURCE_ROOT; };
+		DD2FAF928C9504706628DCB3 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = URLSessionSyncApi.swift; path = Ordo/Net/URLSessionSyncApi.swift; sourceTree = SOURCE_ROOT; };
+		71FD3E268A2DCCD4D6D67252 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ReminderScheduler.swift; path = Ordo/Notifications/ReminderScheduler.swift; sourceTree = SOURCE_ROOT; };
+		5B30A50FEA030EC39A6D6E2E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickAddButton.swift; path = Ordo/QuickAdd/QuickAddButton.swift; sourceTree = SOURCE_ROOT; };
+		C72EBE93CF5A2112AF7BA104 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScheduleSheet.swift; path = Ordo/Schedule/ScheduleSheet.swift; sourceTree = SOURCE_ROOT; };
+		87A236DF9FCD6B900F4C0437 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FastFindView.swift; path = Ordo/Search/FastFindView.swift; sourceTree = SOURCE_ROOT; };
+		DDFF16E538A3840FA93A1270 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Ordo/Settings/SettingsView.swift; sourceTree = SOURCE_ROOT; };
+		CC646568F291529B904C1AB4 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoShellView.swift; path = Ordo/Shell/OrdoShellView.swift; sourceTree = SOURCE_ROOT; };
+		B13E89E1D8E64438BA7274D1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShellViewModel.swift; path = Ordo/Shell/ShellViewModel.swift; sourceTree = SOURCE_ROOT; };
+		7A5870C8021887BBAF5099A9 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SidebarView.swift; path = Ordo/Shell/SidebarView.swift; sourceTree = SOURCE_ROOT; };
+		8469D5BC9CA490CED5733ED1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StatusBarView.swift; path = Ordo/Shell/StatusBarView.swift; sourceTree = SOURCE_ROOT; };
+		64137C3AD845DD32ABFB2B58 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncCoordinator.swift; path = Ordo/Sync/SyncCoordinator.swift; sourceTree = SOURCE_ROOT; };
+		5012B9ECED3782978D2EB1DC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NlpParsingTests.swift; path = OrdoTests/NlpParsingTests.swift; sourceTree = SOURCE_ROOT; };
+		1B4DACFC5B04EE29ED12A8FC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoTestSupport.swift; path = OrdoTests/OrdoTestSupport.swift; sourceTree = SOURCE_ROOT; };
+		364D0E789C4CFC11D704181C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QueryRulesTests.swift; path = OrdoTests/QueryRulesTests.swift; sourceTree = SOURCE_ROOT; };
+		4EA973DE77F98BAAF0CC742F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RepeatEngineTests.swift; path = OrdoTests/RepeatEngineTests.swift; sourceTree = SOURCE_ROOT; };
+		6180A500789190B0C10F9825 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncMergeTests.swift; path = OrdoTests/SyncMergeTests.swift; sourceTree = SOURCE_ROOT; };
+		0CD3EC18796A47DC70E540B6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Ordo/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		1D5B3FFBBD3D85CB161E92EA /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Config/Info.plist; sourceTree = SOURCE_ROOT; };
+		C887D190F63504AA8159D51C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Ordo.entitlements; path = Config/Ordo.entitlements; sourceTree = SOURCE_ROOT; };
+		84337AD8D27FCD69AF2C4FC2 /* PBXFileReference */ = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ordo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DFDED23FA58339F9273F6C84 /* PBXFileReference */ = { isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrdoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6EFAB1ECC0D092E20FE51FCD /* PBXFrameworksBuildPhase */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		54AB89D79F92BD2966E41BD8 /* PBXFrameworksBuildPhase */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		65339988DF48EC4F9638CD1A /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				689DB79FCE5B63390645FA9B,
+				A512AF9A67C85E55345A21F1,
+				032DEBDC81A0638AA4858B15,
+			)
+name = App
+sourceTree = "<group>"
+		};
+		3F191EDCC6AF7037686AA84E /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				2B071FB8DD2891329F94063E,
+				12A43E868050FDA9083A80BB,
+				054ED79BD05642DA32321EB6,
+				2191129DFE497104D6B94CA7,
+			)
+name = Common
+sourceTree = "<group>"
+		};
+		E87FA896042AC0496220A869 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				590F07773A9BFAC3CC53733E,
+				89AE6CF3472479B52916D0F3,
+				A1C2C24F837F0C741D2B2501,
+				934A66FAC3C28F3D62193F5B,
+				55477FF8B2A550F3B210A64F,
+				D239E8D33AF1D1D5457B8DE1,
+				1CE17B2C010EF93C74FC925B,
+				147C7C99CFC4FFA1D968999A,
+				BE384C4F03EE6952D6279A0C,
+				8F73D4A4B3EFBF7E5969BD06,
+			)
+name = Core
+sourceTree = "<group>"
+		};
+		354625C7EF37E0C260E04AB7 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				80AB3012DE38D610D90013FB,
+				E1CB9B741C0EE5273A41EDD4,
+				1F0C633278186EB0FFA84080,
+				9B3FA54BAACDE27C03B880F1,
+			)
+name = Data
+sourceTree = "<group>"
+		};
+		09827406B670DA48DDCBC177 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				93A27583A2C673C638F6D6B9,
+				1583ADC0337F6AD872941BAD,
+				BAC631909C6C51357282E0B1,
+				0D27725885AFA176D9F666D8,
+				394F1058196DD1219D7D46F2,
+			)
+name = DesignSystem
+sourceTree = "<group>"
+		};
+		48DDDB0A39FFA5BF1F1DD937 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				998117899D03A8C95FE5A078,
+			)
+name = Detail
+sourceTree = "<group>"
+		};
+		1AC6629169DF17E47AF0BA63 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				CA67E3511D1676351A268B5B,
+			)
+name = Intents
+sourceTree = "<group>"
+		};
+		D3F3881A4F096E5E4114E8F4 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				A663747935AC7E4D666F65C0,
+				79A73D88457EA009DC838DAC,
+				1E3A9EDFFDD1AE1EA98E43D1,
+				CE6191E5F9211374D157B75D,
+				63427A82AE7C993A6F8F68E4,
+				B8A60E29FD2134275E0D58CC,
+				8E823FE04B188B962E1A2816,
+			)
+name = Lists
+sourceTree = "<group>"
+		};
+		4A8DFD1391BF0A89CFAFC45A /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				3552895B99467EF776EE61E7,
+				D298D572C67FD19B1F3EA868,
+				2A6C38E890844513D73606F6,
+				DD2FAF928C9504706628DCB3,
+			)
+name = Net
+sourceTree = "<group>"
+		};
+		E426C5FF743995FA3CA114AE /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				71FD3E268A2DCCD4D6D67252,
+			)
+name = Notifications
+sourceTree = "<group>"
+		};
+		64F147ADBA045C8EC936CFE5 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				5B30A50FEA030EC39A6D6E2E,
+			)
+name = QuickAdd
+sourceTree = "<group>"
+		};
+		415EBA9C9FEA5F8EB1873238 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				C72EBE93CF5A2112AF7BA104,
+			)
+name = Schedule
+sourceTree = "<group>"
+		};
+		1DE4324E1FE1FD2911028923 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				87A236DF9FCD6B900F4C0437,
+			)
+name = Search
+sourceTree = "<group>"
+		};
+		3D4640021922A53B12B5402C /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				DDFF16E538A3840FA93A1270,
+			)
+name = Settings
+sourceTree = "<group>"
+		};
+		89C6211BE0B89C6C3F4D77D5 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				CC646568F291529B904C1AB4,
+				B13E89E1D8E64438BA7274D1,
+				7A5870C8021887BBAF5099A9,
+				8469D5BC9CA490CED5733ED1,
+			)
+name = Shell
+sourceTree = "<group>"
+		};
+		B8D09932699A6A838E8F726A /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				64137C3AD845DD32ABFB2B58,
+			)
+name = Sync
+sourceTree = "<group>"
+		};
+		864BC9B143F6AD35AF62578F /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				65339988DF48EC4F9638CD1A,
+				3F191EDCC6AF7037686AA84E,
+				E87FA896042AC0496220A869,
+				354625C7EF37E0C260E04AB7,
+				09827406B670DA48DDCBC177,
+				48DDDB0A39FFA5BF1F1DD937,
+				1AC6629169DF17E47AF0BA63,
+				D3F3881A4F096E5E4114E8F4,
+				4A8DFD1391BF0A89CFAFC45A,
+				E426C5FF743995FA3CA114AE,
+				64F147ADBA045C8EC936CFE5,
+				415EBA9C9FEA5F8EB1873238,
+				1DE4324E1FE1FD2911028923,
+				3D4640021922A53B12B5402C,
+				89C6211BE0B89C6C3F4D77D5,
+				B8D09932699A6A838E8F726A,
+				0CD3EC18796A47DC70E540B6,
+			)
+name = Ordo
+sourceTree = "<group>"
+		};
+		54999A26ABE60AC854EA670A /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				5012B9ECED3782978D2EB1DC,
+				1B4DACFC5B04EE29ED12A8FC,
+				364D0E789C4CFC11D704181C,
+				4EA973DE77F98BAAF0CC742F,
+				6180A500789190B0C10F9825,
+			)
+name = OrdoTests
+sourceTree = "<group>"
+		};
+		BD13AA3ACFF3D0C2ED6E4720 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				1D5B3FFBBD3D85CB161E92EA,
+				C887D190F63504AA8159D51C,
+			)
+name = Config
+sourceTree = "<group>"
+		};
+		2F3A6B1E78F896718625FF06 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				84337AD8D27FCD69AF2C4FC2,
+				DFDED23FA58339F9273F6C84,
+			)
+name = Products
+sourceTree = "<group>"
+		};
+		B9340614599AB78F485950C7 /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				864BC9B143F6AD35AF62578F,
+				54999A26ABE60AC854EA670A,
+				BD13AA3ACFF3D0C2ED6E4720,
+				2F3A6B1E78F896718625FF06,
+			)
+sourceTree = "<group>"
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E3435DDA2687639586BF0B70 /* PBXNativeTarget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1D97B77EAD2380603A3F2A82;
+			buildPhases = (
+				747876391813CD290D7BFE59,
+				4821909E9BF9E73E471FEA84,
+				6EFAB1ECC0D092E20FE51FCD,
+				F667297ED3AB90EAC07798D4,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Ordo;
+			productName = Ordo;
+			productReference = 84337AD8D27FCD69AF2C4FC2;
+			productType = "com.apple.product-type.application";
+		};
+		A700229C3AC2DAE057FE5B27 /* PBXNativeTarget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0F471B4923D46E58DCE40A0E;
+			buildPhases = (
+				BDA9E329ACCE0E746140CA84,
+				54AB89D79F92BD2966E41BD8,
+				25B7C02526925672442B0E39,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5A0AB56B64A077C4F9DAD608,
+			);
+			name = OrdoTests;
+			productName = OrdoTests;
+			productReference = DFDED23FA58339F9273F6C84;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		46F86FAA6BBF9AC94A7E4595 /* PBXProject */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					E3435DDA2687639586BF0B70 = { CreatedOnToolsVersion = 16.0; };
+					A700229C3AC2DAE057FE5B27 = { CreatedOnToolsVersion = 16.0; TestTargetID = E3435DDA2687639586BF0B70; };
+				};
+			};
+			buildConfigurationList = 1F4E3D13C2320EDA50221924;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = "zh-Hans";
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				"zh-Hans",
+				en,
+				Base,
+			);
+			mainGroup = B9340614599AB78F485950C7;
+			productRefGroup = 2F3A6B1E78F896718625FF06;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E3435DDA2687639586BF0B70,
+				A700229C3AC2DAE057FE5B27,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F667297ED3AB90EAC07798D4 /* PBXResourcesBuildPhase */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DB249DB9D0FF833647E29581,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		25B7C02526925672442B0E39 /* PBXResourcesBuildPhase */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		747876391813CD290D7BFE59 /* PBXShellScriptBuildPhase */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build KMP OrdoCore framework";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "cd \"$SRCROOT/../../shared/core\"\n./gradlew :shared:core:embedAndSignAppleFrameworkForXcode\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		4821909E9BF9E73E471FEA84 /* PBXSourcesBuildPhase */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C8A40F4E0650574887849B0F,
+				11F88A7062B4F92CB81070CC,
+				6E03E7A757519618B699F566,
+				48FB3EB9565D1DD762F411C1,
+				5B5A6FE1A9D3661275F83D1F,
+				E4BFE86E53084F6A2B5B6060,
+				5D2670713ABFB74C028D2723,
+				FB35FEBB4300381F40B9CE93,
+				22E0F0765677856E796B0E07,
+				B1628DF0006410C1E66FF728,
+				3AA955100A513EB267382150,
+				7FE85EF90E31FAF895CB9C34,
+				551E34820ABA1EEBDC5E9B09,
+				2210CDF2CC66AA2ACE552270,
+				161456395271F7D20C1D13A5,
+				C4BF9D6E3D783E8D273FE2B1,
+				1CBD1421B67E7DDC09EA34A9,
+				8AC7F1760CBE494CEBAA834B,
+				09337F515A8DB0AD9F20DB8F,
+				36D2DCA0388F3039FC81C075,
+				3B8297AE609C1A8CD6F5C603,
+				DE6F598214DACB6A55DE3956,
+				A566BCD1C4D5CF6D9F3C7FF2,
+				3C176259EA5A81665A7FD44D,
+				F3AB5C0F83E6C5E3E45CE38A,
+				3E95A0EDFE9BBDA382437A1B,
+				1C3D74BC5403D76BA48A5B86,
+				B808B439C35CE47EBC40679E,
+				484C54F57557E4F96F190C52,
+				D810BC66A1995A59A6B6418C,
+				52C7C341B4AE620C7BF954C2,
+				3A298C91ED1BBACDC0BB95E7,
+				A3D88480B24A2688F9726ED0,
+				F7ED454DF2B036E5BA6887E4,
+				935B4F0911E34B572A4DF074,
+				1873D22831AA8F0387851620,
+				92EBAF8508AB98B60385F918,
+				6E7E900979B632E0D5249D48,
+				F5CBB19C47F38700C30D72A1,
+				1B6DD8EDD3A47C2E746CDD84,
+				C5B73A9361F2DF842FCDEA6A,
+				E86C738F2CF96A9F0406D0DC,
+				63078BD257D1AB6FB1AF3EF2,
+				DD0C7D6E5EE50766CF2ADABD,
+				8CDDDAC29F0704E52284D9CE,
+				060D8D230BE178CE246892D4,
+				802EAACC4ABA1C8C6E881535,
+				E3269373AD6954B16A41EF82,
+				13AC0155FD5CC4420DAC702B,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BDA9E329ACCE0E746140CA84 /* PBXSourcesBuildPhase */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				97837162CF2D7ECD2B4E38F4,
+				39D5641BA6B4CDCB31F139C2,
+				075C2E2DE42048B46ECBCC56,
+				FD65D95EEF49CC916804A231,
+				CF8400DB07A04209702586DB,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5A0AB56B64A077C4F9DAD608 /* PBXTargetDependency */ = { isa = PBXTargetDependency; target = E3435DDA2687639586BF0B70; targetProxy = 193D0A8035DE97CF1A3652FD; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		4A43692AD8BCEEB8B727C85B /* XCBuildConfiguration */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_MODULE_VERIFIER = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		C28449456A5A705A7479770B /* XCBuildConfiguration */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_MODULE_VERIFIER = NO;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		0615050D04BD2DC4E6CFFAFF /* XCBuildConfiguration */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/Ordo.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../shared/core/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					OrdoCore,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ordo.app;
+				PRODUCT_NAME = Ordo;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		2761849A6D0E26CA4E1817A1 /* XCBuildConfiguration */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/Ordo.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../shared/core/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
+				);
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Config/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					OrdoCore,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ordo.app;
+				PRODUCT_NAME = Ordo;
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		FC45C70AF9BBBC9692F6FCD0 /* XCBuildConfiguration */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../shared/core/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					OrdoCore,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ordo.app.tests;
+				PRODUCT_NAME = OrdoTests;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ordo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ordo";
+			};
+			name = Debug;
+		};
+		3B9DBBBF25E35C4FAE79C30C /* XCBuildConfiguration */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/../../shared/core/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)",
+				);
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0.0;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					OrdoCore,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ordo.app.tests;
+				PRODUCT_NAME = OrdoTests;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Ordo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Ordo";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1F4E3D13C2320EDA50221924 /* XCConfigurationList */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4A43692AD8BCEEB8B727C85B,
+				C28449456A5A705A7479770B,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1D97B77EAD2380603A3F2A82 /* XCConfigurationList */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0615050D04BD2DC4E6CFFAFF,
+				2761849A6D0E26CA4E1817A1,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0F471B4923D46E58DCE40A0E /* XCConfigurationList */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FC45C70AF9BBBC9692F6FCD0,
+				3B9DBBBF25E35C4FAE79C30C,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 46F86FAA6BBF9AC94A7E4595 /* Project object */;
+}

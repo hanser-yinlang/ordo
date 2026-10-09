@@ -1,0 +1,558 @@
+package com.ordo.android.ui.common
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Canvas
+import com.ordo.android.ui.theme.OrdoElevation
+import com.ordo.android.ui.theme.OrdoLayout
+import com.ordo.android.ui.theme.OrdoMotion
+import com.ordo.android.ui.theme.OrdoRadius
+import com.ordo.android.ui.theme.OrdoSpace
+import com.ordo.android.ui.theme.OrdoTheme
+
+/* ============================== 基础容器 ============================== */
+
+@Composable
+fun OrdoDivider(modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(OrdoTheme.colors.hairline),
+    )
+}
+
+@Composable
+fun OrdoScrim(onClick: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(OrdoTheme.colors.scrim)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = onClick,
+            ),
+    )
+}
+
+/* ============================== 按钮 ============================== */
+
+@Composable
+fun OrdoIconButton(
+    kind: OrdoIconKind,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    tint: Color = OrdoTheme.colors.textSecondary,
+    size: Dp = OrdoLayout.touchTarget,
+    iconSize: Dp = 18.dp,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.92f else 1f,
+        animationSpec = tween(OrdoMotion.PRESS, easing = OrdoMotion.easing),
+        label = "icon-button-press",
+    )
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .scale(scale),
+        contentAlignment = Alignment.Center,
+    ) {
+        OrdoIcon(kind = kind, size = iconSize, tint = tint)
+    }
+}
+
+@Composable
+fun OrdoButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    danger: Boolean = false,
+) {
+    val colors = OrdoTheme.colors
+    val background = when {
+        danger -> colors.danger
+        primary -> colors.accent
+        else -> Color.Transparent
+    }
+    val content = when {
+        danger || primary -> colors.onAccent
+        else -> colors.textPrimary
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(OrdoRadius.pill))
+            .background(background)
+            .then(
+                if (primary || danger) Modifier else Modifier.border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.pill)),
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = OrdoSpace.l, vertical = OrdoSpace.s),
+    ) {
+        Text(text = label, style = OrdoTheme.type.caption, color = content)
+    }
+}
+
+/* ============================== 输入框 ============================== */
+
+@Composable
+fun OrdoTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    singleLine: Boolean = true,
+    textStyle: TextStyle = OrdoTheme.type.body,
+    onSubmit: (() -> Unit)? = null,
+) {
+    val colors = OrdoTheme.colors
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(OrdoRadius.row))
+            .background(colors.surface)
+            .border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.row))
+            .padding(horizontal = OrdoSpace.m, vertical = OrdoSpace.s),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        if (value.isEmpty()) {
+            Text(text = placeholder, style = textStyle, color = colors.textTertiary)
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = singleLine,
+            textStyle = textStyle.copy(color = colors.textPrimary),
+            cursorBrush = SolidColor(colors.accent),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                imeAction = if (singleLine) androidx.compose.ui.text.input.ImeAction.Done
+                else androidx.compose.ui.text.input.ImeAction.Default,
+            ),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                onDone = { onSubmit?.invoke() },
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+/* ============================== 标签 / 元信息 ============================== */
+
+@Composable
+fun TagChip(
+    name: String,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val colors = OrdoTheme.colors
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(OrdoRadius.pill))
+            .background(colors.chipBg)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Text(text = name, style = OrdoTheme.type.micro, color = colors.chipText)
+    }
+}
+
+enum class MetaTone { NORMAL, DANGER, ACCENT, TONIGHT }
+
+@Composable
+fun MetaPill(
+    text: String,
+    icon: OrdoIconKind? = null,
+    tone: MetaTone = MetaTone.NORMAL,
+    modifier: Modifier = Modifier,
+) {
+    val colors = OrdoTheme.colors
+    val tint = when (tone) {
+        MetaTone.NORMAL -> colors.textSecondary
+        MetaTone.DANGER -> colors.danger
+        MetaTone.ACCENT -> colors.accent
+        MetaTone.TONIGHT -> colors.tonight
+    }
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        if (icon != null) {
+            OrdoIcon(kind = icon, size = OrdoLayout.metaIconSize, tint = tint, strokeWidth = 1.5f)
+        }
+        Text(text = text, style = OrdoTheme.type.caption, color = tint)
+    }
+}
+
+/* ============================== 进度环 ============================== */
+
+@Composable
+fun ProgressRing(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    size: Dp = OrdoLayout.projectRingSize,
+    strokeWidth: Dp = 2.dp,
+    tint: Color = OrdoTheme.colors.accent,
+    trackTint: Color = OrdoTheme.colors.hairline,
+    pulse: Boolean = false,
+) {
+    val animated by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(OrdoMotion.BASE, easing = OrdoMotion.easing),
+        label = "progress-ring",
+    )
+    val pulseScale by animateFloatAsState(
+        targetValue = if (pulse && animated >= 1f) 1.15f else 1f,
+        animationSpec = tween(OrdoMotion.BASE, easing = OrdoMotion.easing),
+        label = "progress-pulse",
+    )
+    Canvas(modifier = modifier.size(size).scale(pulseScale)) {
+        val stroke = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round)
+        val inset = stroke.width / 2f
+        val arcSize = Size(this.size.width - stroke.width, this.size.height - stroke.width)
+        drawArc(
+            color = trackTint,
+            startAngle = 0f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = Offset(inset, inset),
+            size = arcSize,
+            style = stroke,
+        )
+        if (animated > 0f) {
+            drawArc(
+                color = tint,
+                startAngle = -90f,
+                sweepAngle = 360f * animated,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = stroke,
+            )
+        }
+    }
+}
+
+/* ============================== 圆形复选框 ============================== */
+
+@Composable
+fun OrdoCheckbox(
+    checked: Boolean,
+    onToggle: () -> Unit,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    canceled: Boolean = false,
+    size: Dp = OrdoLayout.checkboxSize,
+) {
+    val colors = OrdoTheme.colors
+    val fill by animateColorAsState(
+        targetValue = when {
+            canceled -> Color.Transparent
+            checked -> colors.accent
+            else -> Color.Transparent
+        },
+        animationSpec = tween(OrdoMotion.FAST, easing = OrdoMotion.easing),
+        label = "checkbox-fill",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            canceled -> colors.danger
+            checked -> colors.accent
+            else -> colors.checkboxStroke
+        },
+        animationSpec = tween(OrdoMotion.FAST, easing = OrdoMotion.easing),
+        label = "checkbox-border",
+    )
+    val tickAlpha by animateFloatAsState(
+        targetValue = if (checked && !canceled) 1f else 0f,
+        animationSpec = tween(OrdoMotion.FAST, easing = OrdoMotion.easing),
+        label = "checkbox-tick",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (checked) 1.04f else 1f,
+        animationSpec = tween(OrdoMotion.FILL, easing = OrdoMotion.easing),
+        label = "checkbox-scale",
+    )
+
+    Box(
+        modifier = modifier
+            .size(OrdoLayout.touchTarget)
+            .clip(CircleShape)
+            .clickable(onClick = onToggle),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(size)
+                .scale(scale)
+                .clip(CircleShape)
+                .background(fill)
+                .border(1.6.dp, borderColor, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (tickAlpha > 0.01f) {
+                OrdoIcon(
+                    kind = OrdoIconKind.Check,
+                    size = size * 0.7f,
+                    tint = colors.onAccent.copy(alpha = tickAlpha),
+                    strokeWidth = 2.2f,
+                )
+            }
+            if (canceled) {
+                Canvas(Modifier.size(size)) {
+                    drawLine(
+                        color = colors.danger,
+                        start = Offset(this.size.width * 0.25f, this.size.height * 0.75f),
+                        end = Offset(this.size.width * 0.75f, this.size.height * 0.25f),
+                        strokeWidth = 1.6.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/* ============================== 空状态 ============================== */
+
+@Composable
+fun EmptyState(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    val colors = OrdoTheme.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = OrdoSpace.xxl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Canvas(Modifier.size(64.dp)) {
+            val stroke = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawArc(
+                color = colors.textTertiary,
+                startAngle = -60f,
+                sweepAngle = 300f,
+                useCenter = false,
+                topLeft = Offset(size.width * 0.16f, size.height * 0.16f),
+                size = Size(size.width * 0.68f, size.height * 0.68f),
+                style = stroke,
+            )
+            drawLine(
+                color = colors.textTertiary,
+                start = Offset(size.width * 0.38f, size.height * 0.5f),
+                end = Offset(size.width * 0.62f, size.height * 0.5f),
+                strokeWidth = 2.dp.toPx(),
+                cap = StrokeCap.Round,
+            )
+        }
+        Spacer(Modifier.height(OrdoSpace.l))
+        Text(text = title, style = OrdoTheme.type.title, color = colors.textPrimary)
+        Spacer(Modifier.height(OrdoSpace.xs))
+        Text(text = subtitle, style = OrdoTheme.type.caption, color = colors.textSecondary)
+        if (actionLabel != null && onAction != null) {
+            Spacer(Modifier.height(OrdoSpace.l))
+            OrdoButton(label = actionLabel, onClick = onAction, primary = true)
+        }
+    }
+}
+
+/* ============================== Toast ============================== */
+
+@Composable
+fun OrdoToastHost(
+    message: String?,
+    modifier: Modifier = Modifier,
+) {
+    if (message == null) return
+    val colors = OrdoTheme.colors
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = OrdoSpace.xl),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Box(
+            Modifier
+                .clip(RoundedCornerShape(OrdoRadius.pill))
+                .background(colors.surface, RoundedCornerShape(OrdoRadius.pill))
+                .border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.pill))
+                .padding(horizontal = OrdoSpace.l, vertical = OrdoSpace.s),
+        ) {
+            Text(text = message, style = OrdoTheme.type.caption, color = colors.textPrimary)
+        }
+    }
+}
+
+/* ============================== 浮层容器 ============================== */
+
+@Composable
+fun OrdoPopover(
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    width: Dp = OrdoLayout.sheetWidth,
+    content: @Composable () -> Unit,
+) {
+    val colors = OrdoTheme.colors
+    OrdoScrim(onClick = onDismiss)
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(OrdoSpace.l),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .width(width)
+                .clip(RoundedCornerShape(OrdoRadius.card))
+                .background(colors.surface)
+                .border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.card))
+                .padding(OrdoSpace.m),
+        ) {
+            content()
+        }
+    }
+}
+
+/* ============================== Markdown 预览 ============================== */
+
+@Composable
+fun MarkdownPreview(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    val colors = OrdoTheme.colors
+    Column(modifier) {
+        text.split("\n").forEach { rawLine ->
+            val line = rawLine.trimEnd()
+            when {
+                line.startsWith("### ") -> MarkdownLine(line.removePrefix("### "), OrdoTheme.type.caption, colors.textPrimary, FontWeight.SemiBold)
+                line.startsWith("## ") -> MarkdownLine(line.removePrefix("## "), OrdoTheme.type.body, colors.textPrimary, FontWeight.SemiBold)
+                line.startsWith("# ") -> MarkdownLine(line.removePrefix("# "), OrdoTheme.type.title, colors.textPrimary, FontWeight.SemiBold)
+                line.startsWith("- ") || line.startsWith("* ") -> Row(
+                    Modifier.padding(vertical = 1.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(text = "•", style = OrdoTheme.type.body, color = colors.textSecondary)
+                    Spacer(Modifier.width(OrdoSpace.s))
+                    MarkdownLine(line.substring(2), OrdoTheme.type.body, colors.textPrimary, FontWeight.Normal)
+                }
+                line.isBlank() -> Spacer(Modifier.height(OrdoSpace.xs))
+                else -> MarkdownLine(line, OrdoTheme.type.body, colors.textPrimary, FontWeight.Normal)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownLine(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    weight: FontWeight,
+) {
+    val colors = OrdoTheme.colors
+    val annotated = remember(text, color, weight) {
+        buildInlineMarkdown(text, color, colors.accent, colors.chipBg)
+    }
+    Text(text = annotated, style = style.copy(fontWeight = weight))
+}
+
+private fun buildInlineMarkdown(
+    text: String,
+    textColor: Color,
+    accent: Color,
+    codeBackground: Color,
+): AnnotatedString = buildAnnotatedString {
+    var index = 0
+    val pattern = Regex("\\*\\*(.+?)\\*\\*|`(.+?)`|\\[(.+?)]\\((.+?)\\)")
+    pattern.findAll(text).forEach { match ->
+        if (match.range.first > index) {
+            append(text.substring(index, match.range.first))
+        }
+        val bold = match.groupValues[1]
+        val code = match.groupValues[2]
+        val linkLabel = match.groupValues[3]
+        when {
+            bold.isNotEmpty() -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = textColor)) { append(bold) }
+            code.isNotEmpty() -> withStyle(
+                SpanStyle(fontFamily = FontFamily.Monospace, background = codeBackground, color = textColor),
+            ) { append(code) }
+            linkLabel.isNotEmpty() -> withStyle(
+                SpanStyle(color = accent, textDecoration = TextDecoration.Underline),
+            ) { append(linkLabel) }
+        }
+        index = match.range.last + 1
+    }
+    if (index < text.length) append(text.substring(index))
+}
+
+/* ============================== 阴影容器 ============================== */
+
+@Composable
+fun OrdoCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val colors = OrdoTheme.colors
+    Box(
+        modifier
+            .clip(RoundedCornerShape(OrdoRadius.card))
+            .background(colors.surface)
+            .border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.card)),
+    ) {
+        content()
+    }
+}

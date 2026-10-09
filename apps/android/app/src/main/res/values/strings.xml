@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">序</string>
+    <string name="app_slogan">把今天理清楚</string>
+
+    <!-- 侧栏 / 派生清单 -->
+    <string name="nav_inbox">收件箱</string>
+    <string name="nav_today">今天</string>
+    <string name="nav_upcoming">计划</string>
+    <string name="nav_anytime">随时</string>
+    <string name="nav_someday">某天</string>
+    <string name="nav_logbook">日志簿</string>
+    <string name="nav_section_areas">区域</string>
+    <string name="nav_section_tags">标签</string>
+    <string name="nav_settings">设置</string>
+    <string name="nav_open_sidebar">打开侧栏</string>
+    <string name="nav_close_sidebar">关闭侧栏</string>
+
+    <!-- 日期与时序词汇 -->
+    <string name="date_today">今天</string>
+    <string name="date_tomorrow">明天</string>
+    <string name="date_after_tomorrow">后天</string>
+    <string name="date_yesterday">昨天</string>
+    <string name="month_day">%1$d月%2$d日</string>
+    <string name="year_month">%1$d年%2$d月</string>
+    <string name="day_with_week">%1$s · %2$s</string>
+    <string name="weekday_mon">周一</string>
+    <string name="weekday_tue">周二</string>
+    <string name="weekday_wed">周三</string>
+    <string name="weekday_thu">周四</string>
+    <string name="weekday_fri">周五</string>
+    <string name="weekday_sat">周六</string>
+    <string name="weekday_sun">周日</string>
+
+    <!-- 分区 -->
+    <string name="section_today_agenda">日程</string>
+    <string name="section_tonight">今晚</string>
+    <string name="section_later">更晚</string>
+    <string name="section_untitled_group">未分组</string>
+
+    <!-- 副标题 / 状态栏 -->
+    <string name="subtitle_today">今天 · %1$d 项</string>
+    <string name="subtitle_upcoming">未来 14 天 · %1$d 项</string>
+    <string name="subtitle_logbook">已完成 · %1$d 项</string>
+    <string name="subtitle_project">完成 %1$d%% · 未完成 %2$d 项</string>
+    <string name="subtitle_count">%1$d 项</string>
+    <string name="status_counts">共 %1$d 项 · 已完成 %2$d 项</string>
+    <string name="sync_idle">已同步</string>
+    <string name="sync_syncing">同步中</string>
+    <string name="sync_offline">离线</string>
+    <string name="sync_failed">同步失败</string>
+    <string name="sync_never">未登录</string>
+
+    <!-- 快找 -->
+    <string name="fastfind_hint">搜索待办、项目、区域、标签</string>
+    <string name="fastfind_empty">没有找到结果</string>
+    <string name="fastfind_hint_keys">↑↓ 选择 · 回车直达 · Esc 关闭</string>
+    <string name="fastfind_project">项目</string>
+
+    <!-- 待办行 / 列表 -->
+    <string name="row_checkbox_desc">标记完成：%1$s</string>
+    <string name="row_schedule_desc">安排时间</string>
+    <string name="row_restore_desc">恢复为未完成</string>
+    <string name="row_tag_desc">标签：%1$s</string>
+    <string name="row_reminder_desc">提醒 %1$s</string>
+    <string name="row_deadline_desc">截止 %1$s</string>
+    <string name="row_overdue">已逾期</string>
+    <string name="row_repeat_desc">重复</string>
+    <string name="row_note_desc">含备注</string>
+    <string name="row_checklist_progress">%1$d/%2$d</string>
+    <string name="row_show_completed">显示已完成</string>
+    <string name="row_hide_completed">只看未完成</string>
+    <string name="composer_hint">新待办（试试「明天 交报告 #重要」）</string>
+    <string name="composer_new_heading">新建标题</string>
+    <string name="heading_default_name">新标题</string>
+    <string name="composer_heading_hint">标题名称</string>
+    <string name="progress_desc">完成度 %1$d%%</string>
+    <string name="project_complete">完成项目</string>
+    <string name="heading_collapse">折叠/展开标题</string>
+
+    <!-- 空状态 -->
+    <string name="empty_inbox_title">收件箱是空的</string>
+    <string name="empty_inbox_sub">想到什么就先丢进来，稍后再决定什么时候做</string>
+    <string name="empty_today_title">今天还没有安排</string>
+    <string name="empty_today_sub">从「随时」或「收件箱」里挑几件放进今天</string>
+    <string name="empty_upcoming_title">未来两周是空的</string>
+    <string name="empty_upcoming_sub">给待办排个日期，它们会出现在这里</string>
+    <string name="empty_anytime_title">随时清单是空的</string>
+    <string name="empty_anytime_sub">没有排期、但随时能做的事会放在这里</string>
+    <string name="empty_someday_title">某天清单是空的</string>
+    <string name="empty_someday_sub">暂时不确定什么时候做的事，先放这里</string>
+    <string name="empty_logbook_title">日志簿是空的</string>
+    <string name="empty_logbook_sub">完成或取消的待办会归档到这里</string>
+    <string name="empty_project_title">项目里还没有待办</string>
+    <string name="empty_project_sub">用快加号添加第一条，或用标题分组</string>
+    <string name="empty_search_title">输入关键词开始搜索</string>
+    <string name="empty_search_sub">标题与备注都会被检索</string>
+    <string name="empty_generic_sub">点右下角的快加号新建第一条</string>
+
+    <!-- 详情卡片 -->
+    <string name="detail_title_hint">标题</string>
+    <string name="detail_note_hint">备注（支持 # 标题、- 列表、**加粗**、`代码`）</string>
+    <string name="detail_when">何时：%1$s</string>
+    <string name="detail_when_empty">何时</string>
+    <string name="detail_deadline">截止：%1$s</string>
+    <string name="detail_deadline_empty">截止日期</string>
+    <string name="detail_reminder">提醒：%1$s</string>
+    <string name="detail_reminder_empty">提醒</string>
+    <string name="detail_repeat">重复：%1$s</string>
+    <string name="detail_repeat_empty">重复</string>
+    <string name="detail_move">移动到：%1$s</string>
+    <string name="detail_move_empty">移动到…</string>
+    <string name="detail_add_tag">加标签</string>
+    <string name="detail_remove_tag">移除标签 %1$s</string>
+    <string name="detail_checklist">清单</string>
+    <string name="detail_add_checklist_item">新清单项</string>
+    <string name="detail_delete_item">删除清单项</string>
+    <string name="detail_duplicate">复制</string>
+    <string name="detail_delete">删除</string>
+    <string name="detail_close">关闭</string>
+    <string name="detail_no_project">无项目</string>
+    <string name="detail_markdown_preview">备注预览</string>
+
+    <!-- 排期面板 -->
+    <string name="schedule_nl_hint">试试「明天」「周五」「18:00」</string>
+    <string name="schedule_pick_date">选择日期</string>
+    <string name="schedule_clear">清除时间</string>
+    <string name="schedule_clear_deadline">清除截止日期</string>
+    <string name="schedule_prev_month">上个月</string>
+    <string name="schedule_next_month">下个月</string>
+    <string name="schedule_month_title">%1$d 年 %2$d 月</string>
+    <string name="schedule_deadline_title">截止日期</string>
+    <string name="schedule_reminder_title">提醒时间</string>
+    <string name="schedule_reminder_apply">按此时间提醒</string>
+    <string name="schedule_reminder_clear">清除提醒</string>
+    <string name="schedule_tomorrow">明天</string>
+    <string name="schedule_weekend">本周末</string>
+
+    <!-- 重复 -->
+    <string name="repeat_none">不重复</string>
+    <string name="repeat_daily">每天</string>
+    <string name="repeat_weekly">每周</string>
+    <string name="repeat_monthly">每月</string>
+    <string name="repeat_yearly">每年</string>
+    <string name="repeat_after_completion">%1$s（完成后）</string>
+
+    <!-- 快加号 -->
+    <string name="quickadd_desc">快加号</string>
+    <string name="quickadd_todo">新建待办</string>
+    <string name="quickadd_project">新建项目</string>
+    <string name="quickadd_area">新建区域</string>
+    <string name="quickadd_heading">新建标题</string>
+    <string name="quickadd_project_hint">项目名称</string>
+    <string name="quickadd_area_hint">区域名称</string>
+
+    <!-- 设置 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_appearance_desc">跟随系统、浅色或深色</string>
+    <string name="settings_theme_auto">自动</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_dark">深色</string>
+    <string name="settings_data">数据</string>
+    <string name="settings_data_desc">共 %1$d 项 · 本地 Room 数据库</string>
+    <string name="settings_reset">重置为示例数据</string>
+    <string name="settings_reset_confirm">将清空本地数据并恢复示例内容，确定吗？</string>
+    <string name="settings_account">账号</string>
+    <string name="settings_login">登录</string>
+    <string name="settings_register">注册</string>
+    <string name="settings_logout">退出登录</string>
+    <string name="settings_email">邮箱</string>
+    <string name="settings_password">密码（至少 8 位）</string>
+    <string name="settings_device_name">设备名称</string>
+    <string name="settings_server">服务器地址</string>
+    <string name="settings_server_save">保存服务器地址</string>
+    <string name="settings_sync_now">立即同步</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_about_desc">序 Ordo · Android 1.0.0 · 把今天理清楚</string>
+
+    <!-- 通用 -->
+    <string name="common_cancel">取消</string>
+    <string name="common_confirm">确定</string>
+    <string name="common_delete">删除</string>
+    <string name="common_retry">重试</string>
+    <string name="common_done">完成</string>
+    <string name="common_save">保存</string>
+    <string name="common_more">更多操作</string>
+    <string name="common_search">快找</string>
+    <string name="common_back">返回</string>
+    <string name="toast_deleted">已删除</string>
+    <string name="toast_duplicated">已复制</string>
+    <string name="toast_restored">已恢复</string>
+    <string name="toast_reset">已重置为示例数据</string>
+    <string name="toast_project_completed">项目已完成</string>
+    <string name="toast_project_blocked">还有未完成的待办，无法完成项目</string>
+    <string name="toast_project_created">已新建项目「%1$s」</string>
+    <string name="toast_area_created">已新建区域「%1$s」</string>
+    <string name="toast_todo_created">已添加「%1$s」</string>
+    <string name="toast_reminder_set">提醒已设为 %1$s</string>
+    <string name="toast_sync_done">同步完成</string>
+    <string name="toast_sync_failed">同步失败</string>
+    <string name="toast_storage_memory">本地存储不可用，已降级为内存模式</string>
+    <string name="toast_login_ok">已登录，开始同步</string>
+    <string name="toast_login_failed">登录失败：%1$s</string>
+    <string name="toast_logout">已退出登录（本地数据保留）</string>
+    <string name="toast_server_saved">服务器地址已保存</string>
+
+    <!-- 通知 -->
+    <string name="notif_channel_name">提醒</string>
+    <string name="notif_channel_desc">到点提醒你的待办（序 · Ordo）</string>
+    <string name="notif_title">序 · 提醒</string>
+    <string name="notif_permission_denied">未获得通知权限，提醒无法弹出</string>
+
+    <!-- 日历(只读) -->
+    <string name="agenda_empty">今天没有日历事件</string>
+    <string name="agenda_calendar">日历</string>
+</resources>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  仅用于系统启动窗口（windowBackground / 状态栏）的兜底颜色。
+  应用内的配色一律走 Compose 设计令牌（ui/theme/Tokens.kt，04 文档 §2.1）。
+-->
+<resources>
+    <color name="ordo_boot_canvas">#FBFAF7</color>
+    <color name="ordo_boot_surface">#FFFFFF</color>
+    <color name="ordo_boot_sidebar">#F4F3EF</color>
+    <color name="ordo_boot_accent">#5B5BD6</color>
+    <color name="ordo_boot_text">#1C1B19</color>
+</resources>

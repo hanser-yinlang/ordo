@@ -1,0 +1,140 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Ordo 主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Ordo 主入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "序"
+    },
+    {
+      "name": "reason_internet",
+      "value": "用于在设备之间同步你的待办"
+    },
+    {
+      "name": "reason_notification",
+      "value": "用于在你设定的时间提醒待办"
+    },
+    {
+      "name": "reason_reminder_agent",
+      "value": "用于通过系统代理在你设定的时间弹出待办提醒"
+    },
+    {
+      "name": "tab_inbox",
+      "value": "收件箱"
+    },
+    {
+      "name": "tab_today",
+      "value": "今天"
+    },
+    {
+      "name": "tab_upcoming",
+      "value": "计划"
+    },
+    {
+      "name": "tab_anytime",
+      "value": "随时"
+    },
+    {
+      "name": "tab_someday",
+      "value": "某天"
+    },
+    {
+      "name": "tab_logbook",
+      "value": "日志簿"
+    },
+    {
+      "name": "sync_idle",
+      "value": "已同步"
+    },
+    {
+      "name": "sync_syncing",
+      "value": "同步中"
+    },
+    {
+      "name": "sync_offline",
+      "value": "离线"
+    },
+    {
+      "name": "sync_error",
+      "value": "同步失败"
+    },
+    {
+      "name": "sync_auth_required",
+      "value": "需要登录"
+    },
+    {
+      "name": "empty_today_title",
+      "value": "今天还没有安排"
+    },
+    {
+      "name": "empty_today_sub",
+      "value": "从收件箱挑几件今天想做的事"
+    },
+    {
+      "name": "empty_inbox_title",
+      "value": "收件箱是空的"
+    },
+    {
+      "name": "empty_inbox_sub",
+      "value": "想到什么就先记下来,之后再决定什么时候做"
+    },
+    {
+      "name": "action_new_todo",
+      "value": "新建待办"
+    },
+    {
+      "name": "action_go_inbox",
+      "value": "去收件箱看看"
+    },
+    {
+      "name": "label_tonight",
+      "value": "今晚"
+    },
+    {
+      "name": "label_overdue",
+      "value": "已逾期"
+    },
+    {
+      "name": "label_reminder",
+      "value": "提醒"
+    },
+    {
+      "name": "settings_title",
+      "value": "设置"
+    },
+    {
+      "name": "find_placeholder",
+      "value": "搜索待办、项目、标签…"
+    },
+    {
+      "name": "quickadd_placeholder",
+      "value": "要做什么?可写「明天 18:00 交报告 #重要」"
+    },
+    {
+      "name": "sheet_schedule_title",
+      "value": "安排时间"
+    },
+    {
+      "name": "sheet_deadline_title",
+      "value": "截止日期"
+    },
+    {
+      "name": "theme_auto",
+      "value": "跟随系统"
+    },
+    {
+      "name": "theme_light",
+      "value": "浅色"
+    },
+    {
+      "name": "theme_dark",
+      "value": "深色"
+    }
+  ]
+}

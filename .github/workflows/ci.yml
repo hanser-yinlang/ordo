@@ -1,0 +1,90 @@
+name: Ordo CI
+
+# 说明:仓库根为 ordo/。本工作流覆盖"任何环境都能跑"的验证;
+# Android / iOS / 鸿蒙需要各自 SDK 与 macOS,已拆分为独立 job 并按需启用。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  core:
+    name: 共享核心(编译 + 单元测试)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 运行共享核心测试
+        run: gradle :shared:core:jvmTest --console=plain
+      - name: 上传测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-report
+          path: shared/core/build/reports/tests/
+
+  server:
+    name: 后端(构建 + 测试)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - run: pnpm test
+
+  contract:
+    name: 契约一致性检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node tools/contract-check.mjs
+
+  android:
+    name: Android(需 SDK)
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_ANDROID_CI == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: gradle :apps:android:app:assembleDebug --console=plain
+
+  ios:
+    name: iOS(需 macOS)
+    runs-on: macos-14
+    if: ${{ vars.ENABLE_IOS_CI == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # 用 apps/ios/tools/verify_ios.sh 而不是写死任务名:
+      # 核心的 XCFramework 任务名取决于 baseName(本工程为 OrdoCore),脚本会自动探测,
+      # 并自动挑选可用的模拟器机型(避免依赖 runner 镜像自带某个具体机型)。
+      - name: 生成 XCFramework + 构建 + 测试 + 静态自检
+        run: bash apps/ios/tools/verify_ios.sh

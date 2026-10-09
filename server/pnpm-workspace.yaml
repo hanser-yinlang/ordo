@@ -1,0 +1,8 @@
+# pnpm 11 的依赖构建脚本策略(pnpm 自动生成的占位文件,这里显式给出决定)。
+# 两者都显式设为 false(不执行构建脚本),因为不执行也能正常工作,已实测:
+#   - esbuild:平台二进制来自可选依赖 @esbuild/win32-x64,install.js 仅兜底校验,tsx 已跑通
+#   - argon2 :自带 node-gyp-build 预编译产物(win32-x64 / linux-x64),require('argon2') 已跑通
+# 若目标平台没有 argon2 预编译产物,src/services/password.ts 会自动降级到 node:crypto scrypt。
+allowBuilds:
+  argon2: false
+  esbuild: false

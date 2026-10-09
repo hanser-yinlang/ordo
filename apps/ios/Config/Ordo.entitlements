@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Ordo · iOS 权限与能力
+
+  · aps-environment:实时通道虽走 WebSocket,但提醒(Fastlane)在后台需要推送能力,
+    因此保留推送 entitlement;开发期使用 development,归档发布时改为 production。
+  · associated-domains:Universal Links(设计规范 §7),域名与后端部署保持一致。
+  · 无其它隐私敏感权限(不采集通讯录/位置)。
+  · 日历(契约 §2.8「只读,设备本地,不同步」)不需要 entitlement,
+    只要 Info.plist 的 NSCalendarsFullAccessUsageDescription / NSCalendarsUsageDescription;
+    应用侧不存在任何写入系统日历的代码路径(全工程不调用 EKEventStore.save/remove)。
+-->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:ordo.app</string>
+	</array>
+</dict>
+</plist>

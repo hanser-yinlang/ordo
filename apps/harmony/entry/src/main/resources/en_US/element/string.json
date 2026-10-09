@@ -1,0 +1,140 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Ordo main module"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Ordo entry"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "Ordo"
+    },
+    {
+      "name": "reason_internet",
+      "value": "Used to sync your to-dos across devices"
+    },
+    {
+      "name": "reason_notification",
+      "value": "Used to remind you at the time you set"
+    },
+    {
+      "name": "reason_reminder_agent",
+      "value": "Used to deliver agent-powered reminders at the time you set"
+    },
+    {
+      "name": "tab_inbox",
+      "value": "Inbox"
+    },
+    {
+      "name": "tab_today",
+      "value": "Today"
+    },
+    {
+      "name": "tab_upcoming",
+      "value": "Upcoming"
+    },
+    {
+      "name": "tab_anytime",
+      "value": "Anytime"
+    },
+    {
+      "name": "tab_someday",
+      "value": "Someday"
+    },
+    {
+      "name": "tab_logbook",
+      "value": "Logbook"
+    },
+    {
+      "name": "sync_idle",
+      "value": "Synced"
+    },
+    {
+      "name": "sync_syncing",
+      "value": "Syncing"
+    },
+    {
+      "name": "sync_offline",
+      "value": "Offline"
+    },
+    {
+      "name": "sync_error",
+      "value": "Sync failed"
+    },
+    {
+      "name": "sync_auth_required",
+      "value": "Sign in required"
+    },
+    {
+      "name": "empty_today_title",
+      "value": "Nothing planned today"
+    },
+    {
+      "name": "empty_today_sub",
+      "value": "Pick a few things from your Inbox"
+    },
+    {
+      "name": "empty_inbox_title",
+      "value": "Inbox is empty"
+    },
+    {
+      "name": "empty_inbox_sub",
+      "value": "Capture first, decide when later"
+    },
+    {
+      "name": "action_new_todo",
+      "value": "New to-do"
+    },
+    {
+      "name": "action_go_inbox",
+      "value": "Go to Inbox"
+    },
+    {
+      "name": "label_tonight",
+      "value": "Tonight"
+    },
+    {
+      "name": "label_overdue",
+      "value": "Overdue"
+    },
+    {
+      "name": "label_reminder",
+      "value": "Reminder"
+    },
+    {
+      "name": "settings_title",
+      "value": "Settings"
+    },
+    {
+      "name": "find_placeholder",
+      "value": "Search to-dos, projects, tags…"
+    },
+    {
+      "name": "quickadd_placeholder",
+      "value": "What needs doing? Try \"tomorrow 18:00 report #important\""
+    },
+    {
+      "name": "sheet_schedule_title",
+      "value": "Schedule"
+    },
+    {
+      "name": "sheet_deadline_title",
+      "value": "Deadline"
+    },
+    {
+      "name": "theme_auto",
+      "value": "System"
+    },
+    {
+      "name": "theme_light",
+      "value": "Light"
+    },
+    {
+      "name": "theme_dark",
+      "value": "Dark"
+    }
+  ]
+}

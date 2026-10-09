@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+      启动主题：不依赖 com.google.android.material，使用平台主题，
+      只负责「冷启动到首帧 Compose 之前」的窗口外观。真正的主题在 Compose 里（ui/theme）。
+    -->
+    <style name="Theme.Ordo" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ordo_boot_canvas</item>
+        <item name="android:colorBackground">@color/ordo_boot_canvas</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="27">shortEdges</item>
+    </style>
+</resources>

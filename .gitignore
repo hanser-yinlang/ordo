@@ -1,0 +1,62 @@
+# —— 构建产物 ——
+build/
+out/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# —— Gradle ——
+.gradle/
+gradle-app.setting
+!gradle-wrapper.properties
+
+# —— Kotlin/Native 与 XCFramework ——
+*.klib
+*.framework/
+*.xcframework/
+
+# —— Node / 后端 ——
+node_modules/
+dist/
+*.log
+.env
+.env.local
+
+# —— Android ——
+local.properties
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+captures/
+.externalNativeBuild/
+.cxx/
+
+# —— iOS / Xcode ——
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+
+# —— 鸿蒙 / DevEco ——
+oh_modules/
+.hvigor/
+.cxx/
+*.hap
+*.hsp
+
+# —— IDE ——
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# —— 系统 ——
+.DS_Store
+Thumbs.db
+
+# —— 本地验证产物(契约检查报告、构建日志) ——
+_qa/

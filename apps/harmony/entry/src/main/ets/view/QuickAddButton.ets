@@ -9,6 +9,13 @@ import { fmtMonthDay } from '../core/util/DateUtil.ets';
 import { AppStore } from '../viewmodel/AppStore.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoRadius, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 
+/**
+ * 快加输入框的组件 id。
+ * 供 `UIContext.getFocusController().requestFocus(id)` 定位 —— 输入框出现后必须**真正获焦**,
+ * 否则软键盘不弹、看不到光标,用户会觉得"点了加号没反应"。
+ */
+const QUICK_ADD_INPUT_ID: string = 'ordo_quick_add_input';
+
 @Component
 export struct QuickAddFab {
   @ObjectLink store: AppStore;
@@ -82,12 +89,11 @@ export struct QuickAddFab {
       .rotate({ angle: this.menuOpen ? 45 : 0 })
       .animation({ duration: 180, curve: Curve.FastOutSlowIn })
       .onClick(() => {
-        if (this.menuOpen) {
-          this.menuOpen = false;
-          this.store.openQuickAdd('', '', '');
-        } else {
-          this.store.openQuickAdd('', '', '');
-        }
+        // 点击加号必须"有反应":打开面板并聚焦输入框。
+        // 面板已经打开时重复点击 = 重新聚焦已有输入框(quickAddFocusSeq +1 → @Watch → requestFocus),
+        // 而不是像 Windows 端那样成为空操作。
+        this.menuOpen = false;
+        this.store.openQuickAdd('', '', '');
       })
       .gesture(
         LongPressGesture({ repeat: false })
@@ -103,10 +109,33 @@ export struct QuickAddFab {
 @Component
 export struct QuickAddPanel {
   @ObjectLink store: AppStore;
+  /**
+   * `AppStore.quickAddFocusSeq`:加号(或组标题＋/快找"新建")每被点一次就 +1。
+   * 面板**已经打开**时再点,输入框本已存在、不会重建,靠这个 @Watch 重新聚焦;
+   * 首次打开由输入框自己的 onAppear 抢焦点。
+   */
+  @Prop @Watch('onFocusRequested') focusSeq: number = 0;
   @State private draft: string = '';
 
   private c(): OrdoColorTokens {
     return OrdoColors.of(this.store.isDark());
+  }
+
+  /**
+   * 把焦点交给输入框(软键盘随之弹出,见 enableKeyboardOnFocus)。
+   * 节点尚未上树 / 不可聚焦时 requestFocus 会抛 150001/150002/150003,
+   * 这里吞掉:自动聚焦失败也不该让面板崩掉,用户仍可手动点输入框。
+   */
+  private focusInput(): void {
+    try {
+      this.getUIContext().getFocusController().requestFocus(QUICK_ADD_INPUT_ID);
+    } catch (e) {
+      console.warn('[Ordo] 快加输入框自动聚焦失败');
+    }
+  }
+
+  onFocusRequested(): void {
+    this.focusInput();
   }
 
   private preview(): ParsedInput {
@@ -161,10 +190,16 @@ export struct QuickAddPanel {
           .stroke(this.c().checkboxBorder)
           .strokeWidth(OrdoSize.checkboxStroke)
         TextInput({ placeholder: '要做什么?可写「明天 18:00 交报告 #重要」', text: this.draft })
+          .id(QUICK_ADD_INPUT_ID)
           .layoutWeight(1)
           .height(OrdoSize.rowHeight)
           .fontSize(OrdoFont.body.size)
           .backgroundColor(Color.Transparent)
+          .enableKeyboardOnFocus(true)
+          .onAppear(() => {
+            // 面板首次出现:立刻聚焦并拉起软键盘,给出明确的可见反馈
+            this.focusInput();
+          })
           .onChange((value: string) => {
             this.draft = value;
           })

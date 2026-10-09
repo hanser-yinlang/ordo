@@ -1,6 +1,7 @@
 package com.ordo.desktop.app
 
 import com.ordo.core.model.RepeatRule
+import com.ordo.core.model.Status
 import com.ordo.core.model.When
 import com.ordo.core.query.ListQuery
 import com.ordo.core.storage.OrdoStorage
@@ -63,6 +64,18 @@ class OrdoViewModel(
         val route = current.route
         val query: ListQuery = if (route is OrdoRoute.Search) ListQuery.Search(route.text) else route.query
         val snapshot = engine.snapshot
+        // 项目卡片状态:openCount 直接取共享核心的计数(=status==OPEN 的待办数),totalCount 取快照口径。
+        // 端上不自己判断契约 §2.2 的完成规则,所以"按钮能不能点""提示说什么""核心会不会答应"永远同源。
+        val projectCards = snapshot.projects
+            .filter { project -> !project.deleted }
+            .associate { project ->
+                val live = snapshot.todos.filter { todo -> !todo.deleted && todo.projectId == project.id }
+                project.id to ProjectCardState(
+                    projectId = project.id,
+                    openCount = live.count { todo -> todo.status == Status.OPEN },
+                    totalCount = live.size
+                )
+            }
         _state.update {
             it.copy(
                 // 派生清单(含「随时 / 某天」的 order 手工排序)完全由共享核心给出,本端不做任何二次排序
@@ -70,6 +83,7 @@ class OrdoViewModel(
                 counts = engine.counts(),
                 areas = snapshot.areas.filter { a -> !a.deleted }.sortedBy { a -> a.order },
                 projects = snapshot.projects.filter { p -> !p.deleted }.sortedBy { p -> p.order },
+                projectCards = projectCards,
                 headings = snapshot.headings.filter { h -> !h.deleted },
                 tags = engine.tags(),
                 agenda = if (route == OrdoRoute.Today) LocalAgenda.eventsFor(storage) else it.agenda
@@ -186,12 +200,34 @@ class OrdoViewModel(
 
     fun setQuickAddMenu(open: Boolean) = _state.update { it.copy(quickAddMenuOpen = open) }
 
+    /**
+     * 打开行内输入框(Ctrl+N / 标题栏加号 / 分组加号 / 右下角快加号都走这里)。
+     *
+     * **每次调用都自增 [UiState.composerFocusToken]**,包括"输入框已经开着"的情况:
+     * 列表侧观察到令牌变化就重新请求键盘焦点并把列表滚到输入行 ——
+     * 这正是"右下角加号点了没反应"的修复点(以前已打开时是彻底的空操作)。
+     */
     fun openComposer(`when`: When? = null, headingId: String? = null) =
         _state.update {
-            it.copy(composerOpen = true, composerWhen = `when`, composerHeadingId = headingId, quickAddMenuOpen = false)
+            it.copy(
+                composerOpen = true,
+                composerWhen = `when`,
+                composerHeadingId = headingId,
+                quickAddMenuOpen = false,
+                composerFocusToken = it.composerFocusToken + 1L,
+                composerFocusRequests = it.composerFocusRequests + 1
+            )
         }
 
-    fun closeComposer() = _state.update { it.copy(composerOpen = false, composerWhen = null, composerHeadingId = null) }
+    /**
+     * 界面侧回报输入框的焦点实况(与 [UiState.composerFocusRequests] 区分:
+     * 那里是"请求了",这里是"落地了",便于测试与自检分辨是哪一环断了)。
+     */
+    fun notifyComposerFocused(focused: Boolean) =
+        _state.update { if (it.composerFocused == focused) it else it.copy(composerFocused = focused) }
+
+    fun closeComposer() =
+        _state.update { it.copy(composerOpen = false, composerWhen = null, composerHeadingId = null, composerFocused = false) }
 
     /** Esc:由内到外依次关闭浮层 → 详情;拖拽中优先取消拖拽(04-UI规范 §6) */
     fun escape() {
@@ -351,10 +387,24 @@ class OrdoViewModel(
 
     fun setProjectNote(id: String, note: String) = engine.setProjectNote(id, note)
 
+    /**
+     * 完成项目(契约 §2.2 v1.1:唯一硬约束是"该项目下所有 todo 都已结束")。
+     *
+     * 失败时**唯一**可能的原因是还有未完成的待办,所以提示文案只谈待办并带上真实条数;
+     * heading 不再阻塞完成(核心会在完成时自动归档),文案里也就不该再出现"标题"
+     * —— 之前那句「还有未完成的待办或标题」正是用户"显示 0 项未完成却完不成"困惑的来源之一。
+     */
     fun completeProject(id: String): Boolean {
+        // 文案基于"点下去之前"的真实原因;引擎同步广播后 _state 已是新状态,不能再拿来算旧原因
+        val before = _state.value.projectCards[id]
         val ok = engine.completeProject(id)
-        toast(if (ok) "项目已完成" else "还有未完成的待办或标题")
+        toast(if (ok) "项目已完成" else before?.resultMessage(false) ?: "还有未完成的待办")
         return ok
+    }
+
+    /** 该项目下仍未结束的待办数(与卡片文案、按钮可用性同源,供测试与自检使用) */
+    fun openTodoCount(projectId: String): Int = engine.snapshot.todos.count { todo ->
+        !todo.deleted && todo.projectId == projectId && todo.status == Status.OPEN
     }
 
     fun reopenProject(id: String) = engine.reopenProject(id)

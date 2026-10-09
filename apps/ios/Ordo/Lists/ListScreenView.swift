@@ -55,6 +55,8 @@ public struct ListScreenView: View {
         VStack(spacing: 0) {
             header
 
+            projectCompletionBar
+
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: OrdoLayout.sectionSpacing) {
                     if shell.selection.kind == .today {
@@ -68,6 +70,12 @@ public struct ListScreenView: View {
                         ForEach(renderSections) { section in
                             sectionView(section)
                         }
+                    }
+
+                    // 空清单(刚建的项目 / 今天没有待办)没有任何分区可以挂载输入框,
+                    // 此时把它渲染在空状态下方 —— 否则点快加号会「没有任何可见变化」。
+                    if composerIsDetached {
+                        composerRow
                     }
 
                     Color.clear.frame(height: OrdoSpacing.xxl * 3)
@@ -177,6 +185,66 @@ public struct ListScreenView: View {
     }
 
     private var isCompactWidth: Bool { horizontalSizeClass == .compact }
+
+    // MARK: 项目完成入口(契约 §2.2 v1.1)
+
+    /// 当前清单是项目时的完成入口。
+    ///
+    /// · 判定与「自动归档未归档标题」都在 KMP 核心 `completeProject` 内完成,Swift 侧**不复制规则**
+    ///   (尤其不检查 `heading.archived`:标题是组织容器,不阻塞完成);
+    /// · 项目一旦完成,「完成项目」入口整体消失,只剩状态徽标与「重新打开」;
+    /// · 还有未完成待办时按钮仍可点,由 `AppEnvironment.completeProject` 给出与真实原因一致的提示。
+    @ViewBuilder
+    private var projectCompletionBar: some View {
+        if shell.selection.kind == .project,
+           let projectId = shell.selection.id,
+           let project = environment.snapshot.project(id: projectId),
+           !project.deleted {
+            HStack(spacing: OrdoSpacing.s) {
+                if project.status == .done {
+                    Label("项目已完成", systemImage: "checkmark.circle.fill")
+                        .font(OrdoFont.caption)
+                        .foregroundStyle(OrdoColor.success)
+
+                    Spacer(minLength: OrdoSpacing.s)
+
+                    Button("重新打开") { environment.reopenProject(id: projectId) }
+                        .font(OrdoFont.captionEmphasis)
+                        .foregroundStyle(OrdoColor.accent)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("重新打开项目")
+                } else {
+                    Button {
+                        environment.completeProject(id: projectId)
+                    } label: {
+                        Label("完成项目", systemImage: "checkmark.circle")
+                            .font(OrdoFont.captionEmphasis)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(OrdoColor.accent)
+                    .accessibilityLabel("完成项目")
+
+                    Spacer(minLength: OrdoSpacing.s)
+
+                    Text(openTodosHint(projectId))
+                        .font(OrdoFont.caption)
+                        .foregroundStyle(OrdoColor.textSecondary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(.horizontal, OrdoSpacing.contentHorizontalPadding)
+            .padding(.bottom, OrdoSpacing.s)
+            .frame(maxWidth: OrdoSpacing.contentMaxWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    /// 未完成待办提示。计数取自核心查询结果(`AppEnvironment.projectProgress`),
+    /// 与完成判定同源,避免两处口径不一致。
+    private func openTodosHint(_ projectId: String) -> String {
+        let open = environment.projectProgress(projectId).open
+        return open == 0 ? "可以完成" : "还有 \(open) 项未完成"
+    }
 
     // MARK: 分区
 
@@ -322,6 +390,21 @@ public struct ListScreenView: View {
 
     // MARK: 行内新建
 
+    /// 没有可用分区时(空清单 / 空项目)输入框使用的占位 id。
+    ///
+    /// 分区的 id 由核心映射合成,恒为 `heading:<id>` 或 `<kind>:<title>`(必含冒号),
+    /// 因此这个不含冒号的常量不可能与真实分区冲突。
+    private static let detachedComposerId = "detached-composer"
+
+    /// 输入框是否「没有可见的分区可以挂载」:此时渲染在列表末尾,保证点快加号一定有可见变化。
+    ///
+    /// 两种情形:① 空清单(没有任何分区);② 目标分区被折叠(折叠的分区不渲染行,输入框会跟着消失)。
+    private var composerIsDetached: Bool {
+        guard let id = composerSectionId else { return false }
+        guard let host = renderSections.first(where: { $0.id == id }) else { return true }
+        return collapsedSections.contains(host.id)
+    }
+
     private var composerRow: some View {
         HStack(spacing: OrdoSpacing.s) {
             Image(systemName: "plus.circle")
@@ -346,6 +429,7 @@ public struct ListScreenView: View {
             Button {
                 composerSectionId = nil
                 composerText = ""
+                composerFocused = false
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .semibold))
@@ -453,10 +537,48 @@ public struct ListScreenView: View {
         }
     }
 
+    /// 打开行内新建输入框。
+    ///
+    /// · `section == nil`(快加号单击 / ⌘N / 空状态按钮)=「把输入框给我」:已经打开时**只抢焦点**,
+    ///   不清空用户已输入的文本,也不把输入框挪到别的分区;
+    /// · 指定分区(分区标题的 +)= 明确要往该分区里加:同一分区同样只抢焦点,换分区才移动并清空。
+    ///
+    /// 另外:空清单没有任何分区,`renderSections.first?.id` 为 nil,此时用占位 id,
+    /// 由 `composerIsDetached` 把它渲染到空状态下方。
     private func beginComposer(in section: OrdoListSection?) {
-        composerSectionId = section?.id ?? renderSections.first?.id ?? "default"
+        let targetId = section?.id ?? renderSections.first?.id ?? Self.detachedComposerId
+        if composerSectionId != nil, section == nil || composerSectionId == targetId {
+            focusComposer()
+            return
+        }
+        composerSectionId = targetId
         composerText = ""
+        // 折叠的分区不会渲染它的行:要往里加东西就先展开它
+        collapsedSections.remove(targetId)
+        focusComposer()
+    }
+
+    /// 让输入框成为第一响应者(键盘弹出)。
+    ///
+    /// 新插入的 `TextField` 在当帧还没进入响应链,这一次 `@FocusState` 赋值可能被丢弃,
+    /// 因此下一帧再补一次请求 —— 这是「点了加号却没弹键盘」的常见成因。
+    private func focusComposer() {
         composerFocused = true
+        Task { @MainActor in
+            composerFocused = true
+        }
+    }
+
+    /// 分区 id → 核心的 `headingId`。
+    ///
+    /// `OrdoListSection.id` 是 Swift 侧为了 SwiftUI 列表合成的稳定 id:标题分区为
+    /// `heading:<uuid>`(见 `OrdoCoreMapping.map(sections:)`),其余为 `<kind>:<title>`。
+    /// 只有前者能还原出真正的标题 id。
+    private static func headingId(fromSectionId id: String) -> String? {
+        let prefix = "heading:"
+        guard id.hasPrefix(prefix) else { return nil }
+        let value = String(id.dropFirst(prefix.count))
+        return value.isEmpty ? nil : value
     }
 
     private func commitComposer() {
@@ -486,8 +608,11 @@ public struct ListScreenView: View {
            let section = renderSections.first(where: { $0.id == sectionId }) {
             if section.kind == .tonight {
                 options.when = .evening
-            } else if section.kind == .heading {
-                options.headingId = sectionId
+            } else if section.kind == .heading, let headingId = Self.headingId(fromSectionId: sectionId) {
+                // 注意:分区的 id 是 Swift 侧合成的 `heading:<uuid>`(见 OrdoCoreMapping),
+                // 直接把它当 headingId 传给核心会被契约 §3 判为「不属于该项目」而置空
+                // (OrdoEngine.normalize:726 → headingId = null),待办会掉进「其他」分区。
+                options.headingId = headingId
                 options.projectId = shell.selection.id
                 options.when = .anytime
             }
@@ -496,7 +621,8 @@ public struct ListScreenView: View {
         let created = environment.createTodo(fromRawInput: text, options: options)
         composerText = ""
         environment.toast("已添加:\(created.title)", kind: .success)
-        composerFocused = true
+        // 连续录入:输入框保持打开并保住键盘焦点
+        focusComposer()
     }
 
     private func createProjectInCurrentContext() {

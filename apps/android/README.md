@@ -2,7 +2,7 @@
 
 > 契约来源：[03 · 数据模型与同步协议](../../docs/03-数据模型与同步协议.md) · [04 · UI 设计规范](../../docs/04-UI设计规范.md)（FROZEN v1）
 > 业务核心：KMP `shared:core`（**只调用、不修改**）· 交互参照：`things-clone/`（Web 原型，仅复用信息架构；名称/图标/配色一律按 04 文档的 Ordo 品牌）
-> 规模：40 个 Kotlin 文件 / 约 7.1k 行 · 4 个测试类（60 个用例，本机已真实编译并执行通过）· 合入主控的 `tools/contract-check.mjs` 全部适用项通过
+> 规模：45 个 Kotlin 文件 / 约 7.7k 行（37 主 + 8 测试）· 6 个测试类（71 个用例，本机已真实编译并执行通过）· 合入主控的 `tools/contract-check.mjs` 全部适用项通过
 
 ## 1. 构建
 
@@ -20,7 +20,7 @@
 ```bash
 # 在仓库根目录（ordo/）执行
 ./gradlew :apps:android:app:assembleDebug        # 打 debug 包
-./gradlew :apps:android:app:testDebugUnitTest    # 跑 4 个测试类（NLP / 查询 / 重复 / 同步合并）
+./gradlew :apps:android:app:testDebugUnitTest    # 跑 6 个测试类（NLP / 查询 / 重复 / 同步合并 / 项目完成 / 快加浮层）
 ./gradlew :apps:android:app:installDebug         # 安装到设备
 ```
 
@@ -63,7 +63,9 @@ apps/android/
             ├── sync/SyncScheduler.kt (147)             前台 30s + 回前台 + 网络恢复；SYNC_SEQ_GAP 自动全量重同步
             ├── notify/Notifier.kt (70)                 ordo_reminders 渠道 + 深链 PendingIntent
             ├── notify/ReminderWorker.kt (123)          准点一次性任务 + 15 分钟周期兜底 + 已发记录
-            ├── vm/UiState.kt (173) / OrdoViewModel.kt (707)   单向数据流，写操作全部经 OrdoEngine
+            ├── vm/UiState.kt (190) / OrdoViewModel.kt (832)   单向数据流，写操作全部经 OrdoEngine
+            ├── vm/ComposerState.kt (63)                       快加浮层状态机（纯逻辑：打开/重复点击/关闭/提交）
+            ├── vm/ProjectCompletion.kt (93)                   完成项目判定、文案选择与卡片主动作（纯逻辑，契约 §2.2 v1.1）
             ├── nav/Routes.kt (33) / OrdoNavHost.kt (61)       路由 ↔ 派生清单
             └── ui/
                 ├── theme/Tokens.kt (186) / Theme.kt (97)      04 文档 §2 令牌 + 浅深色 + 减弱动态效果
@@ -79,10 +81,13 @@ apps/android/
                 └── settings/SettingsScreen.kt (213)           外观 / 数据 / 账号 / 关于
         └── test/java/com/ordo/android/
             ├── FakeStorage.kt (37)     测试设施（固定时钟 + 引擎工厂；内存仓储已由 core 的 InMemoryStorage 取代）
+            ├── TestStrings.kt (42)     只读解析 res/values/strings.xml（文案契约测试，不引入 Robolectric）
             ├── NlpParsingTest.kt (179) 契约 §5 逐条（今天/今晚/明天/大后天/N天后/N周后/N个月后/绝对日期/星期/周末/某天/时间/标签/综合）
             ├── QueryRulesTest.kt (223) 契约 §4 边界（收件箱/今天含逾期/今晚分区/14 天窗口与「更晚」/某天/日志簿/标签开关/进度/搜索/计数/演示数据规模）
             ├── RepeatEngineTest.kt (117) 契约 §6（fixed/afterCompletion/月末溢出/每年/新实例字段/清单重置/取消重复）
-            └── SyncMergeTest.kt (140)   契约 §7.3（LWW/完成不回滚/标签并集/删除墓碑/发件箱 ack/快照替换）
+            ├── SyncMergeTest.kt (140)   契约 §7.3（LWW/完成不回滚/标签并集/删除墓碑/发件箱 ack/快照替换）
+            ├── ProjectCompletionTest.kt (215) 契约 §2.2 v1.1（拒绝原因与文案带 N/标题未归档也允许完成+自动归档/归档 Op 与完成 Op/已完成态/取消不阻塞/卡片主动作）
+            └── ComposerStateTest.kt (74) 快加浮层（打开状态正确/已打开时再点加号不丢草稿且重新聚焦/空标题不产生待办/关闭再开是新的一轮）
 ```
 
 ## 3. 功能实现对照
@@ -95,7 +100,8 @@ apps/android/
 | 详情卡片 | `ui/detail/DetailCard.kt` | 标题/备注(Markdown 预览)/何时/截止/提醒/重复/移动/标签/清单，字段均为可点胶囊 |
 | 排期面板 | `ui/schedule/ScheduleSheet.kt` | 今天/今晚/明天/本周末/某天 + 提醒快捷 + 月历 + 自然语言输入 + 危险色清除 |
 | 快找 | `ui/search/FastFind.kt` | 顶部搜索按钮进入；↑↓/Enter/Esc；结果含待办/项目/区域/标签；标签直达 |
-| 快加号 | `ui/quickadd/QuickAdd.kt` | 单击新建（NLP 解析日期/时间/标签）、长按菜单（待办/项目/区域） |
+| 快加号 | `ui/quickadd/QuickAdd.kt`、`vm/ComposerState.kt` | 单击新建（NLP 解析日期/时间/标签）、长按菜单（待办/项目/区域）；打开即聚焦+弹键盘，已打开时再点是"重新聚焦"而不是空操作，返回键/Esc 关闭且不产生空待办 |
+| 项目完成 | `ui/list/ListScreen.kt`、`vm/ProjectCompletion.kt` | 契约 §2.2 v1.1：唯一硬约束是"项目下没有未完成的待办"，标题未归档由引擎自动归档；拒绝文案带 N 且不提「标题」；已完成项目显示「已完成 + 重新打开」而不是「完成项目」 |
 | 路由 | `nav/Routes.kt`、`OrdoNavHost.kt` | inbox/today/upcoming/anytime/someday/logbook/project/{id}/area/{id}/tag/{name}/search |
 | 本地存储(SQLite) | `data/SqliteStorage.kt` | 实体按 **JSON 快照整行**存放(`entities(entity,id,payload,updated_at,deleted)`),与服务端 `entities` 表同构(架构 ADR-004);字段名与契约 §2 永远一致,无需映射代码,契约加字段也不用迁移;outbox 主键 `op_id` 天然幂等;kv 存 schemaVersion/serverSeq/令牌 |
 | Ktor 同步 + 401 重放 | `net/KtorSyncApi.kt`、`AuthApi.kt` | 3 个同步端点 + 认证 4 端点 + 设备注册；DTO 直接复用 core 的 `@Serializable` 定义 |
@@ -151,7 +157,9 @@ apps/android/
 
 ## 7. 验证情况与风险点（**重要**）
 
-### 7.1 已完成的真实验证
+### 7.1 早期验证（交付环境**没有** Android SDK 时的记录）
+
+> 本节记录的是"没有 SDK、只能用命令行编译器离线验证"阶段的结论，**已由 §7.4 的 Gradle 全量构建取代**；保留它是为了说明哪些结论当时无法验证。
 
 交付环境**没有 Android SDK**，无法执行 `assembleDebug`；但用 DevEco Studio 自带 JBR（JDK）+ Gradle 缓存里的 Kotlin 2.4.20 编译器 + 共享核心编译产物 `shared/core/build/libs/core-jvm.jar`，对**与 Android 框架无关的部分做了真实编译与真实测试执行**：
 
@@ -175,9 +183,9 @@ apps/android/
 
 ### 7.2 尚未验证的部分
 
-`assembleDebug` / `testDebugUnitTest`（Gradle 全量构建）、Lint、真机或模拟器运行、04 文档 §9 的五张基线图截图回归——均需要 Android SDK，本机不具备。
+Lint、真机或模拟器运行、04 文档 §9 的五张基线图截图回归——`assembleDebug` / `testDebugUnitTest` 已在 §7.4 真实执行，不再属于此项。
 
-未覆盖的代码约 4.5k 行：Compose UI（`ui/**`）、`data/SqliteStorage.kt`（需 `android.database`）、Android 胶水（`OrdoApp`、`MainActivity`、`di/ServiceLocator`、`notify/**`、`sync/SyncScheduler`、`net/{AuthApi,KtorSyncApi,RealtimeClient,TokenStore,HttpClientFactory}`）。
+未覆盖的代码约 4.5k 行：Compose UI（`ui/**`）、`data/SqliteStorage.kt`（需 `android.database`）、Android 胶水（`OrdoApp`、`MainActivity`、`di/ServiceLocator`、`notify/**`、`sync/SyncScheduler`、`net/{AuthApi,KtorSyncApi,RealtimeClient,TokenStore,HttpClientFactory}`）——这部分只做了真实**编译**（`assembleDebug` 通过），没有自动化用例。
 
 ### 7.3 已知风险
 
@@ -188,6 +196,37 @@ apps/android/
 5. **拖拽排序未实现**：04 文档 Android 列要求「长按拖拽」，当前实现是左右滑动（排期/删除）+ 点击详情；`order` 字段与 `engine.reorderTodos(ids)` 已就绪。
 6. **未使用实验性 Compose API**：无 `TopAppBar`/`ModalBottomSheet`/`combinedClickable`/`animateItem`；只用 `Text`/`Surface` 级稳定 API 与 Foundation（`BoxWithConstraints`、`detectTapGestures`、`detectHorizontalDragGestures`、`onPreviewKeyEvent` 均为稳定 API）。
 
+### 7.4 本轮修复与真实验证（2026-10-09，本机已装 Android SDK 36）
+
+**触发**：Windows 端实测两个缺陷（「项目完成被拒」「点快加号没有可见反馈」）。Android 端 UI 结构同源，逐个复核结论如下。
+
+| 缺陷 | Android 端是否存在 | 根因 | 修复 |
+|---|---|---|---|
+| 项目显示 100%/0 项未完成，点「完成项目」却被拒 | **行为已随 core 修复**（`OrdoEngine.completeProject` v1.1 完成时自动归档标题），**但文案与卡片状态仍不一致** | ① 拒绝文案写死为「还有未完成的待办，无法完成项目」：既不带 N，又被复用在「项目本来就是 DONE」这条完全不同的原因上；② 已完成（DONE）的项目仍然显示「完成项目」按钮，点了只会被幂等拒绝并报错误原因 | 新增 `vm/ProjectCompletion.kt`（纯逻辑：`Completed` / `AlreadyDone` / `Blocked(N)` → 文案与参数）；`ListScreen` 按 `project.status` 分流为「完成项目」/「重新打开」并显示已完成胶囊；`strings.xml` 拒绝文案改为 `还有 %1$d 项未完成的待办，无法完成项目`（**不再提「标题」**） |
+| 点右下角蓝色加号「没有反应」 | **部分存在**：浮层本身会画出来（它是覆盖层，不在列表内容顶部），但 ① 输入框不聚焦、软键盘不弹 —— `focusRequester` 挂在外层 `Box` 而不是可聚焦的 `BasicTextField` 上，`requestFocus()` 找不到焦点目标；② 已打开时再点加号命中的是遮罩，浮层被**关掉**（快速连点 = 打开又关闭，观感等同「没反应」），草稿同时丢失；③ 返回键不关浮层（直接回退清单/退出应用） | `common/Components.kt` 的 `OrdoTextField` 新增 `focusRequester` 参数并挂到 `BasicTextField`；`ComposerSheet` 用 `LaunchedEffect(composer.focusRequest)` 聚焦 + `keyboard.show()`、卡片 `imePadding()`；`vm/ComposerState.kt`（新，纯逻辑状态机）把「打开/重复点击/关闭/提交」四件事定死；`OrdoShell` 让浮层先画、加号后画（加号永远可点 → 再点一次 = 重新聚焦、不丢草稿）；`BackHandler` + `onPreviewKeyEvent(Esc)` 关闭且不产生空待办 |
+
+顺带修掉**同一根因**的一处：`ui/search/FastFind.kt` 的 `focusRequester` 同样挂在外层 `Box` 上，因此浮层打开后从未拿到焦点，其 `↑↓ / Enter / Esc` 的 `onPreviewKeyEvent` 实际收不到按键（key 事件只沿焦点路径派发）。改走新的 `focusRequester` 参数后按键才真正生效。
+
+真实构建/测试证据（本机 JDK 21 + Android SDK 36 + Gradle 8.14，`--rerun` 强制重跑）：
+
+```powershell
+$env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\Android\Sdk"; $env:ANDROID_SDK_ROOT="C:\Users\admin\Android\Sdk"
+& "…\_tools\gradle-8.14\bin\gradle.bat" -p ordo :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest --rerun --console=plain
+```
+
+| 验证项 | 结果 |
+|---|---|
+| `assembleDebug` | ✅ `BUILD SUCCESSFUL`（全量重编译 30s / 增量 6s）；产物 `app-debug.apk` **16,256,801 字节（15.50 MB）** |
+| `testDebugUnitTest` | ✅ **71 个用例全绿**（NLP 29 / 查询 15 / 重复 9 / 同步合并 7 / **项目完成 6** / **快加浮层 5**），0 failures / 0 errors |
+| APK 内容抽验 | ✅ `resources.arsc` 里是最终文案（`还有 %1$d 项未完成的待办，无法完成项目`、`重新打开`、`已完成`），`classes.dex` 里有新增的 `ProjectCardAction` / `ComposerState` / `ProjectCompletionKt` —— 证明产物确实来自本轮源码 |
+| 文案契约测试的**反证**（确认不是空跑） | 临时把旧文案「还有 %1$d 项未完成的待办**或标题**」写回 `strings.xml` → 用例立即 `FAILED`（`71 tests completed, 1 failed`），改回即通过 |
+| `python tools/check-encoding.py` | ✅ `OK: no encoding problems found`（扫描 433 个文本文件） |
+| 写入范围 | ✅ 本轮只改 `apps/android/**`（`git status` 里其它端的改动属于并行任务，非本轮所为） |
+
+本轮改动文件：`vm/ProjectCompletion.kt`（新）、`vm/ComposerState.kt`（新）、`vm/OrdoViewModel.kt`、`vm/UiState.kt`、`ui/list/ListScreen.kt`、`ui/shell/OrdoShell.kt`、`ui/quickadd/QuickAdd.kt`、`ui/common/Components.kt`、`ui/search/FastFind.kt`、`res/values/strings.xml`；测试：`ProjectCompletionTest.kt`（新）、`ComposerStateTest.kt`（新）、`TestStrings.kt`（新）。
+
+**本轮未覆盖（风险）**：聚焦/软键盘/z 序/返回键这些**交互**只能靠编译 + 纯逻辑单测保证，JVM 单测无法断言 Compose 焦点与 IME 行为；需在真机或模拟器上人工回归一次（见 §8 TODO 第 7 条）。
+
 ## 8. 后续 TODO
 
 1. 长按拖拽排序（`detectDragGesturesAfterLongPress`）+ `engine.reorderTodos`。
@@ -196,3 +235,4 @@ apps/android/
 4. 项目改名 / 项目备注 / 标题改名的 UI 入口（core 已提供 `renameProject` / `setProjectNote` / `renameHeading` / `archiveHeading` / `deleteHeading`，当前仅项目完成与新建标题接了 UI）。
 5. 真实设备上的对比度实测（04 文档 §2.1）与五张基线图截图回归（§9）。
 6. `OrdoErrors.needsUpgrade` 的界面呈现（`VALIDATION_FAILED` 时提示升级客户端）。
+7. 真机上人工回归本轮两个修复：项目卡片「完成项目/重新打开」分流、快加号浮层的聚焦/软键盘/返回键/Esc（§7.4）。

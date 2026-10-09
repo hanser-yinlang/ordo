@@ -662,8 +662,12 @@ export class OrdoEngine implements OpSink, OpSource {
   }
 
   /**
-   * 项目完成硬约束(契约 §2.2):
-   * 仅当所有子待办 status ∈ {done, canceled} 且所有 heading.archived == true。
+   * 项目完成硬约束(契约 §2.2 项目完成规则,v1.1 修订):
+   * **唯一**硬约束是该项目的所有子待办 status ∈ {done, canceled}。
+   *
+   * Heading 是组织容器而非工作项,`archived == true` 不再是完成条件
+   * (旧规则会导致"界面显示 0 项未完成却拒绝完成");完成时未归档标题由
+   * `completeProject` 自动归档,从而保持"已完成项目不含未归档标题"的不变量。
    */
   canCompleteProject(id: string): boolean {
     const p: Project | null = this.findProject(id);
@@ -676,21 +680,34 @@ export class OrdoEngine implements OpSink, OpSource {
         return false;
       }
     }
-    for (let i = 0; i < p.headings.length; i++) {
-      if (!p.headings[i].archived) {
-        return false;
-      }
-    }
     return true;
   }
 
+  /**
+   * 完成项目(契约 §2.2 v1.1):
+   *  1) 仍有未完成待办 → 拒绝(唯一硬约束);已完成的项目重复调用 → 拒绝(幂等,不重复产 Op);
+   *  2) 否则先把该项目下**未归档**的标题逐个归档 —— 复用 `archiveHeading`,
+   *     每个标题产出一条与手工归档同构的 heading upsert Op(此时项目已无未完成待办,
+   *     所以每个标题的 archiveHeading 都不会被拒);
+   *  3) 最后置 status="done" 并写 completedAt(产出 project upsert Op)。
+   */
   completeProject(id: string): boolean {
+    const p: Project | null = this.findProject(id);
+    if (p === null || p.status === 'done') {
+      return false;
+    }
     if (!this.canCompleteProject(id)) {
       return false;
     }
-    const p: Project | null = this.findProject(id);
-    if (p === null) {
-      return false;
+    // 先收集 id 再归档:避免在遍历 p.headings 的过程中被 archiveHeading 的 emit() 回调影响
+    const pendingHeadingIds: string[] = [];
+    for (let i = 0; i < p.headings.length; i++) {
+      if (!p.headings[i].archived) {
+        pendingHeadingIds.push(p.headings[i].id);
+      }
+    }
+    for (let i = 0; i < pendingHeadingIds.length; i++) {
+      this.archiveHeading(pendingHeadingIds[i]);
     }
     p.status = 'done';
     p.completedAt = nowMillis();
@@ -762,7 +779,11 @@ export class OrdoEngine implements OpSink, OpSource {
     this.emit();
   }
 
-  /** 归档标题前必须先完成其下所有待办(项目完成硬约束的组成部分) */
+  /**
+   * 归档标题前必须先完成其下所有待办。
+   * 注意:这是**标题自身**的前置条件,自 §2.2 v1.1 起已不属于项目完成的硬约束
+   * (项目完成时引擎会自动归档未归档标题,同样走这条检查)。
+   */
   canArchiveHeading(headingId: string): boolean {
     for (let i = 0; i < this.state.todos.length; i++) {
       const t: Todo = this.state.todos[i];

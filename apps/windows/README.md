@@ -20,7 +20,7 @@
 ```powershell
 $env:JAVA_HOME="<JDK 21>"
 gradle :apps:windows:run                       # 直接运行
-gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(97 个用例)
+gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(118 个用例)
 gradle :apps:windows:createDistributable       # 免安装目录(app-image)
 gradle :apps:windows:packageDistributionForCurrentOS   # MSI + EXE(Compose 插件自动下载 WiX 3.11)
 gradle :apps:windows:packageMsi                # 只打 MSI
@@ -96,12 +96,12 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 └── ui/
     ├── theme/                 设计令牌(OrdoTokens)与主题(浅/深)
     ├── shell/                 OrdoApp(三栏骨架 + 确认浮层)· Sidebar · StatusBar
-    ├── list/                  ListPane(大标题/日程/分组 + 拖拽排序浮层)· TodoRow(38dp 行 + 圆形复选框 + 拖拽手柄)
+    ├── list/                  ListPane(大标题/日程/分组 + 拖拽排序浮层 + 行内输入框与"滚到可见")· TodoRow(38dp 行 + 圆形复选框 + 拖拽手柄)
     │                          · ReorderMath(插入位/指示线/顺序拼接的纯计算)· ListReorderState(拖拽运行时状态)
     ├── detail/DetailCard.kt   详情卡片(标题/备注/何时/截止/提醒/重复/移动/标签/清单)
     ├── schedule/              ScheduleSheet(排期面板 280 + 月历 + 中文 NLP 输入)
     ├── search/FastFind.kt     快找浮层(Ctrl+K,↑↓/Enter/Esc)
-    ├── quickadd/QuickAdd.kt   快加号(52dp,长按菜单:待办/项目/区域/标题)
+    ├── quickadd/QuickAdd.kt   快加号(52dp,长按菜单:待办/项目/区域/标题)—— 与 Ctrl+N 共用 openComposer 请求链路
     ├── settings/              设置浮层(外观与启动/深链协议/账号与同步/同步诊断/数据/快捷键)
     └── common/                Widgets(文本框/按钮/复选框/进度环/Toast/Markdown 备注)· OrdoConfirmDialog(二次确认)
 ```
@@ -136,11 +136,33 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 | `Esc` | 关闭浮层 / 详情;拖动中取消拖动;删除确认中取消确认 |
 | 拖拽手柄 | 按住行尾手柄上下拖动排序 |
 
-文本输入获得焦点时,无修饰键的快捷键自动让路(`OrdoInputFocus`)。`Ctrl+N` 打开行内输入框后会自动聚焦
-(等首帧布局完成再请求焦点),输入为空时 `Esc` 直接关闭且不会留下空待办。
+文本输入获得焦点时,无修饰键的快捷键自动让路(`OrdoInputFocus`)。`Ctrl+N` 打开行内输入框后会自动聚焦,
+输入为空时 `Esc` 直接关闭且不会留下空待办。
 
 **破坏性操作二次确认**:项目 / 区域 / 标题的删除按钮只发出请求(`UiState.confirm`),弹出确认框后才落库;
 `Esc` 与点击遮罩都算取消。删除一律是契约 §3 的软删除 + 墓碑,并作为 op 进 outbox 同步到其它端。
+
+## 6.1 新建待办的入口:为什么输入框留在列表顶部,而不是搬到加号旁边
+
+右下角快加号、`Ctrl+N`、标题栏加号、分组「+」**共用同一条请求链路** `OrdoViewModel.openComposer()`:
+它把 `composerOpen = true` 并让 `composerFocusToken` 自增。列表侧观察到令牌变化就做两件事 ——
+**请求键盘焦点**(`ComposerRow` 的 `SideEffect`)与**把输入行滚到可见处**(`ListPane`,160ms 滚到内容顶端)。
+令牌在"已经打开"时也会自增,所以**在输入框本来就开着的情况下再点加号同样有可见反馈**,不再是空操作。
+
+关于"滚到可见处 vs 改成贴近 FAB 的浮层",本端选择 **保留列表顶部的行内输入框 + 滚到可见处**,理由:
+
+1. **输入框的位置本身就是"这条待办会落在哪"的说明**。它渲染在当前清单内容的最上方,
+   紧挨着项目卡片 / 标题分组 —— 在项目里新建、在某标题下新建时,"属于谁"一眼可见。
+   搬到右下角浮层后,这个上下文提示会消失,用户更难判断 `Enter` 之后东西去了哪儿。
+2. **浮层会遮住它自己的入口**。FAB 与快加号菜单就住在右下角,输入行贴过去必然和菜单互相遮挡。
+3. 需求里的两个硬条件("打开时聚焦""已打开时再点也要有反馈")与方案无关,两条都能满足;
+   而"列表很长 / 已滚到底部"这一条,输入行固定在内容顶端,所以"滚到它"就是滚到 `0`,
+   一次动画必然可见 —— 不需要额外的可见性计算。
+
+实现要点:`ListPane` 把 `ScrollState` 提为可注入参数(仅测试注入),滚到可见用 `animateScrollTo(0)`;
+聚焦用**组合期**的 `SideEffect` 而不是 `LaunchedEffect + withFrameNanos` —— 焦点节点在施加阶段就已挂上树,
+不必等下一帧,离屏渲染与真实窗口行为一致。`OrdoTextField` 的 `cursorBrush` 已是主色,拿到焦点后光标可见,
+外层再补一圈主色描边作为"焦点在这里"的强化反馈(`UiState.composerFocused`)。
 
 ## 7. 数据与同步
 
@@ -165,7 +187,7 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 - **多窗口跟随选中**(设置页开关,默认开):任一窗口打开某条待办,其它窗口**如果正好显示这条**就把它高亮,
   不改动对方路由 —— 既满足"每窗口独立路由",又能在多窗口下快速定位同一条内容。
 
-## 8. 测试(本机可跑,97 个用例)
+## 8. 测试(本机可跑,118 个用例)
 
 ```
 JsonFileStorageTest    10 个:快照往返 / 损坏自愈 / outbox 幂等与清理 / 墓碑 / kv / 引擎落盘与重启 / 原子写
@@ -175,6 +197,12 @@ AnytimeOrderTest        5 个:随时/某天"拖拽 → 显示顺序立刻跟随 
                               视图模型分组与核心输出逐字段一致(守住"端上不二次排序")
 ConfirmDeleteTest       8 个:项目·区域·标题"请求 → 确认"才落库 / 取消与 Esc 不落库 / 删除进 outbox /
                               删除后从侧栏与清单消失
+ProjectCompletionTest   7 个:还有未完成待办时拒绝且文案带真实条数 / canceled 不阻塞 /
+                              待办全完成但标题未归档时允许完成 + 标题自动归档 + 每个标题一条 Op /
+                              完成后进日志簿、不再出现完成入口(契约 §2.2 v1.1)
+ComposerFocusTest      11 个:打开即请求焦点(令牌 + 计数)/ 已打开时重复点击重新请求聚焦且不丢状态 /
+                              列表滚到底部点加号会滚回输入行 / 离屏场景真实指针点击后输入框真的拿到键盘焦点 /
+                              空输入 Esc 关闭且不产生空待办
 AutoStartTest           9 个:内存实现 / HKCU Run 键 add·delete·query 参数 / 缺 exe 路径不触注册表 /
                               命令失败与异常退化 / 路径加引号 / 真实注册表只读冒烟
 ProtocolRegistrarTest   7 个:ordo 协议三条 reg add 的参数与键路径 / 查询判定 / 缺 exe 路径不触注册表 /
@@ -193,7 +221,14 @@ SyncDiagnosticsTest     4 个:待推送条数与 serverSeq / outbox 明细截断
 RenderSmokeTest         8 个:离屏渲染「今天」与「深色+快加号」PNG、派生清单与计数、中文 NLP 新建、
                               拖拽指示线渲染、设置页(开机自启 + 同步诊断)渲染、删除确认框渲染、
                               真实指针事件驱动"按住手柄 → 拖到第三行 → 松手"并断言顺序写回引擎
+ProjectCompletionRenderTest 3 个:项目卡片"可完成(标题未归档)"与"不可完成(写明条数)"两种状态渲染、
+                              完成前后画面确实不同、点开加号后输入行在列表顶部且带焦点描边
 ```
+
+> 离屏渲染的一个坑(本轮踩到并写进断言):`ImageComposeScene.render()` **不带参数**时帧时钟恒为 0,
+> `withFrameNanos` / 动画永远停在第 0 帧。依赖时间的断言(如 160ms 的滚动动画)必须自己喂帧
+> —— 见 `ComposerFocusTest.settleAnimation()`。也正因如此,焦点请求改成了**组合期**的 `SideEffect`,
+> 不再依赖"下一帧"(真实窗口与离屏场景行为一致)。
 
 离屏渲染产物(`build/reports/`,1440×900,可用于设计走查与回归对比):
 
@@ -204,6 +239,11 @@ RenderSmokeTest         8 个:离屏渲染「今天」与「深色+快加号」P
 | `ordo-drag-reorder.png` | 拖拽中:插入指示线 + 跟随指针的浮出行 + 被拖行变淡 |
 | `ordo-confirm-delete.png` | 删除项目的二次确认框 |
 | `ordo-settings-sync.png` | 设置页:开机自启 / 关闭窗口 / 新建窗口 / ordo:// 协议 / 同步诊断 |
+| `ordo-project-completable.png` | 项目卡片**可完成**态:14 项全部结束、两个标题尚未归档,仍显示「完成项目」 |
+| `ordo-project-blocked.png` | 项目卡片**不可完成**态:按钮直接写「还有 1 项未完成的待办」 |
+| `ordo-project-blocked-toast.png` | 点下去后的提示条:与按钮同源的「还有 1 项未完成的待办」 |
+| `ordo-project-done.png` | 完成之后:按钮变「重新打开」,标题已自动归档 |
+| `ordo-composer-focused.png` | 点开右下角加号:输入行在列表顶部、主色描边 + 光标(真的拿到了焦点) |
 
 ## 9. 已知限制
 
@@ -230,5 +270,18 @@ RenderSmokeTest         8 个:离屏渲染「今天」与「深色+快加号」P
 | `Ordo.exe ordo://logbook` 直接崩(`NullPointerException` in `OrdoRoute.fromKey`) | `OrdoRoute.fixed` 用**静态初始化字段**装的嵌套 `object` 列表,首次访问路径与类初始化交叉时读到 null 元素 | `fixed` 改为计算属性 + `listOfNotNull`;`fromKey` 改成显式 `when` 匹配,未知 key 回落「今天」;`DeepLink.safeParse` 吞掉解析异常;新增 `DeepLinkTest`(含并发解析用例) |
 | 托盘常驻后"再双击图标"只弹一个模态框、脚本里会一直挂着 | 第二个实例走 `notifyAlreadyRunning()` 的模态对话框,主线程返回但 JVM 被 AWT 线程拖住 | 第二个实例改为**转交链接 / 请求唤出窗口**后立即退出(0.4s);仅在连 inbox 都写不进去时才退回对话框 |
 | 单实例锁有时形同虚设(第二个实例也拿到锁) | 锁失败被 `runCatching` 一律吞成"已有实例",且瞬时 IO 抖动会误判 | `SingleInstanceLock.acquire` 区分 `Acquired / AlreadyRunning / Unavailable`,重试 3 次,进程级强引用锁对象(防 GC 释放),`GC` 与 `Unavailable` 都有单测;`--selftest` 报告 `step=lock ...` 可直接核对 |
+
+## 12. 第二轮修掉的两个真问题(用户实机试用反馈)
+
+| 现象 | 根因(端侧,核心已按契约 §2.2 v1.1 修好) | 修复 |
+|---|---|---|
+| 项目卡片显示「剩 0 项未完成 / 进度 100%」,点「完成项目」却被拒(提示还提"标题") | ① 按钮 `enabled` 仍带旧规则的标题判据 `sections.all { kind != HEADING \|\| todos.isEmpty() }`,而它读的是"当前清单可见分组",与全局口径不同源;② Toast 还是旧文案「还有未完成的待办或标题」 | 新增 `ProjectCardState`(由视图模型按核心计数填好 `openCount` / `totalCount`),按钮可用性、按钮文案、Toast 三处**同源**;不可完成时按钮直接显示「还有 N 项未完成的待办」,点下去提示逐字一致;完成后按钮变「重新打开」,标题由核心自动归档 |
+| 右下角蓝色加号"点了没反应" | `OrdoFab { vm.openComposer() }` 只把 `composerOpen = true`:输入行在**列表内容最顶端**,既不抢键盘焦点也不滚动过去;用户那一行本来就开着 → 彻底的空操作 | `openComposer()` 每次调用都自增 `composerFocusToken`(含已打开时);`ComposerRow` 在 `SideEffect` 里请求焦点,`ListPane` 在令牌变化时 `animateScrollTo(0)` 把输入行滚到可见处;`UiState.composerFocused` 回报焦点实况并点亮主色描边(方案取舍见 §6.1) |
+
+**给四端的一条口径提醒**:契约 §2.2 v1.1 下 `completeProject` 返回 false 的**唯一**原因是
+"该项目下还有 `status == OPEN` 的待办"。端上任何"能不能完成"的判断都应该直接用核心计数
+(`SidebarCounts.projects[id]`),不要自己再拼 heading 条件 —— 本端这两处 bug 都是那么来的。
+
+**共享核心**:本轮未改 `ordo/shared/**`,也未改文档与其它端。
 
 

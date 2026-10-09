@@ -100,8 +100,7 @@ class OrdoViewModel : ViewModel() {
                 detail = null,
                 sidebarOpen = false,
                 fastFindOpen = false,
-                composerOpen = false,
-                composerTarget = null,
+                composer = it.composer.closed(),
                 scheduleTarget = null,
                 searchQuery = if (routeKey == UiState.ROUTE_SEARCH) it.searchQuery else "",
                 searchResults = if (routeKey == UiState.ROUTE_SEARCH) it.searchResults else emptyList(),
@@ -468,12 +467,26 @@ class OrdoViewModel : ViewModel() {
         rebuild(runCatching { engine.snapshot }.getOrNull())
     }
 
+    /**
+     * 完成项目（契约 §2.2 v1.1）。
+     *
+     * 唯一硬约束是「项目下没有未完成的待办」；标题未归档不再阻塞（引擎会自动归档）。
+     * 提示文案与实际原因必须一致：拒绝时带上是多少项未完成，且不再提「标题」。
+     */
     fun completeProject(projectId: String) {
-        val ok = runCatching { engine.completeProject(projectId) }.getOrDefault(false)
+        val statusBefore = runCatching { engine.project(projectId)?.status }.getOrNull()
+        val openCount = runCatching { engine.counts().projects[projectId] ?: 0 }.getOrDefault(0)
+        val completed = runCatching { engine.completeProject(projectId) }.getOrDefault(false)
         rebuild(runCatching { engine.snapshot }.getOrNull())
-        showToast(
-            context.getString(if (ok) R.string.toast_project_completed else R.string.toast_project_blocked),
-        )
+        val outcome = resolveProjectComplete(completed, statusBefore, openCount)
+        showToast(context.getString(outcome.messageRes, *outcome.messageArgs()))
+    }
+
+    /** 重新打开已完成的项目（卡片在 DONE 时显示「重新打开」而不是「完成项目」） */
+    fun reopenProject(projectId: String) {
+        runCatching { engine.reopenProject(projectId) }
+        rebuild(runCatching { engine.snapshot }.getOrNull())
+        showToast(context.getString(R.string.toast_project_reopened))
     }
 
     fun renameProject(projectId: String, name: String) {
@@ -529,34 +542,45 @@ class OrdoViewModel : ViewModel() {
 
     /* ============================ 新建（快加） ============================ */
 
+    /**
+     * 打开「新建待办」浮层。
+     *
+     * 已经打开时**不是空操作**：保留已输入的草稿，只递增 `focusRequest`，
+     * 界面据此重新聚焦输入框并弹起软键盘（实测缺陷「点加号没反应」的修复点之一）。
+     */
     fun openComposer(target: String?) = _state.update {
-        it.copy(composerOpen = true, composerTarget = target, quickAddMenuOpen = false)
+        it.copy(composer = it.composer.opened(target), quickAddMenuOpen = false)
     }
 
-    fun closeComposer() = _state.update { it.copy(composerOpen = false, composerTarget = null) }
+    fun updateComposerDraft(text: String) = _state.update { it.copy(composer = it.composer.edited(text)) }
+
+    /** 关闭浮层：草稿丢弃；空标题不会留下任何待办 */
+    fun closeComposer() = _state.update { it.copy(composer = it.composer.closed()) }
 
     /** 提交新待办；标题里的日期/时间/标签由 core 的 NLP 解析（契约 §5） */
-    fun submitComposer(raw: String) {
-        val text = raw.trim()
-        if (text.isEmpty()) {
-            closeComposer()
-            return
+    fun submitComposer() {
+        when (val verdict = _state.value.composer.submission()) {
+            ComposerState.Submission.Empty -> closeComposer()
+
+            is ComposerState.Submission.Create -> {
+                val target = _state.value.composer.target
+                val options = TodoOptions(
+                    `when` = when (val route = _state.value.routeKey) {
+                        UiState.ROUTE_TODAY -> When.TODAY
+                        UiState.ROUTE_SOMEDAY -> When.SOMEDAY
+                        UiState.ROUTE_ANYTIME -> When.ANYTIME
+                        else -> if (route.startsWith(ROUTE_PROJECT_PREFIX)) When.ANYTIME else null
+                    },
+                    projectId = target?.takeIf { it.startsWith(ROUTE_PROJECT_PREFIX) }?.removePrefix(ROUTE_PROJECT_PREFIX),
+                    areaId = target?.takeIf { it.startsWith(ROUTE_AREA_PREFIX) }?.removePrefix(ROUTE_AREA_PREFIX),
+                    headingId = target?.takeIf { it.startsWith(HEADING_PREFIX) }?.removePrefix(HEADING_PREFIX),
+                )
+                val created = runCatching { engine.createTodo(verdict.title, options) }.getOrNull()
+                closeComposer()
+                rebuild(runCatching { engine.snapshot }.getOrNull())
+                if (created != null) showToast(context.getString(R.string.toast_todo_created, created.title))
+            }
         }
-        val target = _state.value.composerTarget
-        val options = TodoOptions(
-            `when` = when (val route = _state.value.routeKey) {
-                UiState.ROUTE_TODAY -> When.TODAY
-                UiState.ROUTE_SOMEDAY -> When.SOMEDAY
-                UiState.ROUTE_ANYTIME -> When.ANYTIME
-                else -> if (route.startsWith(ROUTE_PROJECT_PREFIX)) When.ANYTIME else null
-            },
-            projectId = target?.takeIf { it.startsWith(ROUTE_PROJECT_PREFIX) }?.removePrefix(ROUTE_PROJECT_PREFIX),
-            areaId = target?.takeIf { it.startsWith(ROUTE_AREA_PREFIX) }?.removePrefix(ROUTE_AREA_PREFIX),
-            headingId = target?.takeIf { it.startsWith(HEADING_PREFIX) }?.removePrefix(HEADING_PREFIX),
-        )
-        val created = runCatching { engine.createTodo(text, options) }.getOrNull()
-        rebuild(runCatching { engine.snapshot }.getOrNull())
-        if (created != null) showToast(context.getString(R.string.toast_todo_created, created.title))
     }
 
     /* ============================ 排期面板 ============================ */

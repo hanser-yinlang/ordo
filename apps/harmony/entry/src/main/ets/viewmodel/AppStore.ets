@@ -170,6 +170,12 @@ export class AppStore {
   quickAddWhen: string = '';
   quickAddProjectId: string = '';
   quickAddHeadingId: string = '';
+  /**
+   * 快加输入框的"聚焦请求"序号:每次 openQuickAdd 都 +1。
+   * 面板首次出现由输入框 onAppear 抢焦点;**已经打开时再点加号**则由该序号变化
+   * 再次聚焦(而不是"看着没反应"),软键盘随之弹出。
+   */
+  quickAddFocusSeq: number = 0;
   scheduleTodoId: string = '';
   scheduleIsDeadline: boolean = false;
   fastFindOpen: boolean = false;
@@ -345,12 +351,16 @@ export class AppStore {
     return this.narrow;
   }
 
-  /** 打开行内新建(可指定落入的清单/项目/标题) */
+  /**
+   * 打开行内新建(可指定落入的清单/项目/标题)。
+   * 面板已经打开时重复调用不是空操作:序号 +1 会让输入框重新聚焦(软键盘弹出),见 QuickAddPanel.focusSeq。
+   */
   openQuickAdd(when: string, projectId: string, headingId: string): void {
     this.quickAddOpen = true;
     this.quickAddWhen = when;
     this.quickAddProjectId = projectId;
     this.quickAddHeadingId = headingId;
+    this.quickAddFocusSeq = this.quickAddFocusSeq + 1;
     this.bump();
   }
 
@@ -790,9 +800,8 @@ export class AppStore {
       return;
     }
     if (target.kind === 'add') {
-      this.quickAddOpen = true;
-      this.quickAddWhen = '';
-      this.bump();
+      // 与加号按钮走同一条链路:除重置目标外还会请求输入框聚焦(这是"点了有反应"的判据)
+      this.openQuickAdd('', '', '');
     }
   }
 
@@ -1254,10 +1263,16 @@ export class AppStore {
     if (e === null) {
       return;
     }
+    // 契约 §2.2 v1.1:标题未归档不再阻塞完成;提示语必须与引擎语义一致
+    const p: Project | null = e.findProject(id);
+    if (p !== null && p.status === 'done') {
+      this.showToast('项目已经完成了');
+      return;
+    }
     if (e.completeProject(id)) {
-      this.showToast('项目已完成');
+      this.showToast('项目已完成,未归档标题已自动归档');
     } else {
-      this.showToast('还有未完成的待办或未归档的标题');
+      this.showToast('项目下还有未完成的待办');
     }
     this.afterWrite(null);
   }

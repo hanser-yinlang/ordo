@@ -28,7 +28,6 @@ public final class ShellViewModel {
     public var isFastFindPresented = false
     public var fastFindQuery = ""
     public var isSettingsPresented = false
-    public var isQuickAddMenuPresented = false
     /// 由快加号/快捷键发起的「打开行内新建输入框」请求(列表视图消费后置回 false)。
     public var requestComposer = false
     /// 排期面板:为某条待办排期(`when`)或设置截止(`deadline`)。
@@ -205,8 +204,13 @@ public final class ShellViewModel {
 
     // MARK: 新建
 
+    /// ⌘N「新建待办」:与快加号**单击**同义 —— 请求列表视图打开行内输入框。
+    ///
+    /// 原实现只置一个 `isQuickAddMenuPresented` 标志,而没有任何视图消费它
+    /// (SwiftUI 的 `.contextMenu` 只能由长按弹出,无法编程打开),
+    /// 于是 ⌘N 表现为「按了没有任何反应」。
     public func beginQuickAdd() {
-        isQuickAddMenuPresented = true
+        requestComposer = true
     }
 
     /// 在当前清单里新建一条待办(快加号单击行为)。

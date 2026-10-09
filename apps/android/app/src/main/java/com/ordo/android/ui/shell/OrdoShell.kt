@@ -111,6 +111,20 @@ fun OrdoRoot(
                             vm = vm,
                             onNavigate = { route -> navigateTo(navController, route, vm) },
                         )
+                        /*
+                         * 浮层先画、快加号后画：加号永远在浮层之上，因此
+                         *   ① 点加号 → 浮层出现（scrim + 输入卡片，明确可见）；
+                         *   ② 浮层已打开时再点加号 → 命中的是加号而不是遮罩，
+                         *      ViewModel 只递增 focusRequest，界面重新聚焦输入框、不丢草稿（任务 2）。
+                         * 卡片底部为加号留出 [OrdoLayout.fabSize] + 一点间距的空档，两者不重叠。
+                         */
+                        if (state.composer.open) {
+                            ComposerSheet(
+                                state = state,
+                                vm = vm,
+                                modifier = Modifier.padding(bottom = OrdoLayout.fabSize + OrdoSpace.l),
+                            )
+                        }
                         QuickAddFab(
                             state = state,
                             onClick = { vm.openComposer(currentComposerTarget(state)) },
@@ -160,9 +174,7 @@ fun OrdoRoot(
             QuickAddMenu(state = state, vm = vm)
         }
 
-        if (state.composerOpen) {
-            ComposerSheet(state = state, vm = vm)
-        }
+        /* 新建待办浮层不在这里：它与快加号同处列表区（见上），保证"再点一次加号"能重新聚焦 */
 
         if (!wide && state.detail != null) {
             Box(

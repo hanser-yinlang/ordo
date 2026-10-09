@@ -84,11 +84,15 @@ struct Index {
       }
 
       // 行内新建面板(顶部居中)
+      // 外层 Column 必须占满高度:Stack 的对齐是 BottomEnd,若只包住面板就会贴着屏幕底部、
+      // 被右下角的加号按钮压住,用户看到的是"点了没反应"。hitTestBehavior 为 Transparent,
+      // 面板以外的区域不拦截列表触摸。
       if (this.store.quickAddOpen) {
         Column() {
-          QuickAddPanel({ store: this.store })
+          QuickAddPanel({ store: this.store, focusSeq: this.store.quickAddFocusSeq })
         }
         .width('100%')
+        .height('100%')
         .padding({ top: 72, left: OrdoSpace.xl, right: OrdoSpace.xl })
         // Column 没有 alignContent,顶部对齐用 justifyContent
         .justifyContent(FlexAlign.Start)

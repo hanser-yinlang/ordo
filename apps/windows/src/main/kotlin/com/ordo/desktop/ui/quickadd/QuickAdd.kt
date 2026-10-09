@@ -95,6 +95,9 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OrdoQuickAddCaret { vm.setQuickAddMenu(!state.quickAddMenuOpen) }
                 Spacer(Modifier.width(OrdoSpace.s))
+                // 与 Ctrl+N / 标题栏加号 / 分组加号共用同一条请求链路:
+                // 输入框关着 → 打开;已经开着 → 令牌自增 → 重新抢焦点 + 列表滚到输入行。
+                // 两条路径都必然有可见反馈,不再出现"点了没反应"。
                 OrdoFab { vm.openComposer() }
             }
         }

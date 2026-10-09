@@ -1,5 +1,6 @@
 package com.ordo.desktop.ui.list
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -30,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -61,6 +65,7 @@ import com.ordo.core.query.SectionKind
 import com.ordo.core.util.OrdoDate
 import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
+import com.ordo.desktop.app.ProjectCardState
 import com.ordo.desktop.app.UiState
 import com.ordo.desktop.ui.common.EmptyState
 import com.ordo.desktop.ui.common.MarkdownNote
@@ -90,13 +95,16 @@ import kotlin.math.roundToInt
  * 因此一处实现即处处可用,按分组计算插入位、松手整表写回 `order`(契约 §4)。
  *
  * @param dragState 仅测试注入;为空时由容器自建
+ * @param composerScroll 仅测试注入;为空时由容器自建。行内输入框住在内容最顶端,
+ *   所以"把它滚到可见处"就是滚到列表顶部 —— 见 [scrollComposerIntoView]
  */
 @Composable
 fun ListPane(
     state: UiState,
     vm: OrdoViewModel,
     modifier: Modifier = Modifier,
-    dragState: ListReorderState? = null
+    dragState: ListReorderState? = null,
+    composerScroll: ScrollState? = null
 ) {
     val colors = ordoColors
     Column(
@@ -106,7 +114,7 @@ fun ListPane(
     ) {
         ListHeader(state, vm)
         Box(Modifier.weight(1f)) {
-            val scroll = rememberScrollState()
+            val scroll = composerScroll ?: rememberScrollState()
             val drag = dragState ?: remember { ListReorderState() }
 
             // 视口位置 / 滚动量 → 拖拽状态(指针坐标换算成内容坐标)
@@ -137,6 +145,11 @@ fun ListPane(
             }
             // 换清单时丢弃未完成的拖动
             LaunchedEffect(state.route) { drag.cancel() }
+            // 每次"打开输入框"(含已打开时再点右下角加号)都把输入行滚到可见处:
+            // 令牌已变化即是新请求,所以重复点击同样有可见反馈,不再是空操作
+            LaunchedEffect(state.composerFocusToken) {
+                if (state.composerFocusToken > 0L) scrollComposerIntoView(scroll)
+            }
 
             Column(
                 Modifier
@@ -156,7 +169,7 @@ fun ListPane(
                             .fillMaxWidth()
                     ) {
                         Column {
-                            ListContent(state, vm, drag)
+                            ListContent(state, vm, drag, scroll)
                             Spacer(Modifier.height(96.dp))
                         }
                         ReorderOverlay(state, drag)
@@ -165,6 +178,20 @@ fun ListPane(
             }
         }
     }
+}
+
+/** 行内输入框回滚动画的时长:比常规动效更短,避免"点了加号要等一秒才看到输入框" */
+private const val COMPOSER_SCROLL_MS = 160
+
+/**
+ * 把行内输入框滚到可见处。
+ *
+ * 输入行固定渲染在可滚动内容的**最顶端**,所以"滚到它那里"就等价于滚到 `0`:
+ * 无论列表已经滚到多深(用户实测的"列表很长/已滚到底部"),都能一步看到它。
+ * 用动画而不是瞬移,是为了让"列表动了"本身成为一次可见反馈。
+ */
+private suspend fun scrollComposerIntoView(scroll: ScrollState) {
+    runCatching { scroll.animateScrollTo(0, tween(COMPOSER_SCROLL_MS, easing = FastOutSlowInEasing)) }
 }
 
 // ---------------------------------------------------------------- 顶部
@@ -293,7 +320,7 @@ private const val AUTO_SCROLL_STEP_PX = 20f
 // ---------------------------------------------------------------- 内容
 
 @Composable
-private fun ListContent(state: UiState, vm: OrdoViewModel, drag: ListReorderState) {
+private fun ListContent(state: UiState, vm: OrdoViewModel, drag: ListReorderState, scroll: ScrollState) {
     val completing = remember { mutableStateMapOf<String, Boolean>() }
     val scope = rememberCoroutineScope()
     val reduceMotion = com.ordo.desktop.ui.theme.LocalOrdoReduceMotion.current
@@ -567,7 +594,15 @@ private fun HeadingRow(heading: Heading?, section: ListSection, vm: OrdoViewMode
     }
 }
 
-/** 项目卡片:大进度环 + 备注 + 完成项目 */
+/**
+ * 项目卡片:大进度环 + 备注 + 完成项目。
+ *
+ * 契约 §2.2 v1.1 的完成规则只有一条硬约束("该项目下所有待办都已结束"),
+ * 所以这里**不再**检查"标题是否都已归档"(旧实现里的 `sections.all { … HEADING … }` 判据):
+ * 一是标题已不阻塞完成,二是那个判据读的是"当前清单可见的分组",与全局口径不同源,
+ * 正是"卡片显示 0 项未完成、按钮却不可用"的第二个来源。
+ * 现在按钮可用性 / 文案 / 核心行为都取同一个 [ProjectCardState.openCount]。
+ */
 @Composable
 private fun ProjectCard(project: Project, state: UiState, vm: OrdoViewModel) {
     val colors = ordoColors
@@ -577,7 +612,13 @@ private fun ProjectCard(project: Project, state: UiState, vm: OrdoViewModel) {
         animationSpec = tween(motionMillis(OrdoMotion.BASE)),
         label = "projectProgress"
     )
-    val openCount = state.counts.projects[project.id] ?: 0
+    // 卡片状态由状态层从核心计数填好。缺失只可能是"刷新尚未跑到"的极端时序,
+    // 那时退回核心的侧栏计数(仍是同一口径),按钮照常可用,由核心给出真实结论。
+    val card = state.projectCard ?: ProjectCardState(
+        projectId = project.id,
+        openCount = state.counts.projects[project.id] ?: 0,
+        totalCount = state.sections.sumOf { it.todos.size }
+    )
     var editingNote by remember { mutableStateOf(false) }
     var noteDraft by remember(project.id) { mutableStateOf(project.note) }
 
@@ -595,7 +636,7 @@ private fun ProjectCard(project: Project, state: UiState, vm: OrdoViewModel) {
             }
             Spacer(Modifier.width(OrdoSpace.m))
             Column(Modifier.weight(1f)) {
-                Text("${state.sections.sumOf { it.todos.size }} 项待办 · 剩 $openCount 项未完成", style = OrdoType.caption, color = colors.textSecondary)
+                Text(card.countText(), style = OrdoType.caption, color = colors.textSecondary)
                 Text(
                     if (project.status == Status.DONE) "已完成" else "进行中",
                     style = OrdoType.micro,
@@ -606,9 +647,9 @@ private fun ProjectCard(project: Project, state: UiState, vm: OrdoViewModel) {
                 OrdoTextButton("重新打开", { vm.reopenProject(project.id) })
             } else {
                 OrdoTextButton(
-                    text = "完成项目",
-                    onClick = { vm.completeProject(project.id) },
-                    enabled = (state.counts.projects[project.id] ?: 0) == 0 && state.sections.all { it.kind != SectionKind.HEADING || it.todos.isEmpty() }
+                    // 还有未完成待办时,按钮直接把真实原因与条数写在脸上,而不是给一个不解释的灰按钮
+                    text = if (card.canComplete) "完成项目" else card.blockedReason(),
+                    onClick = { vm.completeProject(project.id) }
                 )
             }
         }
@@ -642,11 +683,19 @@ private fun ComposerRow(state: UiState, vm: OrdoViewModel) {
     var draft by remember { mutableStateOf("") }
     val options = composerOptions(state)
     val focusRequester = remember { FocusRequester() }
+    var focusedToken by remember { mutableStateOf(-1L) }
 
-    // Ctrl+N 之后输入框必须拿到焦点:等第一帧布局完成再请求,节点未就绪时不至于抛异常
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        runCatching { focusRequester.requestFocus() }
+    // 每次"打开输入框"的请求(令牌自增)都重新抢一次焦点。
+    // 之所以带令牌而不只是 Unit:右下角加号在输入框已开着时再点,也必须把光标抢回来 +
+    // 列表滚到它这里(需求:点了必有可见反馈),而不是空操作。
+    // 用 SideEffect(组合成功提交后同步执行)而不是 LaunchedEffect + withFrameNanos:
+    // 焦点节点在**施加阶段**就已经挂在树上,这里请求一次就成,不必等下一帧 ——
+    // 少一层帧时钟依赖,离屏渲染与真实窗口的行为也一致(runCatching 保住节点尚未就绪的极端时序)。
+    SideEffect {
+        if (focusedToken != state.composerFocusToken) {
+            focusedToken = state.composerFocusToken
+            runCatching { focusRequester.requestFocus() }
+        }
     }
 
     Row(
@@ -654,6 +703,7 @@ private fun ComposerRow(state: UiState, vm: OrdoViewModel) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(OrdoRadius.row))
             .background(colors.surface)
+            .border(1.dp, if (state.composerFocused) colors.accent else colors.hairline, RoundedCornerShape(OrdoRadius.row))
             .padding(horizontal = OrdoSpace.m, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -669,7 +719,10 @@ private fun ComposerRow(state: UiState, vm: OrdoViewModel) {
             onValueChange = { draft = it },
             placeholder = "新待办（试试「明天 18:00 交报告 #重要」）",
             textStyle = OrdoType.body,
-            modifier = Modifier.weight(1f).focusRequester(focusRequester),
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focusRequester)
+                .onFocusChanged { focus -> vm.notifyComposerFocused(focus.isFocused) },
             onEnter = {
                 if (draft.isNotBlank()) {
                     vm.createTodo(draft, options)

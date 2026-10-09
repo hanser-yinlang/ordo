@@ -487,14 +487,39 @@ public final class AppEnvironment {
         return created
     }
 
+    /// 完成项目(契约 §2.2 v1.1)。
+    ///
+    /// **完成判定完全由 KMP 核心给出**(`OrdoEngine.completeProject`),Swift 侧不复制任何规则
+    /// —— 尤其**不统计 heading 是否归档**:标题是组织容器而不是工作项,核心在完成项目时
+    /// 会自动归档未归档的标题(每个标题一条 Op),因此桥接层无需任何补偿。
+    ///
+    /// 这里只做两件事:转发调用 + 把**真实原因**翻译成与之一致的提示。
     @discardableResult
     public func completeProject(id: String) -> Bool {
-        let ok = engine.completeProject(id: id)
-        persistCurrentSnapshot()
-        if !ok {
-            toast("项目还有未完成的待办或未归档的标题", kind: .failure)
+        guard engine.completeProject(id: id) else {
+            // 核心返回 false 的原因只有两类(见 OrdoEngine.completeProject):
+            // ① 项目下还有 status == open 的待办 —— 唯一与用户操作有关的原因,提示必须给出条数;
+            // ② 项目不存在或已完成 —— 状态竞争(例如另一台设备刚完成),与「待办没做完」无关,
+            //    因此不能笼统地提示「还有未完成的待办」。
+            let open = projectProgress(id).open
+            if open > 0 {
+                toast("项目还有 \(open) 项未完成的待办", kind: .failure)
+            } else if snapshot.project(id: id)?.status == .done {
+                toast("项目已经完成", kind: .info)
+            } else {
+                toast("找不到这个项目", kind: .failure)
+            }
+            return false
         }
-        return ok
+        persistCurrentSnapshot()
+        return true
+    }
+
+    /// 重新打开已完成的项目(契约 §2.2:状态回到 open,子待办状态不变)。
+    /// 侧栏只列 `status == .open` 的项目,因此完成后的项目需要这个显式的回退入口。
+    public func reopenProject(id: String) {
+        engine.reopenProject(id: id)
+        persistCurrentSnapshot()
     }
 
     /// 项目完成度(比例来自核心 `projectProgress(projectId:)`,Swift 只补充 done/open 展示计数)。

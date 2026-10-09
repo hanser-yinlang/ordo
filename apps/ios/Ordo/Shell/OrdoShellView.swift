@@ -41,9 +41,13 @@ public struct OrdoShellView: View {
                 regularLayout
             }
 
-            QuickAddButton(shell: shell)
-                .padding(.trailing, OrdoSpacing.xl)
-                .padding(.bottom, OrdoSpacing.xl)
+            // 紧凑宽度下被 push 的待办详情是全屏上下文:此时快加号即便可点,
+            // 打开的行内输入框也只会落在后面的列表里(用户看到的是「点了没反应」),因此不渲染。
+            if !(isCompact && shell.compactDetailTodoId != nil) {
+                QuickAddButton(shell: shell)
+                    .padding(.trailing, OrdoSpacing.xl)
+                    .padding(.bottom, OrdoSpacing.xl)
+            }
         }
         .overlay(alignment: .bottom) {
             OrdoToastOverlay(toasts: environment.toasts) { id in

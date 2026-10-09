@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from '@ohos/hypium';
-import { Op, Todo } from '../../../main/ets/core/model/Entities.ets';
+import { Heading, Op, Project, Todo } from '../../../main/ets/core/model/Entities.ets';
 import { OrdoEngine } from '../../../main/ets/core/store/OrdoEngine.ets';
 import { MemoryOrdoStore } from '../../../main/ets/core/storage/MemoryStore.ets';
 import { ApplyResult } from '../../../main/ets/core/sync/SyncTypes.ets';
@@ -284,6 +284,91 @@ export default function syncMergeTest() {
       expect(json.indexOf('测试区域') >= 0).assertTrue();
       expect(json.indexOf('测试项目') >= 0).assertTrue();
       expect(json.indexOf('测试待办') >= 0).assertTrue();
+      done();
+    });
+
+    /* --------- 契约 §2.2 项目完成规则 v1.1(与 Kotlin 参考实现逐条对齐)--------- */
+
+    it('complete_project_rejected_while_open_todos_remain', 0, async (done: Function) => {
+      // ① 唯一硬约束:项目下还有 status == open 的待办 → 拒绝,且不留半成品
+      const engine: OrdoEngine = await newEngine();
+      const p: Project = engine.createProject('未完成项目', null);
+      const h: Heading = engine.addHeading(p.id, '阶段一') as Heading;
+      engine.createTodo({ raw: '还没做', projectId: p.id, areaId: null, headingId: h.id, when: null });
+
+      expect(engine.canCompleteProject(p.id)).assertFalse();
+      expect(engine.completeProject(p.id)).assertFalse();
+      const after: Project = engine.findProject(p.id) as Project;
+      expect(after.status).assertEqual('open');
+      expect(after.completedAt === null).assertTrue();
+      expect(after.headings[0].archived).assertFalse(); // 被拒时不得先归档标题
+      done();
+    });
+
+    it('complete_project_allowed_with_unarchived_headings_and_archives_them', 0, async (done: Function) => {
+      // ② 待办都结束但标题未归档 → 允许完成,且完成后自动归档(§2.2 v1.1)
+      const engine: OrdoEngine = await newEngine();
+      const p: Project = engine.createProject('Q4 产品发布', null);
+      const h1: Heading = engine.addHeading(p.id, '设计') as Heading;
+      engine.addHeading(p.id, '开发');
+      const t: Todo | null = engine.createTodo({
+        raw: '写方案', projectId: p.id, areaId: null, headingId: h1.id, when: null
+      });
+      expect(t === null).assertFalse();
+      engine.toggleDone((t as Todo).id);
+
+      const before: Project = engine.findProject(p.id) as Project;
+      expect(before.headings.length).assertEqual(2);
+      expect(before.headings[0].archived).assertFalse();
+      expect(engine.canCompleteProject(p.id)).assertTrue(); // 未归档标题不再阻塞
+
+      expect(engine.completeProject(p.id)).assertTrue();
+      const after: Project = engine.findProject(p.id) as Project;
+      expect(after.status).assertEqual('done');
+      expect(after.completedAt === null).assertFalse();
+      // 不变量:已完成项目不含未归档标题
+      let unarchived: number = 0;
+      for (let i = 0; i < after.headings.length; i++) {
+        if (!after.headings[i].archived) {
+          unarchived++;
+        }
+      }
+      expect(unarchived).assertEqual(0);
+      // 幂等:已完成的项目重复调用不再产 Op
+      const opsAfter: number = engine.pendingCount();
+      expect(engine.completeProject(p.id)).assertFalse();
+      expect(engine.pendingCount()).assertEqual(opsAfter);
+      done();
+    });
+
+    it('complete_project_emits_heading_archive_ops_then_project_op', 0, async (done: Function) => {
+      // ③ 自动归档的 Op 数量与实体类型正确:2 个标题 → 2 条 heading op + 1 条 project op
+      const engine: OrdoEngine = await newEngine();
+      const p: Project = engine.createProject('发布项目', null);
+      engine.addHeading(p.id, '设计');
+      engine.addHeading(p.id, '开发');
+      const t: Todo | null = engine.createTodo({
+        raw: '收尾', projectId: p.id, areaId: null, headingId: null, when: null
+      });
+      engine.toggleDone((t as Todo).id);
+
+      const opsBefore: number = engine.pendingCount();
+      expect(engine.completeProject(p.id)).assertTrue();
+      expect(engine.pendingCount() - opsBefore).assertEqual(3);
+
+      const all: Op[] = engine.takePendingOps(1000);
+      const fresh: Op[] = all.slice(opsBefore);
+      expect(fresh.length).assertEqual(3);
+      expect(fresh[0].entity).assertEqual('heading');
+      expect(fresh[0].type).assertEqual('upsert');
+      expect(fresh[1].entity).assertEqual('heading');
+      expect(fresh[1].type).assertEqual('upsert');
+      expect(fresh[2].entity).assertEqual('project');
+      expect(fresh[2].type).assertEqual('upsert');
+      // 归档 Op 与手工归档同构:完整 heading payload + archived=true
+      expect((fresh[0].payload as string).indexOf('"archived":true') >= 0).assertTrue();
+      expect((fresh[1].payload as string).indexOf('"archived":true') >= 0).assertTrue();
+      expect((fresh[2].payload as string).indexOf('"status":"done"') >= 0).assertTrue();
       done();
     });
   });

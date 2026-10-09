@@ -77,6 +77,9 @@ compose.desktop {
                 perUserInstall = true
                 // 固定 UUID:升级安装时复用同一产品标识
                 upgradeUuid = "5B7C1B2E-9A44-4E1D-8C7F-2D6A3E5B9F10"
+                // 应用图标(开始菜单/桌面快捷方式/安装包):
+                // 多尺寸 ICO(16/24/32/48/64/128/256),由 icons/ 下的 PNG 生成,见 README §13
+                iconFile.set(project.file("icons/ordo-ring.ico"))
             }
         }
     }

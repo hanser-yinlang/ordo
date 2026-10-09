@@ -35,8 +35,12 @@ import com.ordo.android.ui.theme.OrdoLayout
 import com.ordo.android.ui.theme.OrdoSpace
 import com.ordo.android.ui.theme.OrdoTheme
 import com.ordo.android.vm.OrdoViewModel
+import com.ordo.android.vm.ProjectCardAction
 import com.ordo.android.vm.ProjectHeaderUi
 import com.ordo.android.vm.UiState
+import com.ordo.android.vm.labelRes
+import com.ordo.android.vm.projectCardAction
+import com.ordo.core.model.Status
 import com.ordo.core.query.SectionKind
 
 /** 列表区：大标题下的内容（日程 / 分组 / 待办行 / 空状态） */
@@ -180,11 +184,20 @@ fun ListScreen(
                         label = stringResource(R.string.composer_new_heading),
                         onClick = { vm.createHeading(projectHeader.id, newHeadingName) },
                     )
-                    OrdoButton(
-                        label = stringResource(R.string.project_complete),
-                        onClick = { vm.completeProject(projectHeader.id) },
-                        primary = projectHeader.openCount == 0,
-                    )
+                    when (projectCardAction(projectHeader.status)) {
+                        // 契约 §2.2 v1.1：已完成的项目显示「重新打开」而不是「完成项目」
+                        //（后者只会被幂等拒绝，且旧文案会把原因说错）
+                        ProjectCardAction.REOPEN -> OrdoButton(
+                            label = stringResource(ProjectCardAction.REOPEN.labelRes),
+                            onClick = { vm.reopenProject(projectHeader.id) },
+                        )
+
+                        ProjectCardAction.COMPLETE -> OrdoButton(
+                            label = stringResource(ProjectCardAction.COMPLETE.labelRes),
+                            onClick = { vm.completeProject(projectHeader.id) },
+                            primary = projectHeader.openCount == 0,
+                        )
+                    }
                 }
             }
         }
@@ -218,6 +231,16 @@ private fun ProjectHeader(header: ProjectHeaderUi, vm: OrdoViewModel) {
             }
             header.areaName?.let { area ->
                 MetaPill(text = area, icon = OrdoIconKind.Area)
+            }
+            // 已完成态与核心的 project.status 一一对应（不再让"完成项目"按钮出现在已完成的项目上）
+            if (header.status == Status.DONE) {
+                MetaPill(
+                    text = stringResource(R.string.project_status_done),
+                    icon = OrdoIconKind.Check,
+                    tone = MetaTone.ACCENT,
+                )
+            } else {
+                MetaPill(text = stringResource(R.string.project_status_open), tone = MetaTone.NORMAL)
             }
         }
         if (header.note.isNotBlank()) {

@@ -143,14 +143,21 @@ export function normalizeEntity<K extends EntityKind>(kind: K, entity: AnyEntity
   }
 }
 
-/** §2.2 硬约束:项目仅当所有 todo 已完成/取消,且所有 heading 已归档,才能标记完成 */
+/**
+ * §2.2 硬约束(v1.1,2026-10-09 修订):项目仅当所有 todo 已完成/取消才能标记完成。
+ *
+ * **heading 不再参与判定** —— 它是组织容器不是工作项。客户端完成项目时会在同一批里
+ * 先发出 heading 归档 op、再发 project done op,由客户端保证"已完成项目不含未归档标题"这一不变量;
+ * 服务端只守住"没有未完成待办"这条唯一硬约束。
+ *
+ * `headings` 形参保留以兼容既有调用点与测试,不再参与判定。
+ */
 export function canCompleteProject(
   projectStatus: string,
   childTodos: Pick<Todo, 'status'>[],
   headings: Pick<Heading, 'archived'>[]
 ): boolean {
+  void headings;
   if (projectStatus !== 'done') return true;
-  const allTodosSettled = childTodos.every((t) => t.status === 'done' || t.status === 'canceled');
-  const allHeadingsArchived = headings.every((h) => h.archived === true);
-  return allTodosSettled && allHeadingsArchived;
+  return childTodos.every((t) => t.status === 'done' || t.status === 'canceled');
 }

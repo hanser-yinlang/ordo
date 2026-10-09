@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
+import javax.imageio.ImageIO
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.input.key.Key
@@ -24,6 +26,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
@@ -434,6 +439,10 @@ private fun ApplicationScope.DesktopWindow(
         state = windowState,
         visible = visible,
         title = windowTitle(state, vm),
+        // 应用图标(任务栏 / Alt-Tab / 窗口左上角)。
+        // 桌面端直接走 JVM 的 ImageIO + BitmapPainter:不用已被弃用的 painterResource(String),
+        // 也不必为一个资源引入 Compose Resources 插件。资源与打包用的 icons/ordo-ring.ico 同源。
+        icon = windowIcon(),
         onKeyEvent = { event -> handleShortcut(event, vm, onRequestNewWindow) }
     ) {
         LaunchedEffect(Unit) {
@@ -628,3 +637,20 @@ private fun notifyAlreadyRunning() {
         }
     }.apply { name = "ordo-already-running" }.start()
 }
+
+/**
+ * 加载窗口图标(任务栏 / Alt-Tab / 窗口左上角)。
+ *
+ * 为什么不用 `painterResource(String)`:该重载在 Compose Multiplatform 1.12 已弃用,
+ * 官方建议迁移到 Compose Resources 库;但那需要为本模块引入资源生成插件 —— 对一个图标而言过重。
+ * 桌面端直接用 JVM 的 ImageIO 解码,再包成 BitmapPainter,既无弃用告警也不增加依赖。
+ * 资源缺失时返回 null(窗口退回系统默认图标),不让图标问题导致启动失败。
+ */
+private fun windowIcon(): Painter? = runCatching {
+    val stream = Thread.currentThread().contextClassLoader
+        ?.getResourceAsStream(WINDOW_ICON_RESOURCE) ?: return null
+    stream.use { BitmapPainter(ImageIO.read(it).toComposeImageBitmap()) }
+}.getOrNull()
+
+/** 与打包用的 icons/ordo-ring.ico 同源(见 apps/windows/icons/,生成脚本与设计说明见 README §13) */
+private const val WINDOW_ICON_RESOURCE = "ordo-icon-ring.png"

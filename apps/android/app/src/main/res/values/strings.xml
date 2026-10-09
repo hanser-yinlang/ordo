@@ -76,6 +76,9 @@
     <string name="composer_heading_hint">标题名称</string>
     <string name="progress_desc">完成度 %1$d%%</string>
     <string name="project_complete">完成项目</string>
+    <string name="project_reopen">重新打开</string>
+    <string name="project_status_done">已完成</string>
+    <string name="project_status_open">进行中</string>
     <string name="heading_collapse">折叠/展开标题</string>
 
     <!-- 空状态 -->
@@ -192,7 +195,10 @@
     <string name="toast_restored">已恢复</string>
     <string name="toast_reset">已重置为示例数据</string>
     <string name="toast_project_completed">项目已完成</string>
-    <string name="toast_project_blocked">还有未完成的待办，无法完成项目</string>
+    <!-- 契约 §2.2 v1.1：拒绝的唯一原因就是"还有 N 项未完成的待办"；标题未归档不阻塞完成，文案里不得再提"标题" -->
+    <string name="toast_project_blocked">还有 %1$d 项未完成的待办，无法完成项目</string>
+    <string name="toast_project_already_done">项目已是完成状态</string>
+    <string name="toast_project_reopened">项目已重新打开</string>
     <string name="toast_project_created">已新建项目「%1$s」</string>
     <string name="toast_area_created">已新建区域「%1$s」</string>
     <string name="toast_todo_created">已添加「%1$s」</string>

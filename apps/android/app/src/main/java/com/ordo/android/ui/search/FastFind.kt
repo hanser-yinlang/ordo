@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -109,8 +108,10 @@ fun FastFind(
                         placeholder = stringResource(R.string.fastfind_hint),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp)
-                            .focusRequester(focusRequester),
+                            .height(44.dp),
+                        // 与新建浮层同源：焦点必须交给真正的可聚焦节点，
+                        // 否则 ↑↓/Enter/Esc 收不到 key 事件（外层 Column 的 onPreviewKeyEvent 形同虚设）
+                        focusRequester = focusRequester,
                     )
                     Spacer(Modifier.height(OrdoSpace.s))
                     if (state.searchResults.isEmpty()) {

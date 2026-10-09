@@ -225,16 +225,26 @@ export default function listQueryTest() {
       expect(projectProgress(list, 'p2')).assertEqual(0);
     });
 
-    it('can_complete_project_requires_all_done_and_headings_archived', 0, () => {
+    it('can_complete_project_only_requires_todos_closed', 0, () => {
       const openTodo: Todo[] = [mk('1', 'a', 'anytime', { projectId: 'p1' })];
       const doneTodo: Todo[] = [mk('1', 'a', 'anytime', { projectId: 'p1', status: 'done' })];
+      const canceledTodo: Todo[] = [mk('1', 'a', 'anytime', { projectId: 'p1', status: 'canceled' })];
       const h: Heading = headingFixture('h1', 'p1', '阶段一', 0);
-
-      expect(canCompleteProject(openTodo, [], 'p1')).assertFalse();
-      expect(canCompleteProject(doneTodo, [h], 'p1')).assertFalse(); // 标题未归档
-      const archived: Heading = headingFixture('h1', 'p1', '阶段一', 0);
+      const archived: Heading = headingFixture('h2', 'p1', '阶段二', 1);
       archived.archived = true;
+
+      // ① 唯一硬约束:还有未完成待办 → 拒绝
+      expect(canCompleteProject(openTodo, [], 'p1')).assertFalse();
+      expect(canCompleteProject(openTodo, [archived], 'p1')).assertFalse();
+      // ② 待办都结束但标题未归档 → 允许(契约 §2.2 v1.1:heading 是容器,不阻塞完成)
+      expect(canCompleteProject(doneTodo, [h], 'p1')).assertTrue();
       expect(canCompleteProject(doneTodo, [archived], 'p1')).assertTrue();
+      expect(canCompleteProject(canceledTodo, [h], 'p1')).assertTrue();
+      // 边界:别的项目的未完成待办 / 已删除的未完成待办都不阻塞
+      const foreign: Todo[] = [mk('2', 'b', 'anytime', { projectId: 'p2' })];
+      const deleted: Todo[] = [mk('3', 'c', 'anytime', { projectId: 'p1', deleted: true })];
+      expect(canCompleteProject(foreign, [], 'p1')).assertTrue();
+      expect(canCompleteProject(deleted, [h], 'p1')).assertTrue();
     });
 
     it('sidebar_counts', 0, () => {

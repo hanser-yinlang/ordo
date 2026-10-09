@@ -471,8 +471,14 @@ export function projectOpenCount(todos: Todo[], projectId: string): number {
 }
 
 /**
- * 契约 §2.2 硬约束:仅当项目下所有 todo 的 status ∈ {done, canceled}
- * 且所有 heading.archived == true 时,才允许 status="done"。
+ * 契约 §2.2 项目完成规则(v1.1 修订)的唯一硬约束:
+ * 项目下所有 todo 的 status ∈ {done, canceled}。
+ *
+ * Heading 是**组织容器**而非工作项,`heading.archived == true` 不再是完成条件
+ * (旧规则会导致"界面显示 0 项未完成却被拒绝完成");完成项目时由引擎自动归档
+ * 未归档标题,见 `OrdoEngine.completeProject`。
+ *
+ * `headings` 参数保留只为兼容既有调用点,不参与判定。
  */
 export function canCompleteProject(todos: Todo[], headings: Heading[], projectId: string): boolean {
   for (let i = 0; i < todos.length; i++) {
@@ -481,12 +487,6 @@ export function canCompleteProject(todos: Todo[], headings: Heading[], projectId
       continue;
     }
     if (t.status === 'open') {
-      return false;
-    }
-  }
-  for (let i = 0; i < headings.length; i++) {
-    const h: Heading = headings[i];
-    if (h.projectId === projectId && !h.archived) {
       return false;
     }
   }

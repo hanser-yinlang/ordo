@@ -30,6 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -154,6 +156,14 @@ fun OrdoTextField(
     singleLine: Boolean = true,
     textStyle: TextStyle = OrdoTheme.type.body,
     onSubmit: (() -> Unit)? = null,
+    /**
+     * 需要自动聚焦时由调用方传入。
+     *
+     * 必须落在**真正的可聚焦节点**（`BasicTextField`）上：把 `focusRequester` 挂在外层
+     * `Box` 上时 `requestFocus()` 找不到焦点目标，输入框不会获得焦点、软键盘也不会弹
+     * —— 这正是实测「点加号没有反应」的根因之一。
+     */
+    focusRequester: FocusRequester? = null,
 ) {
     val colors = OrdoTheme.colors
     Box(
@@ -180,7 +190,9 @@ fun OrdoTextField(
             keyboardActions = androidx.compose.foundation.text.KeyboardActions(
                 onDone = { onSubmit?.invoke() },
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
         )
     }
 }

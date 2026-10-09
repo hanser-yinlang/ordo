@@ -381,12 +381,11 @@ export class SyncService {
     if (op.entity === 'project' && (normalized as Project).status === 'done') {
       const project = normalized as Project;
       const children = await this.collectProjectTodos(userId, project.id);
-      const headings = await this.collectProjectHeadings(userId, project.id);
-      if (!canCompleteProject('done', children, headings)) {
+      if (!canCompleteProject('done', children, [])) {
         return {
           kind: 'rejected',
           reason: 'project_incomplete',
-          message: '项目下仍有未完成的待办或未归档的标题,不允许标记完成(契约 §2.2)'
+          message: '项目下仍有未完成的待办,不允许标记完成(契约 §2.2 v1.1)'
         };
       }
     }
@@ -534,12 +533,6 @@ export class SyncService {
       .map((r) => r.payload as Todo);
   }
 
-  private async collectProjectHeadings(userId: string, projectId: string): Promise<Heading[]> {
-    const rows = await this.repo.listEntities(userId, 'heading');
-    return rows
-      .filter((r) => !r.deleted && (r.payload as Heading).projectId === projectId)
-      .map((r) => r.payload as Heading);
-  }
 
   /**
    * 墓碑清理已迁移到独立的定时任务(见 services/tombstone-purger.ts),

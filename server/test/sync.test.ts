@@ -399,6 +399,70 @@ describe('同步协议 §7', () => {
     assert.equal(done2.body.rejected.length, 0, '所有子项完成后应允许完成项目');
   });
 
+  it('§2.2 v1.1:heading 未归档不再阻塞项目完成(旧规则会误拒)', async () => {
+    // 用户实测:项目显示"剩 0 项未完成 / 进度 100%",点完成却被拒 —— 旧规则要求所有 heading 已归档。
+    // v1.1 起 heading 是组织容器、不参与判定;客户端会在同一批里先发归档 op 再发 done op。
+    const projectId = 'p-v11';
+    const headingId = 'h-v11';
+    const project = {
+      id: projectId,
+      areaId: null,
+      name: 'Q4 产品发布',
+      note: '',
+      when: 'anytime',
+      date: null,
+      deadline: null,
+      tags: [],
+      order: 0,
+      status: 'open',
+      completedAt: null,
+      repeat: null,
+      createdAt: 200_000,
+      updatedAt: 200_000,
+      deleted: false
+    };
+    await push(ctx.app, user.accessToken, DEV_A, [
+      makeOp({ entity: 'project', entityId: projectId, payload: project, clientTs: 200_000 }),
+      makeOp({
+        entity: 'heading',
+        entityId: headingId,
+        payload: { id: headingId, projectId, name: '设计', order: 0, archived: false, collapsed: false, updatedAt: 200_100 },
+        clientTs: 200_100
+      })
+    ]);
+    // 子待办:先建、再置为 done
+    const child = makeTodo({ title: '写方案', projectId, headingId, when: 'anytime' });
+    await push(ctx.app, user.accessToken, DEV_A, [
+      makeOp({ entity: 'todo', entityId: child.id, payload: child, clientTs: 200_200 })
+    ]);
+    await push(ctx.app, user.accessToken, DEV_A, [
+      makeOp({
+        entity: 'todo',
+        entityId: child.id,
+        payload: { ...child, status: 'done', completedAt: 200_300, updatedAt: 200_300 },
+        clientTs: 200_300
+      })
+    ]);
+
+    // 关键:此时 heading 仍是 archived=false,但项目必须允许完成
+    const completed = await push(ctx.app, user.accessToken, DEV_A, [
+      makeOp({
+        entity: 'project',
+        entityId: projectId,
+        payload: { ...project, status: 'done', completedAt: 200_400, updatedAt: 200_400 },
+        clientTs: 200_400
+      })
+    ]);
+    assert.equal(
+      completed.body.rejected.length,
+      0,
+      `heading 未归档不应阻塞项目完成,实际被拒: ${JSON.stringify(completed.body.rejected)}`
+    );
+    const snap = await snapshot(ctx.app, user.accessToken);
+    const stored = snap.projects.find((p: { id: string }) => p.id === projectId);
+    assert.equal(stored.status, 'done', '项目应为已完成');
+  });
+
   it('§2.2 Heading 是顶层实体:单独同步、快照单独返回;headingId 必须属于该项目', async () => {
     const projectId = 'p-heading';
     const headingId = 'h-design';

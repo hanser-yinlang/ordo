@@ -172,7 +172,9 @@ public protocol OrdoEngineProtocol: AnyObject {
     func setProjectNote(id: String, note: String)
     func setProjectWhen(id: String, when: OrdoWhen, date: String?)
     func moveProject(id: String, areaId: String?)
-    /// 契约 §2.2 硬约束:仅在全部子待办已结束且全部标题已归档时才能完成,返回是否成功。
+    /// 契约 §2.2 v1.1 硬约束:仅当该项目下所有 todo 的 status ∈ {done, canceled} 时才允许完成,
+    /// 返回是否成功。**未归档的标题不阻塞完成** —— 标题是组织容器,完成时由核心自动归档
+    /// (每个标题一条 Op,与手工归档同构)。
     @discardableResult
     func completeProject(id: String) -> Bool
     func reopenProject(id: String)

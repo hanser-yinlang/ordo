@@ -167,8 +167,8 @@ data class UiState(
     val fastFindOpen: Boolean = false,
     val quickAddMenuOpen: Boolean = false,
     val scheduleTarget: ScheduleTargetUi? = null,
-    val composerOpen: Boolean = false,
-    val composerTarget: String? = null,
+    /** 新建待办浮层：纯状态机见 [ComposerState]（打开/重复点击/关闭/提交四处语义都在那里） */
+    val composer: ComposerState = ComposerState(),
     val showCompleted: Boolean = false,
     val toast: String? = null,
     val totalCount: Int = 0,

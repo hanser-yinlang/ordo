@@ -26,7 +26,7 @@ $failed = @()
 if ($All) { $WithWindows = $true; $WithAndroid = $true }
 
 if ($JavaHome -eq "") {
-    foreach ($c in @($env:JAVA_HOME, "C:\Users\admin\Desktop\WeChat\_tools\jdk-21.0.12.1+1")) {
+    foreach ($c in @($env:JAVA_HOME, "C:\Users\admin\Desktop\Ordo\_tools\jdk-21.0.12.1+1")) {
         if ($c -and (Test-Path $c)) { $JavaHome = $c; break }
     }
 }

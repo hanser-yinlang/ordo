@@ -65,3 +65,6 @@ _qa/
 keystore.properties
 *.jks
 *.p12
+
+# —— Kotlin/Native 与 KMP 会话缓存 ——
+.kotlin/

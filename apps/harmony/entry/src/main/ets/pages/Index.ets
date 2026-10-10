@@ -117,14 +117,21 @@ struct Index {
           angle: 180,
           colors: [['#0F5B5BD6', 0.0], ['#005B5BD6', 1.0]]
         })
-      Column() {
-        LoginGate({ store: this.store, leaving: this.store.authPhase === 'entering' })
+      // 小屏 / 大字体时卡片可能高于可视区:用 Scroll 兜底,保证三个入口与服务器设置都够得着
+      Scroll() {
+        Column() {
+          LoginGate({ store: this.store, leaving: this.store.authPhase === 'entering' })
+        }
+        .width('100%')
+        .constraintSize({ minHeight: '100%' })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .padding(OrdoSpace.l)
       }
       .width('100%')
       .height('100%')
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-      .padding(OrdoSpace.l)
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.None)
     }
     .width('100%')
     .height('100%')

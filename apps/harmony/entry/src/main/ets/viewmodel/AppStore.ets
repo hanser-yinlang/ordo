@@ -96,6 +96,13 @@ export const DEFAULT_BASE_URL: string = 'https://api.ordo.app';
 export const DEFAULT_WS_URL: string = 'wss://api.ordo.app';
 
 /**
+ * 登录/注册/升级时的"连不上服务端"兜底文案。
+ * 不能复用同步场景的 `errorText(ERR_NETWORK)` —— 那句是「网络不可用,已离线保存」,
+ * 在登录页会让人以为"已经注册成功了",必须换成能指导动作的说法(检查地址与网络)。
+ */
+export const LOGIN_NETWORK_HINT: string = '无法连接服务器,请检查服务器地址与网络';
+
+/**
  * 启动阶段(契约 §7.6.4:启动必须先读会话,无会话 → 登录页)。
  *  - booting  正在读会话/初始化存储(整屏 loading)
  *  - login    未登录:渲染登录页(登录 / 注册 / 以游客身份继续)
@@ -1690,8 +1697,8 @@ export class AppStore {
       this.bump();
       return false;
     }
-    if (!isGuest && password.length < 6) {
-      this.loginError = '口令至少 6 位';
+    if (!isGuest && password.length < 8) {
+      this.loginError = '口令至少 8 位';
       this.bump();
       return false;
     }
@@ -1718,7 +1725,7 @@ export class AppStore {
       if (err !== null && err.code !== undefined && err.code.length > 0) {
         this.loginError = errorText(err.code);
       } else {
-        this.loginError = errorText(ERR_NETWORK);
+        this.loginError = LOGIN_NETWORK_HINT;
       }
       this.bump();
       return false;
@@ -1778,8 +1785,8 @@ export class AppStore {
       this.bump();
       return false;
     }
-    if (password.length < 6) {
-      this.loginError = '口令至少 6 位';
+    if (password.length < 8) {
+      this.loginError = '口令至少 8 位';
       this.bump();
       return false;
     }
@@ -1812,7 +1819,7 @@ export class AppStore {
       const err: OrdoApiError = e as OrdoApiError;
       this.loginError = err !== null && err.code !== undefined && err.code.length > 0
         ? errorText(err.code)
-        : errorText(ERR_NETWORK);
+        : LOGIN_NETWORK_HINT;
       this.bump();
       return false;
     }

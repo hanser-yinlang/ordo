@@ -8,7 +8,7 @@
  *
  * 布局(§5.1):
  *  - 整屏居中卡片,宽 400,高自适应(约 430~480);卡片 radius 16 + 12dp 投影;
- *    画布 = canvas + 一层极淡的品牌渐变光晕(透明度 ≤6%)
+ *    画布 = canvas + 一层极淡的品牌渐变光晕(透明度 ≤6%,见 pages/Index.ets 与本文件 LoginPage)
  *  - 自上而下:品牌区(56 图标 + 「Ordo」24/32 600 + 副标题)→ 输入区(邮箱、口令带显示/隐藏)
  *    → 主按钮(高 44,radius 10,accent,登录/注册)→ 错误区(固定预留 20 高)
  *    → 次要入口「以游客身份继续」(surface 底 + hairline 描边,**与主按钮同级**)
@@ -19,10 +19,35 @@
  *    主按钮按压 scale 0.98(90ms);提交中按钮内转圈 + 输入框禁用 + 游客按钮禁用;
  *    登录成功:卡片 fade out 160ms → 主界面 fade in 220ms(后者见 pages/Index.ets)
  *  - 错误:振幅 6px、320ms、衰减两次的左右抖动
+ *
+ * 本轮的视觉打磨(对照真机截图后逐条改):
+ *  1. **浮动标签真正浮起来**:标签改挂 `Alignment.TopStart` 并对齐到固定基线,
+ *     空态停在中线、聚焦/有内容时上移并缩到 11 号 —— 之前用 `Alignment.Start` 居中再位移,
+ *     实际渲染时标签被压在输入文字后面,看着像"没有标签的光板输入框"。
+ *  2. **口令显隐换成眼睛图标**(椭圆 + 瞳孔 + 斜杠,全部用 ArkUI 形状组件画,不引资源),
+ *     替掉原来那个灰字「显示/隐藏」;点击区仍是 44×44(§8)。
+ *  3. **输入框底色改为画布色 + 1 发丝描边**,聚焦转 accent —— 原来的 chipBg 在浅色下是一块
+ *     偏重的暖灰,和白色卡片叠在一起显脏。
+ *  4. **游客入口去掉那个孤立箭头字形**(「→」在鸿蒙上会走字体回退、渲染成一个蓝色圆圈箭头),
+ *     只留同级次要按钮的形态,和主按钮等宽等高。
+ *  5. **服务器设置移到卡片外**,做成一行极轻的脚注(右侧只显示 host,不显示完整 URL),
+ *     展开后才出现输入框与「保存 / 恢复默认」。登录卡片只保留 §5.1 规定的三段结构。
+ *  6. 主按钮在可提交时带一层很淡的 accent 投影;卡片投影放宽到 32/16,减少"贴纸感"。
  */
 
 import { AppStore, DEFAULT_BASE_URL } from '../viewmodel/AppStore.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoIcons, OrdoMotion, OrdoRadius, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
+
+/** 登录卡片圆角:§5.1 明确写 16(令牌 OrdoRadius.sheet 是 14,登录卡片按 §5.1 取 16) */
+const LOGIN_CARD_RADIUS: number = 16;
+/** 输入框高 56;浮动标签的左右基线 */
+const FIELD_HEIGHT: number = 56;
+const LABEL_INSET: number = 14;
+/** 标签"浮起"后的顶距 与 空态停靠的顶距(相对输入框顶部) */
+const LABEL_FLOAT_Y: number = 9;
+const LABEL_REST_Y: number = 19;
+/** 口令显隐按钮的点击区(§8 触控目标 ≥44) */
+const EYE_HIT: number = 44;
 
 @Component
 export struct LoginGate {
@@ -78,13 +103,28 @@ export struct LoginGate {
     return this.passwordFocus || this.password.length > 0;
   }
 
-  /** 主按钮色调:可提交 accent,否则 tertiary(禁用态) */
+  /** 主按钮色调:可提交 accent,否则 chipBg(禁用态) */
   private submitBg(): string {
     return this.canSubmit() ? this.c().accentPrimary : this.c().chipBg;
   }
 
   private submitFg(): string {
     return this.canSubmit() ? '#FFFFFF' : this.c().textTertiary;
+  }
+
+  /** 可提交时给主按钮一层很淡的 accent 投影,让主操作"浮"起来;禁用态不带投影 */
+  private submitShadow(): ShadowOptions {
+    if (!this.canSubmit()) {
+      return { radius: 0, color: 'rgba(0,0,0,0)', offsetX: 0, offsetY: 0 };
+    }
+    return { radius: 14, color: 'rgba(91,91,214,0.28)', offsetX: 0, offsetY: 6 };
+  }
+
+  /** 脚注只显示 host(去掉 https://),少一点视觉噪音 */
+  private shortHost(): string {
+    const url: string = this.store.serverText();
+    const at: number = url.indexOf('://');
+    return at >= 0 ? url.substring(at + 3) : url;
   }
 
   /**
@@ -165,17 +205,35 @@ export struct LoginGate {
 
   /* ------------------------------------------------------------ 输入区(浮动标签) */
 
+  /**
+   * 浮动标签。
+   * 关键点:父层 Stack 用 `Alignment.TopStart`,标签的 y 直接就是"距输入框顶部的距离",
+   * 空态 19(与 15 号正文视觉中线齐平)、浮起 9(11 号小标签),两者之间 120ms 过渡。
+   */
+  @Builder
+  floatLabel(text: string, floating: boolean, focused: boolean) {
+    Text(text)
+      .fontSize(floating ? OrdoFont.micro.size : OrdoFont.body.size)
+      .fontColor(focused ? this.c().accentPrimary : this.c().textTertiary)
+      .margin({ left: LABEL_INSET })
+      .translate({ y: floating ? LABEL_FLOAT_Y : LABEL_REST_Y })
+      .animation({ duration: OrdoMotion.loginFieldFocus, curve: Curve.FastOutSlowIn })
+      // 标签只是视觉层,触摸必须穿透到下面的输入框
+      .hitTestBehavior(HitTestMode.None)
+  }
+
   @Builder
   emailField() {
-    Stack({ alignContent: Alignment.Start }) {
+    Stack({ alignContent: Alignment.TopStart }) {
       TextInput({ text: this.email })
         .type(InputType.Email)
         .id('ordo_login_email')
         .width('100%')
-        .height(56)
-        .padding({ left: OrdoSpace.m, right: OrdoSpace.m, top: 18 })
+        .height(FIELD_HEIGHT)
+        .padding({ left: LABEL_INSET, right: LABEL_INSET, top: 20, bottom: 2 })
         .fontSize(OrdoFont.body.size)
         .fontColor(this.c().textPrimary)
+        .caretColor(this.c().accentPrimary)
         .backgroundColor(Color.Transparent)
         .enabled(!this.busy())
         .onFocus((): void => {
@@ -192,19 +250,11 @@ export struct LoginGate {
         .onSubmit((): void => {
           this.submit();
         })
-      // 浮动标签:未聚焦且为空时充当占位符(18),聚焦或有内容时上移 12px 并缩为 11 号(§5.1)
-      Text('邮箱')
-        .fontSize(this.emailFloating() ? OrdoFont.micro.size : OrdoFont.body.size)
-        .fontColor(this.emailFocus ? this.c().accentPrimary : this.c().textTertiary)
-        .margin({ left: OrdoSpace.m })
-        .translate({ y: this.emailFloating() ? OrdoSpace.s : 18 })
-        .animation({ duration: OrdoMotion.loginFieldFocus, curve: Curve.FastOutSlowIn })
-        // 标签只是视觉层,触摸必须穿透到下面的输入框
-        .hitTestBehavior(HitTestMode.None)
+      this.floatLabel('邮箱', this.emailFloating(), this.emailFocus)
     }
     .width('100%')
-    .height(56)
-    .backgroundColor(this.c().chipBg)
+    .height(FIELD_HEIGHT)
+    .backgroundColor(this.c().bgCanvas)
     .borderRadius(OrdoRadius.row)
     .border({
       width: this.emailFocus ? 1.5 : 1,
@@ -213,20 +263,56 @@ export struct LoginGate {
     .animation({ duration: OrdoMotion.loginFieldFocus, curve: Curve.FastOutSlowIn })
   }
 
+  /**
+   * 口令显隐。用形状画一只眼睛:椭圆眼形 + 瞳孔,隐藏态再叠一条斜杠。
+   * 全部走 ArkUI 形状组件(不引 svg、不依赖系统符号字体),深浅色都吃当前描边色。
+   */
+  @Builder
+  passwordEye() {
+    Stack() {
+      Ellipse()
+        .width(20)
+        .height(12)
+        .fill(Color.Transparent)
+        .stroke(this.c().textSecondary)
+        .strokeWidth(1.4)
+      Circle()
+        .width(4.5)
+        .height(4.5)
+        .fill(this.c().textSecondary)
+      if (!this.showPassword) {
+        Line()
+          .width(20)
+          .height(12)
+          .startPoint([0, 0])
+          .endPoint([20, 12])
+          .stroke(this.c().textSecondary)
+          .strokeWidth(1.4)
+          .strokeLineCap(LineCapStyle.Round)
+      }
+    }
+    .width(EYE_HIT)
+    .height(EYE_HIT)
+    .onClick((): void => {
+      this.showPassword = !this.showPassword;
+    })
+  }
+
   @Builder
   passwordField() {
-    Stack({ alignContent: Alignment.Start }) {
+    Stack({ alignContent: Alignment.TopStart }) {
       Row() {
         TextInput({ text: this.password })
           .type(this.showPassword ? InputType.Normal : InputType.Password)
-          // 自带的"眼睛"关掉:显示/隐藏由右侧 44×44 的显式按钮负责(§5.1、§8 触控目标 ≥44)
+          // 自带的"眼睛"关掉:显示/隐藏由右侧自绘按钮负责(§5.1、§8 触控目标 ≥44)
           .showPasswordIcon(false)
           .id('ordo_login_password')
           .layoutWeight(1)
-          .height(56)
-          .padding({ left: OrdoSpace.m, right: OrdoSpace.xs, top: 18 })
+          .height(FIELD_HEIGHT)
+          .padding({ left: LABEL_INSET, right: OrdoSpace.xs, top: 20, bottom: 2 })
           .fontSize(OrdoFont.body.size)
           .fontColor(this.c().textPrimary)
+          .caretColor(this.c().accentPrimary)
           .backgroundColor(Color.Transparent)
           .enabled(!this.busy())
           .onFocus((): void => {
@@ -243,30 +329,17 @@ export struct LoginGate {
           .onSubmit((): void => {
             this.submit();
           })
-        Text(this.showPassword ? '隐藏' : '显示')
-          .fontSize(OrdoFont.caption.size)
-          .fontColor(this.c().textSecondary)
-          .width(OrdoSize.minTouchTarget)
-          .height(OrdoSize.minTouchTarget)
-          .textAlign(TextAlign.Center)
-          .onClick((): void => {
-            this.showPassword = !this.showPassword;
-          })
+        this.passwordEye()
       }
       .width('100%')
+      .height(FIELD_HEIGHT)
+      .alignItems(VerticalAlign.Center)
 
-      // 浮动标签(同邮箱:聚焦或有内容时上移并缩号)
-      Text('口令')
-        .fontSize(this.passwordFloating() ? OrdoFont.micro.size : OrdoFont.body.size)
-        .fontColor(this.passwordFocus ? this.c().accentPrimary : this.c().textTertiary)
-        .margin({ left: OrdoSpace.m })
-        .translate({ y: this.passwordFloating() ? OrdoSpace.s : 18 })
-        .animation({ duration: OrdoMotion.loginFieldFocus, curve: Curve.FastOutSlowIn })
-        .hitTestBehavior(HitTestMode.None)
+      this.floatLabel('口令', this.passwordFloating(), this.passwordFocus)
     }
     .width('100%')
-    .height(56)
-    .backgroundColor(this.c().chipBg)
+    .height(FIELD_HEIGHT)
+    .backgroundColor(this.c().bgCanvas)
     .borderRadius(OrdoRadius.row)
     .border({
       width: this.passwordFocus ? 1.5 : 1,
@@ -296,6 +369,7 @@ export struct LoginGate {
     .justifyContent(FlexAlign.Center)
     .backgroundColor(this.submitBg())
     .borderRadius(OrdoRadius.row)
+    .shadow(this.submitShadow())
     .stateStyles({
       pressed: { .scale({ x: OrdoMotion.loginPressScale, y: OrdoMotion.loginPressScale }) },
       normal: { .scale({ x: 1, y: 1 }) }
@@ -314,10 +388,7 @@ export struct LoginGate {
    */
   @Builder
   guestButton() {
-    Row({ space: OrdoSpace.s }) {
-      Text('→')
-        .fontSize(OrdoFont.body.size)
-        .fontColor(this.c().accentPrimary)
+    Row() {
       Text(this.busy() ? '请稍候…' : '以游客身份继续')
         .fontSize(OrdoFont.body.size)
         .fontWeight(500)
@@ -364,71 +435,56 @@ export struct LoginGate {
     .translate({ x: this.shakeX })
   }
 
-  build() {
-    Column({ space: OrdoSpace.m }) {
-      this.brand()
+  /* ------------------------------------------------------------ 服务器设置(卡片外的轻脚注) */
 
-      Column({ space: OrdoSpace.s }) {
-        this.emailField()
-        this.passwordField()
-      }
-      .width('100%')
-      .margin({ top: OrdoSpace.s })
-
-      this.primaryButton()
-      this.errorArea()
-      this.guestButton()
-
-      // 底部一行居中文本链接:登录态 → 还没有账号?注册;注册态 → 已有账号?登录
-      Text(this.registerMode ? '已有账号?登录' : '还没有账号?注册')
-        .fontSize(OrdoFont.caption.size)
-        .fontColor(this.c().accentPrimary)
-        .height(OrdoSize.minTouchTarget)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-        .onClick((): void => {
-          this.toggleMode();
-        })
-
-      // 自建服务端:默认收起,保持登录页只有规定的三段结构
+  @Builder
+  serverFooter() {
+    Column({ space: OrdoSpace.s }) {
       Row({ space: OrdoSpace.xs }) {
         Text(this.serverOpen ? '▾' : '▸')
           .fontSize(OrdoFont.micro.size)
           .fontColor(this.c().textTertiary)
-        Text('服务器地址')
+        Text('服务器设置')
           .fontSize(OrdoFont.micro.size)
           .fontColor(this.c().textTertiary)
-          .layoutWeight(1)
-        Text(this.store.serverText())
+        Blank()
+        Text(this.shortHost())
           .fontSize(OrdoFont.micro.size)
           .fontColor(this.c().textTertiary)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: 190 })
       }
       .width('100%')
-      .height(28)
+      .height(32)
+      .padding({ left: OrdoSpace.s, right: OrdoSpace.s })
       .onClick((): void => {
         this.serverOpen = !this.serverOpen;
       })
 
       if (this.serverOpen) {
-        Column({ space: OrdoSpace.xs }) {
+        Column({ space: OrdoSpace.s }) {
           TextInput({ placeholder: DEFAULT_BASE_URL, text: this.serverDraft })
             .type(InputType.Normal)
-            .height(40)
+            .height(OrdoMotion.loginButtonHeight)
             .fontSize(OrdoFont.caption.size)
-            .backgroundColor(this.c().chipBg)
+            .fontColor(this.c().textPrimary)
+            .caretColor(this.c().accentPrimary)
+            .backgroundColor(this.c().bgCanvas)
             .borderRadius(OrdoRadius.row)
+            .border({ width: 1, color: this.c().lineHairline })
+            .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
             .onChange((value: string): void => {
               this.serverDraft = value;
             })
           Row({ space: OrdoSpace.s }) {
             Text('保存')
               .fontSize(OrdoFont.caption.size)
+              .fontWeight(500)
               .fontColor('#FFFFFF')
               .backgroundColor(this.c().accentPrimary)
               .height(32)
-              .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+              .padding({ left: OrdoSpace.l, right: OrdoSpace.l })
               .borderRadius(OrdoRadius.pill)
               .textAlign(TextAlign.Center)
               .onClick((): void => {
@@ -438,7 +494,7 @@ export struct LoginGate {
               .fontSize(OrdoFont.caption.size)
               .fontColor(this.c().textSecondary)
               .height(32)
-              .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+              .padding({ left: OrdoSpace.l, right: OrdoSpace.l })
               .borderRadius(OrdoRadius.pill)
               .backgroundColor(this.c().chipBg)
               .textAlign(TextAlign.Center)
@@ -451,15 +507,64 @@ export struct LoginGate {
           .width('100%')
         }
         .width('100%')
+        .padding(OrdoSpace.m)
+        .backgroundColor(this.c().bgSurface)
+        .borderRadius(OrdoRadius.card)
+        .border({ width: 1, color: this.c().lineHairline })
+        .shadow({ radius: 16, color: 'rgba(28,27,25,0.08)', offsetX: 0, offsetY: 8 })
       }
     }
-    .width(OrdoMotion.loginCardWidth)
-    .constraintSize({ minHeight: OrdoMotion.loginCardMinHeight, maxWidth: OrdoMotion.loginCardWidth })
+    .width('100%')
+    .margin({ top: OrdoSpace.m })
+  }
+
+  /* ------------------------------------------------------------ 卡片 */
+
+  @Builder
+  card() {
+    Column({ space: OrdoSpace.l }) {
+      this.brand()
+
+      Column({ space: OrdoSpace.m }) {
+        this.emailField()
+        this.passwordField()
+      }
+      .width('100%')
+
+      Column({ space: OrdoSpace.s }) {
+        this.primaryButton()
+        this.errorArea()
+        this.guestButton()
+      }
+      .width('100%')
+
+      // 底部一行居中文本链接:登录态 → 还没有账号?注册;注册态 → 已有账号?登录
+      Text(this.registerMode ? '已有账号?登录' : '还没有账号?注册')
+        .fontSize(OrdoFont.caption.size)
+        .fontColor(this.c().accentPrimary)
+        .height(OrdoSize.minTouchTarget)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+        .onClick((): void => {
+          this.toggleMode();
+        })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: OrdoMotion.loginCardMinHeight })
     .padding(OrdoSpace.xl)
     .backgroundColor(this.c().bgSurface)
-    .borderRadius(OrdoRadius.sheet)
+    .borderRadius(LOGIN_CARD_RADIUS)
     .border({ width: 1, color: this.c().lineHairline })
-    .shadow({ radius: 24, color: 'rgba(0,0,0,0.12)', offsetY: 12 })
+    .shadow({ radius: 32, color: 'rgba(28,27,25,0.10)', offsetX: 0, offsetY: 16 })
+  }
+
+  build() {
+    Column() {
+      this.card()
+      this.serverFooter()
+    }
+    .width('100%')
+    .constraintSize({ maxWidth: OrdoMotion.loginCardWidth })
     .opacity(this.leaving ? 0 : (this.entered ? 1 : 0))
     .translate({ y: this.entered ? 0 : OrdoMotion.loginEnterRise })
     .animation({
@@ -473,6 +578,9 @@ export struct LoginGate {
  * 登录页独立入口。
  * 主流程并不跳转到这里:Index 在 `authPhase !== 'ready'` 时直接内联渲染 LoginGate,
  * 这样"卡片淡出 → 主界面淡入"能连成一镜。保留 @Entry 是为了深链直接进登录页(见 main_pages.json)。
+ *
+ * 外层用 Scroll 兜底:小屏(或大字体)下卡片可能高于可视区,滚动保证"以游客身份继续"
+ * 和"服务器设置"永远够得着,而不是被裁掉。
  */
 @Entry
 @Component
@@ -489,14 +597,20 @@ struct LoginPage {
           angle: 180,
           colors: [['#0F5B5BD6', 0.0], ['#005B5BD6', 1.0]]
         })
-      Column() {
-        LoginGate({ store: this.store })
+      Scroll() {
+        Column() {
+          LoginGate({ store: this.store })
+        }
+        .width('100%')
+        .constraintSize({ minHeight: '100%' })
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .padding(OrdoSpace.l)
       }
       .width('100%')
       .height('100%')
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
-      .padding(OrdoSpace.l)
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.None)
     }
     .width('100%')
     .height('100%')

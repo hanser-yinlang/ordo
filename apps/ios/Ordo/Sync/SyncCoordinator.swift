@@ -67,7 +67,7 @@ public final class SyncCoordinator {
 
     private let engine: OrdoEngineProtocol
     private let storage: OrdoStorageProtocol
-    private let tokenStore: OrdoStorageTokenStore
+    private let tokenStore: OrdoAccountTokenStore
     private let syncAPI: OrdoSyncAPI?
     private let realtime: OrdoRealtimeClient?
     private let clock: OrdoClock
@@ -81,7 +81,7 @@ public final class SyncCoordinator {
     public init(
         engine: OrdoEngineProtocol,
         storage: OrdoStorageProtocol,
-        tokenStore: OrdoStorageTokenStore,
+        tokenStore: OrdoAccountTokenStore,
         syncAPI: OrdoSyncAPI?,
         realtime: OrdoRealtimeClient?,
         clock: OrdoClock = OrdoSystemClock(),
@@ -244,6 +244,8 @@ public final class SyncCoordinator {
                 status = .offline
             case .authRequired, .authInvalidCredentials:
                 status = .signedOut
+                // 契约 §7.6.4:令牌被服务端判定失效 → 交回登录页(本地数据目录保留)。
+                await onAuthExpired?()
             default:
                 status = .failed(error.localizedHint)
             }
@@ -283,15 +285,12 @@ public final class SyncCoordinator {
 
     // MARK: 登录 / 登出
 
-    public func handleSignedIn(_ session: OrdoAuthSession) async {
-        await tokenStore.save(session: session)
-        status = .idle
-        await syncNow(reason: "登录成功")
-    }
+    /// 令牌失效时的回调(由 `AppEnvironment` 注入:清会话 + 回登录页)。
+    public var onAuthExpired: (@MainActor () async -> Void)?
 
-    /// 契约 §7.4:refresh 也失败 → 转登录态但**保留本地数据**。
+    /// 契约 §7.4:refresh 也失败 → 转登录态但**保留本地数据**(目录按 userId 保留,只清会话)。
     public func handleSignedOut() async {
-        await tokenStore.save(nil)
+        await tokenStore.signOut()
         status = .signedOut
         await realtime?.stop(reason: "已登出")
     }

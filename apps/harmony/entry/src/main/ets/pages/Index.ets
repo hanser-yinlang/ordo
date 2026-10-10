@@ -1,7 +1,8 @@
 /**
  * Ordo · 主页面(路由入口)
- * 组装:侧栏(窄屏为抽屉)+ 主列表 + 快加号 + 行内新建 + 排期面板 + 快找浮层 + 设置 + Toast
- * 负责:初始化 AppStore、消费 ordo:// 深链、响应窗口宽度变化(04 §3 断点)
+ * 组装:登录门禁(未登录)/ 侧栏(窄屏为抽屉)+ 主列表 + 快加号 + 行内新建 + 排期面板 + 快找浮层 + 设置 + Toast
+ * 负责:初始化 AppStore、消费 ordo:// 深链、响应窗口宽度变化(04 §3 断点)、
+ *      契约 §7.6.4 的启动门禁(无会话 → 登录页)、返回键取消拖拽(04 §5.4 取消路径)
  */
 
 import { common } from '@kit.AbilityKit';
@@ -12,18 +13,22 @@ import { QuickAddFab, QuickAddPanel } from '../view/QuickAddButton.ets';
 import { ScheduleSheet } from '../view/ScheduleSheet.ets';
 import { FastFindSheet } from '../view/FastFindSheet.ets';
 import { SettingsSheet } from './SettingsPage.ets';
-import { LoginSheet } from '../view/LoginPage.ets';
+import { LoginGate } from '../view/LoginPage.ets';
 import { OrdoToast } from '../view/Common/OrdoToast.ets';
-import { OrdoColors, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
+import { OrdoColors, OrdoMotion, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 
 @Entry
 @Component
 struct Index {
   @State store: AppStore = AppStore.instance();
   @State viewWidth: number = 1280;
+  /** 主界面进入动效(登录成功:卡片淡出 160ms → 主界面淡入 220ms,§5.1) */
+  @State private mainIn: boolean = false;
   /** EntryAbility 写入的深链序号,变化即消费一次 */
   @StorageLink('ordo.deepLinkSeq') @Watch('onDeepLink') deepLinkSeq: number = 0;
   @StorageLink('ordo.deepLink') deepLink: string = '';
+  /** 启动阶段变化:驱动"登录页淡出 → 主界面淡入" */
+  @StorageLink('ordo.authPhaseSeq') @Watch('onAuthPhase') authPhaseSeq: number = 0;
 
   aboutToAppear(): void {
     // getContext() 自 API 18 起废弃,改用 UIContext.getHostContext()
@@ -39,6 +44,44 @@ struct Index {
     if (this.deepLink.length > 0) {
       this.store.applyDeepLink(this.deepLink);
     }
+  }
+
+  /**
+   * 启动阶段变化:
+   *  - entering → 登录页正在播 160ms 淡出,到点切主界面(§5.1「卡片 fade out 160ms」)
+   *  - ready    → 主界面首帧透明,下一帧淡入 220ms(§5.1「主界面 fade in 220ms」)
+   */
+  onAuthPhase(): void {
+    const phase: string = this.store.authPhase;
+    if (phase === 'entering') {
+      setTimeout((): void => {
+        this.store.completeEnter();
+      }, OrdoMotion.loginCardFadeOut);
+      return;
+    }
+    if (phase === 'ready') {
+      setTimeout((): void => {
+        this.mainIn = true;
+      }, 0);
+      return;
+    }
+    this.mainIn = false;
+  }
+
+  /**
+   * 返回键(鸿蒙系统返回):拖拽中优先取消拖拽而不是退出页面(04 §5.4 的取消路径)。
+   * 返回 true 表示本次按键已被消费。
+   */
+  onBackPress(): boolean {
+    if (this.store.dragActive) {
+      this.store.requestDragCancel();
+      return true;
+    }
+    if (this.store.selectedTodoId.length > 0) {
+      this.store.setSelected('');
+      return true;
+    }
+    return false;
   }
 
   private c() {
@@ -62,14 +105,64 @@ struct Index {
     .height('100%')
   }
 
-  build() {
+  /** 登录门禁(契约 §7.6.4):未登录时整屏只有它,主界面根本不构造 */
+  @Builder
+  loginScreen() {
+    Stack() {
+      // 画布 + 极淡的品牌渐变光晕(透明度 ≤6%,不喧宾夺主,§5.1)
+      Column()
+        .width('100%')
+        .height('100%')
+        .linearGradient({
+          angle: 180,
+          colors: [['#0F5B5BD6', 0.0], ['#005B5BD6', 1.0]]
+        })
+      Column() {
+        LoginGate({ store: this.store, leaving: this.store.authPhase === 'entering' })
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+      .padding(OrdoSpace.l)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 读会话期间的过场(通常只有几十毫秒) */
+  @Builder
+  bootingScreen() {
+    Column({ space: OrdoSpace.m }) {
+      LoadingProgress()
+        .width(32)
+        .height(32)
+        .color(this.c().accentPrimary)
+      Text('序')
+        .fontSize(20)
+        .fontWeight(600)
+        .fontColor(this.c().textSecondary)
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor(this.c().bgCanvas)
+  }
+
+  @Builder
+  mainScreen() {
     Stack({ alignContent: Alignment.BottomEnd }) {
       Row() {
         if (this.viewWidth >= OrdoSize.breakpointMedium) {
           Sidebar({ store: this.store })
         }
         Column() {
-          ListPage({ store: this.store, animatingId: this.store.animatingTodoId, storeRev: this.store.changeSeq })
+          ListPage({
+            store: this.store,
+            animatingId: this.store.animatingTodoId,
+            storeRev: this.store.changeSeq,
+            dragCancelSeq: this.store.dragCancelSeq
+          })
         }
         .layoutWeight(1)
         .height('100%')
@@ -139,20 +232,7 @@ struct Index {
         .backgroundColor('#00000033')
       }
 
-      // 登录 / 注册(未登录时首次同步也会自动打开)
-      if (this.store.loginOpen) {
-        Column() {
-          LoginSheet({ store: this.store })
-        }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .padding(OrdoSpace.l)
-        .backgroundColor('#00000033')
-      }
-
-      // 快加号
+      // 快加号(§5.2:只保留这一个圆形按钮,没有独立的折叠箭头)
       Column() {
         QuickAddFab({ store: this.store })
       }
@@ -168,6 +248,22 @@ struct Index {
           this.store.undoDelete();
         }
       })
+    }
+    .width('100%')
+    .height('100%')
+    .opacity(this.mainIn ? 1 : 0)
+    .animation({ duration: OrdoMotion.mainFadeIn, curve: Curve.FastOutSlowIn })
+  }
+
+  build() {
+    Stack() {
+      if (this.store.authPhase === 'ready') {
+        this.mainScreen()
+      } else if (this.store.authPhase === 'booting') {
+        this.bootingScreen()
+      } else {
+        this.loginScreen()
+      }
     }
     .width('100%')
     .height('100%')

@@ -104,6 +104,8 @@ export function phaseLabel(p: SyncPhase): string {
 export interface AuthUser {
   id: string;
   email: string;
+  /** 契约 §7.6.1:游客账号 email 为空且 isGuest = true;正式账号为 false */
+  isGuest: boolean;
 }
 
 export interface AuthTokens {
@@ -173,6 +175,8 @@ export const ERR_AUTH_REQUIRED: string = 'AUTH_REQUIRED';
 export const ERR_AUTH_INVALID_CREDENTIALS: string = 'AUTH_INVALID_CREDENTIALS';
 export const ERR_AUTH_TOKEN_EXPIRED: string = 'AUTH_TOKEN_EXPIRED';
 export const ERR_AUTH_EMAIL_TAKEN: string = 'AUTH_EMAIL_TAKEN';
+/** 本地补充:游客账号调用 login(无口令可校验)—— 契约 §7.6.2 的错误说明 */
+export const ERR_AUTH_GUEST_NEEDS_RESTORE: string = 'AUTH_GUEST_NEEDS_RESTORE';
 export const ERR_SYNC_SEQ_GAP: string = 'SYNC_SEQ_GAP';
 export const ERR_SYNC_OP_TOO_LARGE: string = 'SYNC_OP_TOO_LARGE';
 export const ERR_NOT_FOUND: string = 'NOT_FOUND';
@@ -206,6 +210,10 @@ export function apiError(code: string, message: string, details: string): OrdoAp
 export function errorText(code: string): string {
   if (code === ERR_AUTH_REQUIRED) {
     return '需要登录';
+  }
+  if (code === ERR_AUTH_GUEST_NEEDS_RESTORE) {
+    // 契约 §7.6.2:游客账号没有口令可校验,不能引导去登录页
+    return '游客账号没有口令,请用「以游客身份继续」恢复会话';
   }
   if (code === ERR_AUTH_INVALID_CREDENTIALS) {
     return '邮箱或密码不正确';

@@ -60,6 +60,27 @@ public actor URLSessionAuthApi: OrdoAuthAPI, OrdoTokenRefresher {
         )
     }
 
+    // MARK: 游客登录 / 升级(契约 §7.6.2)
+
+    /// 游客登录:服务端创建匿名账号并签发**正常令牌**(游客不是离线模式,数据同样入库、同样多端同步)。
+    public func guest(_ request: OrdoGuestAuthRequest) async throws -> OrdoAuthSession {
+        let body = try OrdoJSON.encode(request)
+        return try await client.send(
+            OrdoEndpoint(method: "POST", path: "/v1/auth/guest", body: body, authorized: false),
+            as: OrdoAuthSession.self
+        )
+    }
+
+    /// 把游客账号升级为正式账号:userId 与数据都不变,只翻转 `isGuest`。
+    /// 邮箱已被占用时服务端返回 `AUTH_EMAIL_TAKEN`。
+    public func upgrade(accessToken: String, _ request: OrdoUpgradeRequest) async throws -> OrdoUpgradeResponse {
+        let body = try OrdoJSON.encode(request)
+        return try await client.send(
+            OrdoEndpoint(method: "POST", path: "/v1/auth/upgrade", body: body, authorized: true, bearerToken: accessToken),
+            as: OrdoUpgradeResponse.self
+        )
+    }
+
     // MARK: 刷新 / 登出
 
     public func refresh(refreshToken: String) async throws -> OrdoAuthSession {

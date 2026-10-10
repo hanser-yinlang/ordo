@@ -6,6 +6,26 @@
  * 用法:组件内 `const c: OrdoColorTokens = OrdoColors.of(this.dark);`
  */
 
+/* ------------------------------------------------------------------ 图标 */
+
+/**
+ * 图标字形表(04 §5.3 提到 `OrdoIcons.Refresh`)。
+ * 鸿蒙端的图标一律走**系统字体里的几何字形**,不引入 svg 资源:
+ * 既避免多一套资源打包链路,也保证深浅色下都能用当前文字色渲染(§8 对比度)。
+ */
+export class OrdoIcons {
+  /** 刷新(§5.3 状态栏刷新控件) */
+  static readonly refresh: string = '↻';
+  /** 成功态对勾 */
+  static readonly check: string = '✓';
+  /** 失败态感叹号(与危险色同时出现,不单靠颜色表达,§8) */
+  static readonly warn: string = '!';
+  /** 快加号 */
+  static readonly plus: string = '＋';
+  /** 展开成 ×(快加号长按后旋转 45°,§5.2) */
+  static readonly close: string = '＋';
+}
+
 /* ------------------------------------------------------------------ 色彩 */
 
 export interface OrdoColorTokens {
@@ -169,6 +189,68 @@ export class OrdoMotion {
   static readonly sidebarCollapse: number = 260;
   static readonly popIn: number = 180;
   static readonly pageFade: number = 160;
+
+  /* ---------------- §5.1 登录页 ---------------- */
+  /** 进入登录页:fade + 上移 12px,220ms */
+  static readonly loginEnter: number = 220;
+  static readonly loginEnterRise: number = 12;
+  /** 输入框聚焦:边框转 accent,120ms */
+  static readonly loginFieldFocus: number = 120;
+  /** 主按钮按压 scale → 0.98(90ms) */
+  static readonly loginPressScale: number = 0.98;
+  static readonly loginPress: number = 90;
+  /** 登录成功:卡片 fade out 160ms → 主界面 fade in 220ms */
+  static readonly loginCardFadeOut: number = 160;
+  static readonly mainFadeIn: number = 220;
+  /** 错误抖动:振幅 6px,320ms,衰减两次 */
+  static readonly errorShake: number = 320;
+  static readonly errorShakeAmp: number = 6;
+  /** 登录卡片宽 400 / 高 430~480 */
+  static readonly loginCardWidth: number = 400;
+  static readonly loginCardMinHeight: number = 430;
+  /** 主按钮高 44、radius 10;提交中转圈 16 */
+  static readonly loginButtonHeight: number = 44;
+  static readonly loginSpinner: number = 16;
+
+  /* ---------------- §5.2 快加号集群 ---------------- */
+  /** 长按阈值:展开菜单与进入拖拽共用(§5.2 / §5.4) */
+  static readonly longPressMs: number = 400;
+  /** 按压 scale → 0.96(90ms) */
+  static readonly fabPressScale: number = 0.96;
+  static readonly fabPress: number = 90;
+  /** 长按到 400ms:轻微放大到 1.06 并保持 */
+  static readonly fabHoldScale: number = 1.06;
+  /** 展开时旋转 45°(「+」变「×」) */
+  static readonly fabRotate: number = 45;
+  /** 菜单展开:面板 scale 0.9→1 + alpha 0→1,180ms */
+  static readonly menuExpand: number = 180;
+  static readonly menuCollapse: number = 140;
+  static readonly menuFromScale: number = 0.9;
+  /** 菜单项逐个错位 40ms 淡入并上移 6px */
+  static readonly menuItemStagger: number = 40;
+  static readonly menuItemRise: number = 6;
+
+  /* ---------------- §5.3 刷新控件 ---------------- */
+  /** 同步中:每圈 900ms,linear,持续到结束 */
+  static readonly spinPerTurn: number = 900;
+  /** 成功:短暂转 success 色 320ms,1.4s 后回到常态 */
+  static readonly refreshSuccessFlash: number = 320;
+  static readonly refreshSuccessHold: number = 1400;
+
+  /* ---------------- §5.4 长按拖拽 ---------------- */
+  /** 移动 < 6px 视为点击,不进入拖拽 */
+  static readonly dragSlop: number = 6;
+  /** 进入拖拽:scale 1.02 + 12dp 投影 + 背景转 surface */
+  static readonly dragLiftScale: number = 1.02;
+  static readonly dragLiftShadow: number = 12;
+  /** 拖拽中被拖行 alpha 0.55,其余行让位 120ms */
+  static readonly dragAlpha: number = 0.55;
+  static readonly dragYield: number = 120;
+  /** 松手:行回落 160ms spring */
+  static readonly dragDrop: number = 160;
+  /** 插入指示线 2dp accent + 左端 4dp 圆点 */
+  static readonly dropLine: number = 2;
+  static readonly dropDot: number = 4;
 }
 
 /* ------------------------------------------------------------------ 尺寸 */
@@ -188,8 +270,13 @@ export class OrdoSize {
   /** 项目进度环 18×18,线宽 2 */
   static readonly progressRing: number = 18;
   static readonly progressRingStroke: number = 2;
-  /** 快加号直径 52 */
-  static readonly quickAdd: number = 52;
+  /**
+   * 快加号直径。§4 组件表写 52,§5.2(v1.1 重构「去掉多余元素」)写 56。
+   * 取**新的、更具体的**那一条:56(同一处还明确「只保留一个圆形按钮」)。
+   */
+  static readonly quickAdd: number = 56;
+  /** 刷新控件:28 圆形图标按钮(04 §5.3) */
+  static readonly refreshIcon: number = 28;
   /** 内容区最大宽度 720 */
   static readonly contentMaxWidth: number = 720;
   /** 排期面板宽 280 */

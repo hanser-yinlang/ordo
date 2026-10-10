@@ -104,9 +104,31 @@ public struct OrdoHealth: Codable, Sendable {
     public var serverTime: Int64
 }
 
+/// 契约 §7.6.1 的账号主体。
+///
+/// · `email` 可为 `null` —— 游客账号在服务端就是 `email: null`(`server/src/routes/auth.ts`);
+/// · `isGuest` 是 v1.2 新增字段,老服务端不返回时应退化为 `false`(而不是解码失败)。
 public struct OrdoUser: Codable, Hashable, Sendable {
     public var id: String
-    public var email: String
+    public var email: String?
+    public var isGuest: Bool
+
+    public init(id: String, email: String?, isGuest: Bool = false) {
+        self.id = id
+        self.email = email
+        self.isGuest = isGuest
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, email, isGuest
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.email = try container.decodeIfPresent(String.self, forKey: .email)
+        self.isGuest = try container.decodeIfPresent(Bool.self, forKey: .isGuest) ?? false
+    }
 }
 
 public struct OrdoDevice: Codable, Hashable, Sendable {
@@ -122,6 +144,37 @@ public struct OrdoAuthSession: Codable, Sendable {
     public var refreshToken: String
     /// 秒。
     public var expiresIn: Int
+}
+
+// MARK: - 游客登录 / 升级(契约 §7.6.2)
+
+/// `POST /v1/auth/guest` 的请求体(与核心 `sync.GuestAuthRequest` 一致)。
+public struct OrdoGuestAuthRequest: Codable, Sendable {
+    public var deviceId: String?
+    public var deviceName: String
+    public var platform: String
+
+    public init(deviceId: String? = nil, deviceName: String, platform: String = "ios/1.0.0") {
+        self.deviceId = deviceId
+        self.deviceName = deviceName
+        self.platform = platform
+    }
+}
+
+/// `POST /v1/auth/upgrade` 的请求体(需带 Access Token;邮箱被占用返回 `AUTH_EMAIL_TAKEN`)。
+public struct OrdoUpgradeRequest: Codable, Sendable {
+    public var email: String
+    public var password: String
+
+    public init(email: String, password: String) {
+        self.email = email
+        self.password = password
+    }
+}
+
+/// `POST /v1/auth/upgrade` 的响应:**userId 与数据都不变**,只翻转 `isGuest`。
+public struct OrdoUpgradeResponse: Codable, Sendable {
+    public var user: OrdoUser
 }
 
 public struct OrdoDeviceRegistration: Codable, Sendable {
@@ -297,6 +350,10 @@ public protocol OrdoAuthAPI: Sendable {
     func login(email: String, password: String, deviceName: String, platform: String) async throws -> OrdoAuthSession
     func refresh(refreshToken: String) async throws -> OrdoAuthSession
     func logout(refreshToken: String) async throws
+    /// 契约 §7.6.2:游客登录 —— 服务端创建匿名账号并返回**正常令牌**。
+    func guest(_ request: OrdoGuestAuthRequest) async throws -> OrdoAuthSession
+    /// 契约 §7.6.2:把游客账号升级为正式账号(userId 与数据不变)。
+    func upgrade(accessToken: String, _ request: OrdoUpgradeRequest) async throws -> OrdoUpgradeResponse
 }
 
 public extension OrdoAuthAPI {
@@ -306,6 +363,11 @@ public extension OrdoAuthAPI {
 
     func login(email: String, password: String, deviceName: String) async throws -> OrdoAuthSession {
         try await login(email: email, password: password, deviceName: deviceName, platform: "ios/1.0.0")
+    }
+
+    /// 与核心 `AuthApi.guest(GuestAuthRequest)` 同名同参。
+    func guest(deviceId: String? = nil, deviceName: String, platform: String = "ios/1.0.0") async throws -> OrdoAuthSession {
+        try await guest(OrdoGuestAuthRequest(deviceId: deviceId, deviceName: deviceName, platform: platform))
     }
 }
 

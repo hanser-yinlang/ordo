@@ -64,6 +64,11 @@ interface AuthBody {
   expiresIn: number;
 }
 
+/** POST /v1/auth/upgrade 的返回(契约 §7.6.2:userId 与数据都不变,只补邮箱口令) */
+interface UpgradeBody {
+  user: AuthUser;
+}
+
 interface PushBody {
   serverSeq: number;
   accepted: string[];
@@ -244,8 +249,33 @@ export class SyncApi {
       expiresIn: body.expiresIn
     };
     this.tokens = tokens;
-    const result: AuthResult = { user: body.user, tokens: tokens };
+    const result: AuthResult = { user: normalizeUser(body.user), tokens: tokens };
     return result;
+  }
+
+  /**
+   * 游客登录(契约 §7.6.2 POST /v1/auth/guest)。
+   * 与 register/login 同构:同样拿到正常令牌,**不是离线模式**,游客数据照样入库、照样多端同步。
+   */
+  async guest(deviceId: string, deviceName: string, platform: string): Promise<AuthResult> {
+    const payload: string = JSON.stringify({
+      deviceId: deviceId,
+      deviceName: deviceName,
+      platform: platform
+    });
+    const text: string = await this.send(http.RequestMethod.POST, '/v1/auth/guest', payload, false);
+    return this.parseAuth(text);
+  }
+
+  /**
+   * 游客升级为正式账号(契约 §7.6.2 POST /v1/auth/upgrade,需带 Access Token)。
+   * userId 不变、数据不变,只把 email/password 补上;邮箱被占用时服务端返回 AUTH_EMAIL_TAKEN。
+   */
+  async upgrade(email: string, password: string): Promise<AuthUser> {
+    const payload: string = JSON.stringify({ email: email, password: password });
+    const text: string = await this.sendWithAuth(http.RequestMethod.POST, '/v1/auth/upgrade', payload);
+    const body: UpgradeBody = JSON.parse(text) as UpgradeBody;
+    return normalizeUser(body.user);
   }
 
   /** 契约 §7.4:旧 refresh 轮换失效 */
@@ -258,6 +288,13 @@ export class SyncApi {
     try {
       text = await this.send(http.RequestMethod.POST, '/v1/auth/refresh', payload, false);
     } catch (e) {
+      const err: OrdoApiError = e as OrdoApiError;
+      const code: string = err !== null && err.code !== undefined ? err.code : ERR_NETWORK;
+      // 网络不可用/被限流**不是**"登录失效":令牌保留,由调用方按离线处理。
+      // 只有服务端明确拒绝(鉴权类错误)才清令牌转登录态,避免离线启动被踢回登录页。
+      if (code === ERR_NETWORK || code === ERR_RATE_LIMITED) {
+        throw apiError(code, errorText(code), 'refresh 未能送达服务端');
+      }
       this.tokens = null;
       throw apiError(ERR_AUTH_REQUIRED, errorText(ERR_AUTH_REQUIRED), 'refresh 失败,需重新登录');
     }
@@ -356,4 +393,21 @@ export class SyncApi {
     };
     return result;
   }
+}
+
+/**
+ * 归一化 user 字段(契约 §7.6.1)。
+ * 服务端可能省略 isGuest(旧版本),缺失一律按正式账号 false 处理 ——
+ * 宁可把游客当成正式账号(只是展示名不同),也不能反过来把正式账号误标成游客。
+ */
+function normalizeUser(u: AuthUser): AuthUser {
+  if (u === null || u === undefined) {
+    return { id: '', email: '', isGuest: false };
+  }
+  const out: AuthUser = {
+    id: u.id === undefined || u.id === null ? '' : u.id,
+    email: u.email === undefined || u.email === null ? '' : u.email,
+    isGuest: u.isGuest === true
+  };
+  return out;
 }

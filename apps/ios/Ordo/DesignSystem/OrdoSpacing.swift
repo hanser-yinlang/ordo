@@ -57,7 +57,10 @@ public enum OrdoSpacing {
     /// 元信息图标尺寸。
     public static let metaIconSize: CGFloat = 14
     /// 快加号直径。
-    public static let quickAddDiameter: CGFloat = 52
+    ///
+    /// UI 规范 §4 的旧值是 52,§5.2(v1.1「快加号集群」重构)明确为 **56** 并删除了旁边的折叠箭头,
+    /// 因此这里取 56(与 `OrdoMotion.QuickAdd.diameter` 一致)。
+    public static let quickAddDiameter: CGFloat = OrdoMotion.QuickAdd.diameter
     /// 排期面板宽度。
     public static let schedulePopoverWidth: CGFloat = 280
     /// 快找输入框高度 / 结果行高。

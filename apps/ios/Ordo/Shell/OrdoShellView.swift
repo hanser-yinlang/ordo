@@ -224,6 +224,9 @@ public struct OrdoShellView: View {
             // ⌘N 新建待办
             Button("新建待办") { shell.beginQuickAdd() }
                 .keyboardShortcut("n", modifiers: .command)
+            // ⌘R 立即同步(规范 §5.3 / §6)
+            Button("立即同步") { shell.requestRefresh() }
+                .keyboardShortcut("r", modifiers: .command)
             // ⌘K 快找
             Button("快找") { shell.isFastFindPresented = true }
                 .keyboardShortcut("k", modifiers: .command)
@@ -261,6 +264,9 @@ public struct OrdoShellView: View {
             shell.deleteHighlighted()
             return .handled
         case .escape:
+            // UI 规范 §5.4「取消」:Esc 让被拖拽的行回到原位,且**不写库**。
+            // 没有拖拽进行时这是一次空操作,因此可以无条件先发。
+            shell.cancelActiveDrag()
             if shell.isFastFindPresented {
                 shell.isFastFindPresented = false
             } else if shell.expandedTodoId != nil {

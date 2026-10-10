@@ -26,13 +26,57 @@ export struct TodoRow {
   @Prop rowRev: number = 0;
   /** 完成动效:本行是否正在播放动画 */
   @Prop animating: boolean = false;
+  /** 长按拖拽:本行正被拖动(§5.4:scale 1.02 + 12dp 投影 + surface 底 + alpha 0.55) */
+  @Prop lifted: boolean = false;
+  /** 拖拽期让位量(vp) */
+  @Prop shift: number = 0;
+  /** 插入指示线:'none' | 'top' | 'bottom' */
+  @Prop dropLine: string = 'none';
+  /** 刚拖完的这一行不要再处理点击(否则松手会顺带打开详情) */
+  @Prop suppressTap: boolean = false;
 
   private c(): OrdoColorTokens {
     return OrdoColors.of(this.store.isDark());
   }
 
+  /** 行底色:被拖行转 surface,选中行用 rowSelected,其余透明(§5.4 / §4) */
+  private rowBg(): string {
+    if (this.lifted) {
+      return this.c().bgSurface;
+    }
+    return this.store.selectedTodoId === this.todoId ? this.c().rowSelected : '#00000000';
+  }
+
+  private rowAlpha(): number {
+    if (this.lifted) {
+      return OrdoMotion.dragAlpha;
+    }
+    return this.animating ? 0.72 : 1;
+  }
+
+  /** 插入指示线:2dp accent + 左端 4dp 圆点(§5.4) */
+  @Builder
+  dropIndicator() {
+    Row() {
+      Circle()
+        .width(OrdoMotion.dropDot)
+        .height(OrdoMotion.dropDot)
+        .fill(this.c().accentPrimary)
+      Divider()
+        .strokeWidth(OrdoMotion.dropLine)
+        .color(this.c().accentPrimary)
+        .layoutWeight(1)
+    }
+    .width('100%')
+    .height(OrdoMotion.dropDot)
+  }
+
   build() {
     Column() {
+      if (this.dropLine === 'top') {
+        this.dropIndicator()
+      }
+
       Row({ space: OrdoSpace.m }) {
         // 复选框 20×20 圆形(04 §4)
         Stack() {
@@ -96,13 +140,30 @@ export struct TodoRow {
       .width('100%')
       .constraintSize({ minHeight: OrdoSize.rowHeight })
       .padding({ top: OrdoSpace.xs, bottom: OrdoSpace.xs })
-      .backgroundColor(this.store.selectedTodoId === this.todoId ? this.c().rowSelected : Color.Transparent)
+      .backgroundColor(this.rowBg())
       .borderRadius(OrdoRadius.row)
-      .opacity(this.animating ? 0.72 : 1)
-      .animation({ duration: OrdoMotion.base, curve: Curve.FastOutSlowIn })
+      // 长按拖拽(§5.4):行抬起 scale 1.02 + 12dp 投影;其余行让位 120ms
+      .scale({ x: this.lifted ? OrdoMotion.dragLiftScale : 1, y: this.lifted ? OrdoMotion.dragLiftScale : 1 })
+      .translate({ y: this.shift })
+      .zIndex(this.lifted ? 2 : 0)
+      .shadow(this.lifted
+        ? { radius: OrdoMotion.dragLiftShadow, color: 'rgba(0,0,0,0.18)', offsetY: 6 }
+        : { radius: 0, color: '#00000000', offsetY: 0 })
+      .opacity(this.rowAlpha())
+      .animation({
+        duration: this.lifted ? 1 : (this.shift !== 0 ? OrdoMotion.dragYield : OrdoMotion.base),
+        curve: Curve.FastOutSlowIn
+      })
       .onClick(() => {
+        if (this.suppressTap || this.lifted) {
+          return;
+        }
         this.store.setSelected(this.todoId);
       })
+
+      if (this.dropLine === 'bottom') {
+        this.dropIndicator()
+      }
 
       if (this.store.selectedTodoId === this.todoId) {
         DetailCard({ store: this.store, todoId: this.todoId })

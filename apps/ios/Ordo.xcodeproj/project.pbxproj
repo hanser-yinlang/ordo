@@ -7,61 +7,69 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		C8A40F4E0650574887849B0F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 689DB79FCE5B63390645FA9B /* AppEnvironment.swift */; };
-		11F88A7062B4F92CB81070CC /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A512AF9A67C85E55345A21F1 /* DeepLink.swift */; };
-		6E03E7A757519618B699F566 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 032DEBDC81A0638AA4858B15 /* OrdoApp.swift */; };
-		48FB3EB9565D1DD762F411C1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2B071FB8DD2891329F94063E /* EmptyStateView.swift */; };
-		5B5A6FE1A9D3661275F83D1F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 12A43E868050FDA9083A80BB /* MarkdownNoteView.swift */; };
-		E4BFE86E53084F6A2B5B6060 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 054ED79BD05642DA32321EB6 /* OrdoToast.swift */; };
-		5D2670713ABFB74C028D2723 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2191129DFE497104D6B94CA7 /* ProgressRingView.swift */; };
-		FB35FEBB4300381F40B9CE93 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 590F07773A9BFAC3CC53733E /* OrdoAPIProtocols.swift */; };
-		22E0F0765677856E796B0E07 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 89AE6CF3472479B52916D0F3 /* OrdoCoreBridge.swift */; };
-		B1628DF0006410C1E66FF728 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A1C2C24F837F0C741D2B2501 /* OrdoCoreMapping.swift */; };
-		3AA955100A513EB267382150 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 934A66FAC3C28F3D62193F5B /* OrdoDateFormatter.swift */; };
-		7FE85EF90E31FAF895CB9C34 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 55477FF8B2A550F3B210A64F /* OrdoEngineProtocol.swift */; };
-		551E34820ABA1EEBDC5E9B09 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = D239E8D33AF1D1D5457B8DE1 /* OrdoJSONValue.swift */; };
-		2210CDF2CC66AA2ACE552270 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1CE17B2C010EF93C74FC925B /* OrdoModel.swift */; };
-		161456395271F7D20C1D13A5 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 147C7C99CFC4FFA1D968999A /* OrdoNaturalLanguage.swift */; };
-		C4BF9D6E3D783E8D273FE2B1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BE384C4F03EE6952D6279A0C /* OrdoPayloadCoding.swift */; };
-		1CBD1421B67E7DDC09EA34A9 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8F73D4A4B3EFBF7E5969BD06 /* OrdoStorageProtocol.swift */; };
-		8AC7F1760CBE494CEBAA834B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 80AB3012DE38D610D90013FB /* EventKitAgenda.swift */; };
-		09337F515A8DB0AD9F20DB8F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = E1CB9B741C0EE5273A41EDD4 /* SeedData.swift */; };
-		36D2DCA0388F3039FC81C075 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1F0C633278186EB0FFA84080 /* SwiftDataStorage.swift */; };
-		3B8297AE609C1A8CD6F5C603 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 9B3FA54BAACDE27C03B880F1 /* TokenStore.swift */; };
-		DE6F598214DACB6A55DE3956 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 93A27583A2C673C638F6D6B9 /* OrdoColor.swift */; };
-		A566BCD1C4D5CF6D9F3C7FF2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1583ADC0337F6AD872941BAD /* OrdoFont.swift */; };
-		3C176259EA5A81665A7FD44D /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BAC631909C6C51357282E0B1 /* OrdoMotion.swift */; };
-		F3AB5C0F83E6C5E3E45CE38A /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 0D27725885AFA176D9F666D8 /* OrdoRadius.swift */; };
-		3E95A0EDFE9BBDA382437A1B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 394F1058196DD1219D7D46F2 /* OrdoSpacing.swift */; };
-		1C3D74BC5403D76BA48A5B86 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 998117899D03A8C95FE5A078 /* TodoDetailView.swift */; };
-		B808B439C35CE47EBC40679E /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = CA67E3511D1676351A268B5B /* OrdoAppIntents.swift */; };
-		484C54F57557E4F96F190C52 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A663747935AC7E4D666F65C0 /* AgendaSectionView.swift */; };
-		D810BC66A1995A59A6B6418C /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 79A73D88457EA009DC838DAC /* CheckboxView.swift */; };
-		52C7C341B4AE620C7BF954C2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1E3A9EDFFDD1AE1EA98E43D1 /* GroupHeaderView.swift */; };
-		3A298C91ED1BBACDC0BB95E7 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = CE6191E5F9211374D157B75D /* ListScreenView.swift */; };
-		A3D88480B24A2688F9726ED0 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 63427A82AE7C993A6F8F68E4 /* MetaPillView.swift */; };
-		F7ED454DF2B036E5BA6887E4 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B8A60E29FD2134275E0D58CC /* SwipeActions.swift */; };
-		935B4F0911E34B572A4DF074 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8E823FE04B188B962E1A2816 /* TodoRowView.swift */; };
-		1873D22831AA8F0387851620 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 3552895B99467EF776EE61E7 /* AuthApi.swift */; };
-		92EBAF8508AB98B60385F918 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = D298D572C67FD19B1F3EA868 /* OrdoHTTPClient.swift */; };
-		6E7E900979B632E0D5249D48 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2A6C38E890844513D73606F6 /* RealtimeClient.swift */; };
-		F5CBB19C47F38700C30D72A1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = DD2FAF928C9504706628DCB3 /* URLSessionSyncApi.swift */; };
-		1B6DD8EDD3A47C2E746CDD84 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 71FD3E268A2DCCD4D6D67252 /* ReminderScheduler.swift */; };
-		C5B73A9361F2DF842FCDEA6A /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 5B30A50FEA030EC39A6D6E2E /* QuickAddButton.swift */; };
-		E86C738F2CF96A9F0406D0DC /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = C72EBE93CF5A2112AF7BA104 /* ScheduleSheet.swift */; };
-		63078BD257D1AB6FB1AF3EF2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 87A236DF9FCD6B900F4C0437 /* FastFindView.swift */; };
-		DD0C7D6E5EE50766CF2ADABD /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = DDFF16E538A3840FA93A1270 /* SettingsView.swift */; };
-		8CDDDAC29F0704E52284D9CE /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = CC646568F291529B904C1AB4 /* OrdoShellView.swift */; };
-		060D8D230BE178CE246892D4 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B13E89E1D8E64438BA7274D1 /* ShellViewModel.swift */; };
-		802EAACC4ABA1C8C6E881535 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 7A5870C8021887BBAF5099A9 /* SidebarView.swift */; };
-		E3269373AD6954B16A41EF82 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8469D5BC9CA490CED5733ED1 /* StatusBarView.swift */; };
-		13AC0155FD5CC4420DAC702B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 64137C3AD845DD32ABFB2B58 /* SyncCoordinator.swift */; };
-		DB249DB9D0FF833647E29581 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 0CD3EC18796A47DC70E540B6 /* Assets.xcassets */; };
-		97837162CF2D7ECD2B4E38F4 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 5012B9ECED3782978D2EB1DC /* NlpParsingTests.swift */; };
-		39D5641BA6B4CDCB31F139C2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1B4DACFC5B04EE29ED12A8FC /* OrdoTestSupport.swift */; };
-		075C2E2DE42048B46ECBCC56 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 364D0E789C4CFC11D704181C /* QueryRulesTests.swift */; };
-		FD65D95EEF49CC916804A231 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 4EA973DE77F98BAAF0CC742F /* RepeatEngineTests.swift */; };
-		CF8400DB07A04209702586DB /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 6180A500789190B0C10F9825 /* SyncMergeTests.swift */; };
+		334672FFA767CA3443BAAD62 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 843F9B380B6A85B60A6E81A3 /* AppEnvironment.swift */; };
+		53F7A893A9A9A8DDEC7F2372 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 695CF421876190FA9077CDFA /* DeepLink.swift */; };
+		20162C3FE4903D8AEBD30AD9 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A9C7A2EE068DBDFB26212DB0 /* OrdoApp.swift */; };
+		3C6D2C528DF480197893FEE9 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A28A0DFA3A121A6C411C68F7 /* LoginModel.swift */; };
+		F5441D3CAEBD531917BEF720 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 10CC5954602377F82F19977E /* LoginView.swift */; };
+		278896AC5134AE084E55D6DD /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 02E7D6602421DAFF3CC10D5C /* OrdoAuthService.swift */; };
+		E446A473C1283786D784F636 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 63F1E0FF55284CBAA5A6B470 /* EmptyStateView.swift */; };
+		7F90E1ABC4ED525E20EAEF2C /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BCBEDC58B565204BA6BEB26D /* MarkdownNoteView.swift */; };
+		054AF5F2D14BA84B5BB0D8BA /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 9547BD39CC74460C191E43F8 /* OrdoToast.swift */; };
+		0A28018BAD08DD06E68C3613 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 09E5D38AE77EE3169C98FA42 /* ProgressRingView.swift */; };
+		0BDFB546CDC8B239D1B170C7 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 779DF2EADA84D255E366409F /* OrdoAPIProtocols.swift */; };
+		3FE5650B29E172F0B743CEC6 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BEFDFA04DA9D5FDF0F98F277 /* OrdoCoreBridge.swift */; };
+		D30C1351FBFA360B62C502F6 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 07FE1C15372E0EABE9ED9039 /* OrdoCoreMapping.swift */; };
+		7CD7B418208C51C4E49443EB /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 4F30938E83A41176199FD532 /* OrdoDateFormatter.swift */; };
+		6A682C60E2C40DFE24F330FF /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 203696695D314B2924EA2CAC /* OrdoEngineProtocol.swift */; };
+		764C221AFA3A69C715E45DFD /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A3B4B41F0544AAD4B1817594 /* OrdoJSONValue.swift */; };
+		6CD4703F409A4BD9D8E61C8E /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 243FE29C67C0DD64C975915F /* OrdoModel.swift */; };
+		C7B05900FB27705E0E8ED0EF /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = F616DC74DF2804475CC2C3C3 /* OrdoNaturalLanguage.swift */; };
+		DA26F41CC4FD19ECDFCB8F20 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 265DF44C21D8F8AA4A4375AE /* OrdoPayloadCoding.swift */; };
+		B8BB72B1D8070F5EBC356DC4 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 3E10F515EC180FA87767A056 /* OrdoSession.swift */; };
+		74CB438613C51DD60D4B03BA /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BA9F319D40347C905CE1665D /* OrdoSessionBridge.swift */; };
+		EBD02758C6AD36788C2D55BC /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8FA8572A8C81F19D272A5910 /* OrdoStorageProtocol.swift */; };
+		0610B5B5896370E7B033F38B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1F6C2E648BA3EF5973326B68 /* EventKitAgenda.swift */; };
+		775CFA1203752763076A4824 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = E413E787064D99036ECAA16C /* SeedData.swift */; };
+		E00737EADCF9A0E3E3B9ED3C /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 4C44C43AD794050D2EC016AB /* SwiftDataStorage.swift */; };
+		6F35CE9807B052E5356ADBCD /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = E6D5BAFD2D609805B380E74C /* OrdoColor.swift */; };
+		71059378206F4E2CA22D6826 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 6B26AD0AFE63B7B116F5BB65 /* OrdoFont.swift */; };
+		1787F321E8C259A38DCBBF99 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 1BD53FE034E25775C7AAD2C5 /* OrdoMotion.swift */; };
+		FA4FA64DFD3EA6BE07EB858D /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BCBEEF212192F86DAA5DE309 /* OrdoRadius.swift */; };
+		23955901D381D02BE46C568B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = BC9DBD8E6AFF4C091526CBB6 /* OrdoSpacing.swift */; };
+		64B519F97AEBD55313D9D226 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 88A19239FEBB3DF22E428F58 /* TodoDetailView.swift */; };
+		4541FD98820C937671E522BA /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = F3F1D7C5A0F57200C8D3DF35 /* OrdoAppIntents.swift */; };
+		7C8C26F7535017A121DEE658 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 0C83D266820D1D8A88619DAC /* AgendaSectionView.swift */; };
+		57099980426FC5F9F4DC8D2A /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B6F38F8B8F243E24FD4BF76B /* CheckboxView.swift */; };
+		AFF06C64C88FCA03FBA6F4CB /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 79B34622ECF484473FE51B5E /* GroupHeaderView.swift */; };
+		B108A982ACB12B17714B7253 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 562E80695E9C0FC41A983DFD /* ListScreenView.swift */; };
+		F11FF741B15798B392ECA823 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 6CE6D0010757A049000BD729 /* LongPressDrag.swift */; };
+		D520A426F5D6337E939BC860 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 205FE66165A075C90C1147AC /* MetaPillView.swift */; };
+		DF90AFB3911AF89ED0BDE159 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = E90A12B782CAF3F0D724D4FB /* SwipeActions.swift */; };
+		A80EA67A1D08C0F7068C8924 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A74FA6FE8FDA71F62A819A41 /* TodoRowView.swift */; };
+		5F882C1C10760053549CF09A /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 0B11B91DD985E5D051B014C0 /* AuthApi.swift */; };
+		682DDE3AA2E38A8E42894B4B /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = C3F40CF80E3F03DA64E563F4 /* OrdoHTTPClient.swift */; };
+		6790C87F7AE57899EEE5E0C9 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 763F598F9A81778BA5BA2C65 /* RealtimeClient.swift */; };
+		3259E6853B08EC5E81DA76A3 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 9E87B6B4E5F7B22A828DEA50 /* URLSessionSyncApi.swift */; };
+		25D9D9BBAF11E8A3069BDEE1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = C70D9C71683F8BB623F354C9 /* ReminderScheduler.swift */; };
+		6FF6DDB016DF2B02FD481095 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 59FF96A81B828B50C83B909A /* QuickAddButton.swift */; };
+		3CC87EFDB95C6B77A956A849 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 82FDBEA94CB3395F82550395 /* ScheduleSheet.swift */; };
+		EB827E8CEA8A04A2D039D654 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = EB61CABEA96B67A6D5B06F88 /* FastFindView.swift */; };
+		3A6CF704850810923C7F9021 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B886B1F64E5B6279F539D32F /* SettingsView.swift */; };
+		1B375F7DA31FC60662E3D56E /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 49FA5C42E759C9FBDD446571 /* OrdoShellView.swift */; };
+		3EC76C04E508B16B7EDC6999 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = F7C6A730A889E34EB67FB6B6 /* RefreshControlModel.swift */; };
+		B42BFCD6C7CDD46924D085F9 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 69E53B643C74590E12452215 /* ShellViewModel.swift */; };
+		837E4888E52A89D8952F1E00 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2677C29A1F62C207D37E393D /* SidebarView.swift */; };
+		D9A411CD888B9C741F2CADF2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = ACBB1AD746D8F5B7846DF552 /* StatusBarView.swift */; };
+		4BA15E67C287691E652C5A9F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = C53F29BB7732CCDB51E20323 /* SyncCoordinator.swift */; };
+		DB249DB9D0FF833647E29581 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = EB0AFE062C5F15BE1E918D4A /* Assets.xcassets */; };
+		A68B9314C0A5E05AF0B2424F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 76D471331E289BD3781C31CE /* InteractionStateTests.swift */; };
+		E66D6BF8D7E76CB3153EFB86 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A02AD233B66F74BD9F299F61 /* NlpParsingTests.swift */; };
+		865C9E50E97E0D2EA8D53700 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 28EB3C7C60A59494EBCF1DB6 /* OrdoTestSupport.swift */; };
+		AD6813466606742FD4DC49FB /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = E97CA9F72DF1F98EDAF450FD /* QueryRulesTests.swift */; };
+		31C8E445B938D8533C1D3EE8 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B6865B0230A3E8D3D117D662 /* RepeatEngineTests.swift */; };
+		A59E8BEF51CE9CACB339510E /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 028CA90E73153B5664D7DADE /* SessionAndGateTests.swift */; };
+		C7E17EE10ACE4D64FD7CB386 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8B2A4251C5F08036C5143754 /* SyncMergeTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,63 +77,71 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		689DB79FCE5B63390645FA9B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppEnvironment.swift; path = Ordo/App/AppEnvironment.swift; sourceTree = SOURCE_ROOT; };
-		A512AF9A67C85E55345A21F1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeepLink.swift; path = Ordo/App/DeepLink.swift; sourceTree = SOURCE_ROOT; };
-		032DEBDC81A0638AA4858B15 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoApp.swift; path = Ordo/App/OrdoApp.swift; sourceTree = SOURCE_ROOT; };
-		2B071FB8DD2891329F94063E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EmptyStateView.swift; path = Ordo/Common/EmptyStateView.swift; sourceTree = SOURCE_ROOT; };
-		12A43E868050FDA9083A80BB /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MarkdownNoteView.swift; path = Ordo/Common/MarkdownNoteView.swift; sourceTree = SOURCE_ROOT; };
-		054ED79BD05642DA32321EB6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoToast.swift; path = Ordo/Common/OrdoToast.swift; sourceTree = SOURCE_ROOT; };
-		2191129DFE497104D6B94CA7 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProgressRingView.swift; path = Ordo/Common/ProgressRingView.swift; sourceTree = SOURCE_ROOT; };
-		590F07773A9BFAC3CC53733E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoAPIProtocols.swift; path = Ordo/Core/OrdoAPIProtocols.swift; sourceTree = SOURCE_ROOT; };
-		89AE6CF3472479B52916D0F3 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoCoreBridge.swift; path = Ordo/Core/OrdoCoreBridge.swift; sourceTree = SOURCE_ROOT; };
-		A1C2C24F837F0C741D2B2501 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoCoreMapping.swift; path = Ordo/Core/OrdoCoreMapping.swift; sourceTree = SOURCE_ROOT; };
-		934A66FAC3C28F3D62193F5B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoDateFormatter.swift; path = Ordo/Core/OrdoDateFormatter.swift; sourceTree = SOURCE_ROOT; };
-		55477FF8B2A550F3B210A64F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoEngineProtocol.swift; path = Ordo/Core/OrdoEngineProtocol.swift; sourceTree = SOURCE_ROOT; };
-		D239E8D33AF1D1D5457B8DE1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoJSONValue.swift; path = Ordo/Core/OrdoJSONValue.swift; sourceTree = SOURCE_ROOT; };
-		1CE17B2C010EF93C74FC925B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoModel.swift; path = Ordo/Core/OrdoModel.swift; sourceTree = SOURCE_ROOT; };
-		147C7C99CFC4FFA1D968999A /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoNaturalLanguage.swift; path = Ordo/Core/OrdoNaturalLanguage.swift; sourceTree = SOURCE_ROOT; };
-		BE384C4F03EE6952D6279A0C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoPayloadCoding.swift; path = Ordo/Core/OrdoPayloadCoding.swift; sourceTree = SOURCE_ROOT; };
-		8F73D4A4B3EFBF7E5969BD06 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoStorageProtocol.swift; path = Ordo/Core/OrdoStorageProtocol.swift; sourceTree = SOURCE_ROOT; };
-		80AB3012DE38D610D90013FB /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EventKitAgenda.swift; path = Ordo/Data/EventKitAgenda.swift; sourceTree = SOURCE_ROOT; };
-		E1CB9B741C0EE5273A41EDD4 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SeedData.swift; path = Ordo/Data/SeedData.swift; sourceTree = SOURCE_ROOT; };
-		1F0C633278186EB0FFA84080 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SwiftDataStorage.swift; path = Ordo/Data/SwiftDataStorage.swift; sourceTree = SOURCE_ROOT; };
-		9B3FA54BAACDE27C03B880F1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TokenStore.swift; path = Ordo/Data/TokenStore.swift; sourceTree = SOURCE_ROOT; };
-		93A27583A2C673C638F6D6B9 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoColor.swift; path = Ordo/DesignSystem/OrdoColor.swift; sourceTree = SOURCE_ROOT; };
-		1583ADC0337F6AD872941BAD /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoFont.swift; path = Ordo/DesignSystem/OrdoFont.swift; sourceTree = SOURCE_ROOT; };
-		BAC631909C6C51357282E0B1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoMotion.swift; path = Ordo/DesignSystem/OrdoMotion.swift; sourceTree = SOURCE_ROOT; };
-		0D27725885AFA176D9F666D8 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoRadius.swift; path = Ordo/DesignSystem/OrdoRadius.swift; sourceTree = SOURCE_ROOT; };
-		394F1058196DD1219D7D46F2 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoSpacing.swift; path = Ordo/DesignSystem/OrdoSpacing.swift; sourceTree = SOURCE_ROOT; };
-		998117899D03A8C95FE5A078 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TodoDetailView.swift; path = Ordo/Detail/TodoDetailView.swift; sourceTree = SOURCE_ROOT; };
-		CA67E3511D1676351A268B5B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoAppIntents.swift; path = Ordo/Intents/OrdoAppIntents.swift; sourceTree = SOURCE_ROOT; };
-		A663747935AC7E4D666F65C0 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AgendaSectionView.swift; path = Ordo/Lists/AgendaSectionView.swift; sourceTree = SOURCE_ROOT; };
-		79A73D88457EA009DC838DAC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CheckboxView.swift; path = Ordo/Lists/CheckboxView.swift; sourceTree = SOURCE_ROOT; };
-		1E3A9EDFFDD1AE1EA98E43D1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GroupHeaderView.swift; path = Ordo/Lists/GroupHeaderView.swift; sourceTree = SOURCE_ROOT; };
-		CE6191E5F9211374D157B75D /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListScreenView.swift; path = Ordo/Lists/ListScreenView.swift; sourceTree = SOURCE_ROOT; };
-		63427A82AE7C993A6F8F68E4 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MetaPillView.swift; path = Ordo/Lists/MetaPillView.swift; sourceTree = SOURCE_ROOT; };
-		B8A60E29FD2134275E0D58CC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SwipeActions.swift; path = Ordo/Lists/SwipeActions.swift; sourceTree = SOURCE_ROOT; };
-		8E823FE04B188B962E1A2816 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TodoRowView.swift; path = Ordo/Lists/TodoRowView.swift; sourceTree = SOURCE_ROOT; };
-		3552895B99467EF776EE61E7 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AuthApi.swift; path = Ordo/Net/AuthApi.swift; sourceTree = SOURCE_ROOT; };
-		D298D572C67FD19B1F3EA868 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoHTTPClient.swift; path = Ordo/Net/OrdoHTTPClient.swift; sourceTree = SOURCE_ROOT; };
-		2A6C38E890844513D73606F6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeClient.swift; path = Ordo/Net/RealtimeClient.swift; sourceTree = SOURCE_ROOT; };
-		DD2FAF928C9504706628DCB3 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = URLSessionSyncApi.swift; path = Ordo/Net/URLSessionSyncApi.swift; sourceTree = SOURCE_ROOT; };
-		71FD3E268A2DCCD4D6D67252 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ReminderScheduler.swift; path = Ordo/Notifications/ReminderScheduler.swift; sourceTree = SOURCE_ROOT; };
-		5B30A50FEA030EC39A6D6E2E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickAddButton.swift; path = Ordo/QuickAdd/QuickAddButton.swift; sourceTree = SOURCE_ROOT; };
-		C72EBE93CF5A2112AF7BA104 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScheduleSheet.swift; path = Ordo/Schedule/ScheduleSheet.swift; sourceTree = SOURCE_ROOT; };
-		87A236DF9FCD6B900F4C0437 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FastFindView.swift; path = Ordo/Search/FastFindView.swift; sourceTree = SOURCE_ROOT; };
-		DDFF16E538A3840FA93A1270 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Ordo/Settings/SettingsView.swift; sourceTree = SOURCE_ROOT; };
-		CC646568F291529B904C1AB4 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoShellView.swift; path = Ordo/Shell/OrdoShellView.swift; sourceTree = SOURCE_ROOT; };
-		B13E89E1D8E64438BA7274D1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShellViewModel.swift; path = Ordo/Shell/ShellViewModel.swift; sourceTree = SOURCE_ROOT; };
-		7A5870C8021887BBAF5099A9 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SidebarView.swift; path = Ordo/Shell/SidebarView.swift; sourceTree = SOURCE_ROOT; };
-		8469D5BC9CA490CED5733ED1 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StatusBarView.swift; path = Ordo/Shell/StatusBarView.swift; sourceTree = SOURCE_ROOT; };
-		64137C3AD845DD32ABFB2B58 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncCoordinator.swift; path = Ordo/Sync/SyncCoordinator.swift; sourceTree = SOURCE_ROOT; };
-		5012B9ECED3782978D2EB1DC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NlpParsingTests.swift; path = OrdoTests/NlpParsingTests.swift; sourceTree = SOURCE_ROOT; };
-		1B4DACFC5B04EE29ED12A8FC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoTestSupport.swift; path = OrdoTests/OrdoTestSupport.swift; sourceTree = SOURCE_ROOT; };
-		364D0E789C4CFC11D704181C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QueryRulesTests.swift; path = OrdoTests/QueryRulesTests.swift; sourceTree = SOURCE_ROOT; };
-		4EA973DE77F98BAAF0CC742F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RepeatEngineTests.swift; path = OrdoTests/RepeatEngineTests.swift; sourceTree = SOURCE_ROOT; };
-		6180A500789190B0C10F9825 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncMergeTests.swift; path = OrdoTests/SyncMergeTests.swift; sourceTree = SOURCE_ROOT; };
-		0CD3EC18796A47DC70E540B6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Ordo/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
-		1D5B3FFBBD3D85CB161E92EA /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Config/Info.plist; sourceTree = SOURCE_ROOT; };
-		C887D190F63504AA8159D51C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Ordo.entitlements; path = Config/Ordo.entitlements; sourceTree = SOURCE_ROOT; };
+		843F9B380B6A85B60A6E81A3 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppEnvironment.swift; path = Ordo/App/AppEnvironment.swift; sourceTree = SOURCE_ROOT; };
+		695CF421876190FA9077CDFA /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeepLink.swift; path = Ordo/App/DeepLink.swift; sourceTree = SOURCE_ROOT; };
+		A9C7A2EE068DBDFB26212DB0 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoApp.swift; path = Ordo/App/OrdoApp.swift; sourceTree = SOURCE_ROOT; };
+		A28A0DFA3A121A6C411C68F7 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LoginModel.swift; path = Ordo/Auth/LoginModel.swift; sourceTree = SOURCE_ROOT; };
+		10CC5954602377F82F19977E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LoginView.swift; path = Ordo/Auth/LoginView.swift; sourceTree = SOURCE_ROOT; };
+		02E7D6602421DAFF3CC10D5C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoAuthService.swift; path = Ordo/Auth/OrdoAuthService.swift; sourceTree = SOURCE_ROOT; };
+		63F1E0FF55284CBAA5A6B470 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EmptyStateView.swift; path = Ordo/Common/EmptyStateView.swift; sourceTree = SOURCE_ROOT; };
+		BCBEDC58B565204BA6BEB26D /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MarkdownNoteView.swift; path = Ordo/Common/MarkdownNoteView.swift; sourceTree = SOURCE_ROOT; };
+		9547BD39CC74460C191E43F8 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoToast.swift; path = Ordo/Common/OrdoToast.swift; sourceTree = SOURCE_ROOT; };
+		09E5D38AE77EE3169C98FA42 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProgressRingView.swift; path = Ordo/Common/ProgressRingView.swift; sourceTree = SOURCE_ROOT; };
+		779DF2EADA84D255E366409F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoAPIProtocols.swift; path = Ordo/Core/OrdoAPIProtocols.swift; sourceTree = SOURCE_ROOT; };
+		BEFDFA04DA9D5FDF0F98F277 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoCoreBridge.swift; path = Ordo/Core/OrdoCoreBridge.swift; sourceTree = SOURCE_ROOT; };
+		07FE1C15372E0EABE9ED9039 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoCoreMapping.swift; path = Ordo/Core/OrdoCoreMapping.swift; sourceTree = SOURCE_ROOT; };
+		4F30938E83A41176199FD532 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoDateFormatter.swift; path = Ordo/Core/OrdoDateFormatter.swift; sourceTree = SOURCE_ROOT; };
+		203696695D314B2924EA2CAC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoEngineProtocol.swift; path = Ordo/Core/OrdoEngineProtocol.swift; sourceTree = SOURCE_ROOT; };
+		A3B4B41F0544AAD4B1817594 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoJSONValue.swift; path = Ordo/Core/OrdoJSONValue.swift; sourceTree = SOURCE_ROOT; };
+		243FE29C67C0DD64C975915F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoModel.swift; path = Ordo/Core/OrdoModel.swift; sourceTree = SOURCE_ROOT; };
+		F616DC74DF2804475CC2C3C3 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoNaturalLanguage.swift; path = Ordo/Core/OrdoNaturalLanguage.swift; sourceTree = SOURCE_ROOT; };
+		265DF44C21D8F8AA4A4375AE /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoPayloadCoding.swift; path = Ordo/Core/OrdoPayloadCoding.swift; sourceTree = SOURCE_ROOT; };
+		3E10F515EC180FA87767A056 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoSession.swift; path = Ordo/Core/OrdoSession.swift; sourceTree = SOURCE_ROOT; };
+		BA9F319D40347C905CE1665D /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoSessionBridge.swift; path = Ordo/Core/OrdoSessionBridge.swift; sourceTree = SOURCE_ROOT; };
+		8FA8572A8C81F19D272A5910 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoStorageProtocol.swift; path = Ordo/Core/OrdoStorageProtocol.swift; sourceTree = SOURCE_ROOT; };
+		1F6C2E648BA3EF5973326B68 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EventKitAgenda.swift; path = Ordo/Data/EventKitAgenda.swift; sourceTree = SOURCE_ROOT; };
+		E413E787064D99036ECAA16C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SeedData.swift; path = Ordo/Data/SeedData.swift; sourceTree = SOURCE_ROOT; };
+		4C44C43AD794050D2EC016AB /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SwiftDataStorage.swift; path = Ordo/Data/SwiftDataStorage.swift; sourceTree = SOURCE_ROOT; };
+		E6D5BAFD2D609805B380E74C /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoColor.swift; path = Ordo/DesignSystem/OrdoColor.swift; sourceTree = SOURCE_ROOT; };
+		6B26AD0AFE63B7B116F5BB65 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoFont.swift; path = Ordo/DesignSystem/OrdoFont.swift; sourceTree = SOURCE_ROOT; };
+		1BD53FE034E25775C7AAD2C5 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoMotion.swift; path = Ordo/DesignSystem/OrdoMotion.swift; sourceTree = SOURCE_ROOT; };
+		BCBEEF212192F86DAA5DE309 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoRadius.swift; path = Ordo/DesignSystem/OrdoRadius.swift; sourceTree = SOURCE_ROOT; };
+		BC9DBD8E6AFF4C091526CBB6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoSpacing.swift; path = Ordo/DesignSystem/OrdoSpacing.swift; sourceTree = SOURCE_ROOT; };
+		88A19239FEBB3DF22E428F58 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TodoDetailView.swift; path = Ordo/Detail/TodoDetailView.swift; sourceTree = SOURCE_ROOT; };
+		F3F1D7C5A0F57200C8D3DF35 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoAppIntents.swift; path = Ordo/Intents/OrdoAppIntents.swift; sourceTree = SOURCE_ROOT; };
+		0C83D266820D1D8A88619DAC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AgendaSectionView.swift; path = Ordo/Lists/AgendaSectionView.swift; sourceTree = SOURCE_ROOT; };
+		B6F38F8B8F243E24FD4BF76B /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CheckboxView.swift; path = Ordo/Lists/CheckboxView.swift; sourceTree = SOURCE_ROOT; };
+		79B34622ECF484473FE51B5E /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GroupHeaderView.swift; path = Ordo/Lists/GroupHeaderView.swift; sourceTree = SOURCE_ROOT; };
+		562E80695E9C0FC41A983DFD /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ListScreenView.swift; path = Ordo/Lists/ListScreenView.swift; sourceTree = SOURCE_ROOT; };
+		6CE6D0010757A049000BD729 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = LongPressDrag.swift; path = Ordo/Lists/LongPressDrag.swift; sourceTree = SOURCE_ROOT; };
+		205FE66165A075C90C1147AC /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MetaPillView.swift; path = Ordo/Lists/MetaPillView.swift; sourceTree = SOURCE_ROOT; };
+		E90A12B782CAF3F0D724D4FB /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SwipeActions.swift; path = Ordo/Lists/SwipeActions.swift; sourceTree = SOURCE_ROOT; };
+		A74FA6FE8FDA71F62A819A41 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TodoRowView.swift; path = Ordo/Lists/TodoRowView.swift; sourceTree = SOURCE_ROOT; };
+		0B11B91DD985E5D051B014C0 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AuthApi.swift; path = Ordo/Net/AuthApi.swift; sourceTree = SOURCE_ROOT; };
+		C3F40CF80E3F03DA64E563F4 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoHTTPClient.swift; path = Ordo/Net/OrdoHTTPClient.swift; sourceTree = SOURCE_ROOT; };
+		763F598F9A81778BA5BA2C65 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RealtimeClient.swift; path = Ordo/Net/RealtimeClient.swift; sourceTree = SOURCE_ROOT; };
+		9E87B6B4E5F7B22A828DEA50 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = URLSessionSyncApi.swift; path = Ordo/Net/URLSessionSyncApi.swift; sourceTree = SOURCE_ROOT; };
+		C70D9C71683F8BB623F354C9 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ReminderScheduler.swift; path = Ordo/Notifications/ReminderScheduler.swift; sourceTree = SOURCE_ROOT; };
+		59FF96A81B828B50C83B909A /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickAddButton.swift; path = Ordo/QuickAdd/QuickAddButton.swift; sourceTree = SOURCE_ROOT; };
+		82FDBEA94CB3395F82550395 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScheduleSheet.swift; path = Ordo/Schedule/ScheduleSheet.swift; sourceTree = SOURCE_ROOT; };
+		EB61CABEA96B67A6D5B06F88 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FastFindView.swift; path = Ordo/Search/FastFindView.swift; sourceTree = SOURCE_ROOT; };
+		B886B1F64E5B6279F539D32F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Ordo/Settings/SettingsView.swift; sourceTree = SOURCE_ROOT; };
+		49FA5C42E759C9FBDD446571 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoShellView.swift; path = Ordo/Shell/OrdoShellView.swift; sourceTree = SOURCE_ROOT; };
+		F7C6A730A889E34EB67FB6B6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RefreshControlModel.swift; path = Ordo/Shell/RefreshControlModel.swift; sourceTree = SOURCE_ROOT; };
+		69E53B643C74590E12452215 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ShellViewModel.swift; path = Ordo/Shell/ShellViewModel.swift; sourceTree = SOURCE_ROOT; };
+		2677C29A1F62C207D37E393D /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SidebarView.swift; path = Ordo/Shell/SidebarView.swift; sourceTree = SOURCE_ROOT; };
+		ACBB1AD746D8F5B7846DF552 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StatusBarView.swift; path = Ordo/Shell/StatusBarView.swift; sourceTree = SOURCE_ROOT; };
+		C53F29BB7732CCDB51E20323 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncCoordinator.swift; path = Ordo/Sync/SyncCoordinator.swift; sourceTree = SOURCE_ROOT; };
+		76D471331E289BD3781C31CE /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InteractionStateTests.swift; path = OrdoTests/InteractionStateTests.swift; sourceTree = SOURCE_ROOT; };
+		A02AD233B66F74BD9F299F61 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NlpParsingTests.swift; path = OrdoTests/NlpParsingTests.swift; sourceTree = SOURCE_ROOT; };
+		28EB3C7C60A59494EBCF1DB6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoTestSupport.swift; path = OrdoTests/OrdoTestSupport.swift; sourceTree = SOURCE_ROOT; };
+		E97CA9F72DF1F98EDAF450FD /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QueryRulesTests.swift; path = OrdoTests/QueryRulesTests.swift; sourceTree = SOURCE_ROOT; };
+		B6865B0230A3E8D3D117D662 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RepeatEngineTests.swift; path = OrdoTests/RepeatEngineTests.swift; sourceTree = SOURCE_ROOT; };
+		028CA90E73153B5664D7DADE /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SessionAndGateTests.swift; path = OrdoTests/SessionAndGateTests.swift; sourceTree = SOURCE_ROOT; };
+		8B2A4251C5F08036C5143754 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncMergeTests.swift; path = OrdoTests/SyncMergeTests.swift; sourceTree = SOURCE_ROOT; };
+		EB0AFE062C5F15BE1E918D4A /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Ordo/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
+		D33012C8B036AED5C3830940 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Config/Info.plist; sourceTree = SOURCE_ROOT; };
+		F5291025D96859B03393A50D /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = Ordo.entitlements; path = Config/Ordo.entitlements; sourceTree = SOURCE_ROOT; };
 		84337AD8D27FCD69AF2C4FC2 /* PBXFileReference */ = { isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ordo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DFDED23FA58339F9273F6C84 /* PBXFileReference */ = { isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OrdoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -151,20 +167,30 @@
 		65339988DF48EC4F9638CD1A /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				689DB79FCE5B63390645FA9B,
-				A512AF9A67C85E55345A21F1,
-				032DEBDC81A0638AA4858B15,
+				843F9B380B6A85B60A6E81A3,
+				695CF421876190FA9077CDFA,
+				A9C7A2EE068DBDFB26212DB0,
 			)
 name = App
+sourceTree = "<group>"
+		};
+		7EFAA631660B2B67CF728DEB /* PBXGroup */ = {
+isa = PBXGroup
+children = (
+				A28A0DFA3A121A6C411C68F7,
+				10CC5954602377F82F19977E,
+				02E7D6602421DAFF3CC10D5C,
+			)
+name = Auth
 sourceTree = "<group>"
 		};
 		3F191EDCC6AF7037686AA84E /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				2B071FB8DD2891329F94063E,
-				12A43E868050FDA9083A80BB,
-				054ED79BD05642DA32321EB6,
-				2191129DFE497104D6B94CA7,
+				63F1E0FF55284CBAA5A6B470,
+				BCBEDC58B565204BA6BEB26D,
+				9547BD39CC74460C191E43F8,
+				09E5D38AE77EE3169C98FA42,
 			)
 name = Common
 sourceTree = "<group>"
@@ -172,16 +198,18 @@ sourceTree = "<group>"
 		E87FA896042AC0496220A869 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				590F07773A9BFAC3CC53733E,
-				89AE6CF3472479B52916D0F3,
-				A1C2C24F837F0C741D2B2501,
-				934A66FAC3C28F3D62193F5B,
-				55477FF8B2A550F3B210A64F,
-				D239E8D33AF1D1D5457B8DE1,
-				1CE17B2C010EF93C74FC925B,
-				147C7C99CFC4FFA1D968999A,
-				BE384C4F03EE6952D6279A0C,
-				8F73D4A4B3EFBF7E5969BD06,
+				779DF2EADA84D255E366409F,
+				BEFDFA04DA9D5FDF0F98F277,
+				07FE1C15372E0EABE9ED9039,
+				4F30938E83A41176199FD532,
+				203696695D314B2924EA2CAC,
+				A3B4B41F0544AAD4B1817594,
+				243FE29C67C0DD64C975915F,
+				F616DC74DF2804475CC2C3C3,
+				265DF44C21D8F8AA4A4375AE,
+				3E10F515EC180FA87767A056,
+				BA9F319D40347C905CE1665D,
+				8FA8572A8C81F19D272A5910,
 			)
 name = Core
 sourceTree = "<group>"
@@ -189,10 +217,9 @@ sourceTree = "<group>"
 		354625C7EF37E0C260E04AB7 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				80AB3012DE38D610D90013FB,
-				E1CB9B741C0EE5273A41EDD4,
-				1F0C633278186EB0FFA84080,
-				9B3FA54BAACDE27C03B880F1,
+				1F6C2E648BA3EF5973326B68,
+				E413E787064D99036ECAA16C,
+				4C44C43AD794050D2EC016AB,
 			)
 name = Data
 sourceTree = "<group>"
@@ -200,11 +227,11 @@ sourceTree = "<group>"
 		09827406B670DA48DDCBC177 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				93A27583A2C673C638F6D6B9,
-				1583ADC0337F6AD872941BAD,
-				BAC631909C6C51357282E0B1,
-				0D27725885AFA176D9F666D8,
-				394F1058196DD1219D7D46F2,
+				E6D5BAFD2D609805B380E74C,
+				6B26AD0AFE63B7B116F5BB65,
+				1BD53FE034E25775C7AAD2C5,
+				BCBEEF212192F86DAA5DE309,
+				BC9DBD8E6AFF4C091526CBB6,
 			)
 name = DesignSystem
 sourceTree = "<group>"
@@ -212,7 +239,7 @@ sourceTree = "<group>"
 		48DDDB0A39FFA5BF1F1DD937 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				998117899D03A8C95FE5A078,
+				88A19239FEBB3DF22E428F58,
 			)
 name = Detail
 sourceTree = "<group>"
@@ -220,7 +247,7 @@ sourceTree = "<group>"
 		1AC6629169DF17E47AF0BA63 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				CA67E3511D1676351A268B5B,
+				F3F1D7C5A0F57200C8D3DF35,
 			)
 name = Intents
 sourceTree = "<group>"
@@ -228,13 +255,14 @@ sourceTree = "<group>"
 		D3F3881A4F096E5E4114E8F4 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				A663747935AC7E4D666F65C0,
-				79A73D88457EA009DC838DAC,
-				1E3A9EDFFDD1AE1EA98E43D1,
-				CE6191E5F9211374D157B75D,
-				63427A82AE7C993A6F8F68E4,
-				B8A60E29FD2134275E0D58CC,
-				8E823FE04B188B962E1A2816,
+				0C83D266820D1D8A88619DAC,
+				B6F38F8B8F243E24FD4BF76B,
+				79B34622ECF484473FE51B5E,
+				562E80695E9C0FC41A983DFD,
+				6CE6D0010757A049000BD729,
+				205FE66165A075C90C1147AC,
+				E90A12B782CAF3F0D724D4FB,
+				A74FA6FE8FDA71F62A819A41,
 			)
 name = Lists
 sourceTree = "<group>"
@@ -242,10 +270,10 @@ sourceTree = "<group>"
 		4A8DFD1391BF0A89CFAFC45A /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				3552895B99467EF776EE61E7,
-				D298D572C67FD19B1F3EA868,
-				2A6C38E890844513D73606F6,
-				DD2FAF928C9504706628DCB3,
+				0B11B91DD985E5D051B014C0,
+				C3F40CF80E3F03DA64E563F4,
+				763F598F9A81778BA5BA2C65,
+				9E87B6B4E5F7B22A828DEA50,
 			)
 name = Net
 sourceTree = "<group>"
@@ -253,7 +281,7 @@ sourceTree = "<group>"
 		E426C5FF743995FA3CA114AE /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				71FD3E268A2DCCD4D6D67252,
+				C70D9C71683F8BB623F354C9,
 			)
 name = Notifications
 sourceTree = "<group>"
@@ -261,7 +289,7 @@ sourceTree = "<group>"
 		64F147ADBA045C8EC936CFE5 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				5B30A50FEA030EC39A6D6E2E,
+				59FF96A81B828B50C83B909A,
 			)
 name = QuickAdd
 sourceTree = "<group>"
@@ -269,7 +297,7 @@ sourceTree = "<group>"
 		415EBA9C9FEA5F8EB1873238 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				C72EBE93CF5A2112AF7BA104,
+				82FDBEA94CB3395F82550395,
 			)
 name = Schedule
 sourceTree = "<group>"
@@ -277,7 +305,7 @@ sourceTree = "<group>"
 		1DE4324E1FE1FD2911028923 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				87A236DF9FCD6B900F4C0437,
+				EB61CABEA96B67A6D5B06F88,
 			)
 name = Search
 sourceTree = "<group>"
@@ -285,7 +313,7 @@ sourceTree = "<group>"
 		3D4640021922A53B12B5402C /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				DDFF16E538A3840FA93A1270,
+				B886B1F64E5B6279F539D32F,
 			)
 name = Settings
 sourceTree = "<group>"
@@ -293,10 +321,11 @@ sourceTree = "<group>"
 		89C6211BE0B89C6C3F4D77D5 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				CC646568F291529B904C1AB4,
-				B13E89E1D8E64438BA7274D1,
-				7A5870C8021887BBAF5099A9,
-				8469D5BC9CA490CED5733ED1,
+				49FA5C42E759C9FBDD446571,
+				F7C6A730A889E34EB67FB6B6,
+				69E53B643C74590E12452215,
+				2677C29A1F62C207D37E393D,
+				ACBB1AD746D8F5B7846DF552,
 			)
 name = Shell
 sourceTree = "<group>"
@@ -304,7 +333,7 @@ sourceTree = "<group>"
 		B8D09932699A6A838E8F726A /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				64137C3AD845DD32ABFB2B58,
+				C53F29BB7732CCDB51E20323,
 			)
 name = Sync
 sourceTree = "<group>"
@@ -313,6 +342,7 @@ sourceTree = "<group>"
 isa = PBXGroup
 children = (
 				65339988DF48EC4F9638CD1A,
+				7EFAA631660B2B67CF728DEB,
 				3F191EDCC6AF7037686AA84E,
 				E87FA896042AC0496220A869,
 				354625C7EF37E0C260E04AB7,
@@ -328,7 +358,7 @@ children = (
 				3D4640021922A53B12B5402C,
 				89C6211BE0B89C6C3F4D77D5,
 				B8D09932699A6A838E8F726A,
-				0CD3EC18796A47DC70E540B6,
+				EB0AFE062C5F15BE1E918D4A,
 			)
 name = Ordo
 sourceTree = "<group>"
@@ -336,11 +366,13 @@ sourceTree = "<group>"
 		54999A26ABE60AC854EA670A /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				5012B9ECED3782978D2EB1DC,
-				1B4DACFC5B04EE29ED12A8FC,
-				364D0E789C4CFC11D704181C,
-				4EA973DE77F98BAAF0CC742F,
-				6180A500789190B0C10F9825,
+				76D471331E289BD3781C31CE,
+				A02AD233B66F74BD9F299F61,
+				28EB3C7C60A59494EBCF1DB6,
+				E97CA9F72DF1F98EDAF450FD,
+				B6865B0230A3E8D3D117D662,
+				028CA90E73153B5664D7DADE,
+				8B2A4251C5F08036C5143754,
 			)
 name = OrdoTests
 sourceTree = "<group>"
@@ -348,8 +380,8 @@ sourceTree = "<group>"
 		BD13AA3ACFF3D0C2ED6E4720 /* PBXGroup */ = {
 isa = PBXGroup
 children = (
-				1D5B3FFBBD3D85CB161E92EA,
-				C887D190F63504AA8159D51C,
+				D33012C8B036AED5C3830940,
+				F5291025D96859B03393A50D,
 			)
 name = Config
 sourceTree = "<group>"
@@ -487,55 +519,61 @@ sourceTree = "<group>"
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				C8A40F4E0650574887849B0F,
-				11F88A7062B4F92CB81070CC,
-				6E03E7A757519618B699F566,
-				48FB3EB9565D1DD762F411C1,
-				5B5A6FE1A9D3661275F83D1F,
-				E4BFE86E53084F6A2B5B6060,
-				5D2670713ABFB74C028D2723,
-				FB35FEBB4300381F40B9CE93,
-				22E0F0765677856E796B0E07,
-				B1628DF0006410C1E66FF728,
-				3AA955100A513EB267382150,
-				7FE85EF90E31FAF895CB9C34,
-				551E34820ABA1EEBDC5E9B09,
-				2210CDF2CC66AA2ACE552270,
-				161456395271F7D20C1D13A5,
-				C4BF9D6E3D783E8D273FE2B1,
-				1CBD1421B67E7DDC09EA34A9,
-				8AC7F1760CBE494CEBAA834B,
-				09337F515A8DB0AD9F20DB8F,
-				36D2DCA0388F3039FC81C075,
-				3B8297AE609C1A8CD6F5C603,
-				DE6F598214DACB6A55DE3956,
-				A566BCD1C4D5CF6D9F3C7FF2,
-				3C176259EA5A81665A7FD44D,
-				F3AB5C0F83E6C5E3E45CE38A,
-				3E95A0EDFE9BBDA382437A1B,
-				1C3D74BC5403D76BA48A5B86,
-				B808B439C35CE47EBC40679E,
-				484C54F57557E4F96F190C52,
-				D810BC66A1995A59A6B6418C,
-				52C7C341B4AE620C7BF954C2,
-				3A298C91ED1BBACDC0BB95E7,
-				A3D88480B24A2688F9726ED0,
-				F7ED454DF2B036E5BA6887E4,
-				935B4F0911E34B572A4DF074,
-				1873D22831AA8F0387851620,
-				92EBAF8508AB98B60385F918,
-				6E7E900979B632E0D5249D48,
-				F5CBB19C47F38700C30D72A1,
-				1B6DD8EDD3A47C2E746CDD84,
-				C5B73A9361F2DF842FCDEA6A,
-				E86C738F2CF96A9F0406D0DC,
-				63078BD257D1AB6FB1AF3EF2,
-				DD0C7D6E5EE50766CF2ADABD,
-				8CDDDAC29F0704E52284D9CE,
-				060D8D230BE178CE246892D4,
-				802EAACC4ABA1C8C6E881535,
-				E3269373AD6954B16A41EF82,
-				13AC0155FD5CC4420DAC702B,
+				334672FFA767CA3443BAAD62,
+				53F7A893A9A9A8DDEC7F2372,
+				20162C3FE4903D8AEBD30AD9,
+				3C6D2C528DF480197893FEE9,
+				F5441D3CAEBD531917BEF720,
+				278896AC5134AE084E55D6DD,
+				E446A473C1283786D784F636,
+				7F90E1ABC4ED525E20EAEF2C,
+				054AF5F2D14BA84B5BB0D8BA,
+				0A28018BAD08DD06E68C3613,
+				0BDFB546CDC8B239D1B170C7,
+				3FE5650B29E172F0B743CEC6,
+				D30C1351FBFA360B62C502F6,
+				7CD7B418208C51C4E49443EB,
+				6A682C60E2C40DFE24F330FF,
+				764C221AFA3A69C715E45DFD,
+				6CD4703F409A4BD9D8E61C8E,
+				C7B05900FB27705E0E8ED0EF,
+				DA26F41CC4FD19ECDFCB8F20,
+				B8BB72B1D8070F5EBC356DC4,
+				74CB438613C51DD60D4B03BA,
+				EBD02758C6AD36788C2D55BC,
+				0610B5B5896370E7B033F38B,
+				775CFA1203752763076A4824,
+				E00737EADCF9A0E3E3B9ED3C,
+				6F35CE9807B052E5356ADBCD,
+				71059378206F4E2CA22D6826,
+				1787F321E8C259A38DCBBF99,
+				FA4FA64DFD3EA6BE07EB858D,
+				23955901D381D02BE46C568B,
+				64B519F97AEBD55313D9D226,
+				4541FD98820C937671E522BA,
+				7C8C26F7535017A121DEE658,
+				57099980426FC5F9F4DC8D2A,
+				AFF06C64C88FCA03FBA6F4CB,
+				B108A982ACB12B17714B7253,
+				F11FF741B15798B392ECA823,
+				D520A426F5D6337E939BC860,
+				DF90AFB3911AF89ED0BDE159,
+				A80EA67A1D08C0F7068C8924,
+				5F882C1C10760053549CF09A,
+				682DDE3AA2E38A8E42894B4B,
+				6790C87F7AE57899EEE5E0C9,
+				3259E6853B08EC5E81DA76A3,
+				25D9D9BBAF11E8A3069BDEE1,
+				6FF6DDB016DF2B02FD481095,
+				3CC87EFDB95C6B77A956A849,
+				EB827E8CEA8A04A2D039D654,
+				3A6CF704850810923C7F9021,
+				1B375F7DA31FC60662E3D56E,
+				3EC76C04E508B16B7EDC6999,
+				B42BFCD6C7CDD46924D085F9,
+				837E4888E52A89D8952F1E00,
+				D9A411CD888B9C741F2CADF2,
+				4BA15E67C287691E652C5A9F,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -543,11 +581,13 @@ sourceTree = "<group>"
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				97837162CF2D7ECD2B4E38F4,
-				39D5641BA6B4CDCB31F139C2,
-				075C2E2DE42048B46ECBCC56,
-				FD65D95EEF49CC916804A231,
-				CF8400DB07A04209702586DB,
+				A68B9314C0A5E05AF0B2424F,
+				E66D6BF8D7E76CB3153EFB86,
+				865C9E50E97E0D2EA8D53700,
+				AD6813466606742FD4DC49FB,
+				31C8E445B938D8533C1D3EE8,
+				A59E8BEF51CE9CACB339510E,
+				C7E17EE10ACE4D64FD7CB386,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

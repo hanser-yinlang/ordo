@@ -37,7 +37,16 @@ import {
 } from '../model/Entities.ets';
 import { OrdoStore, StorageSnapshot } from './OrdoStore.ets';
 
+/**
+ * 数据库文件名(契约 §7.6.3):
+ *  - 账号数据:每个 userId 一份,落在 `<databaseDir>/rdb/<userId>/ordo.db`;
+ *  - 应用级元数据:只有一份,落在默认目录 `ordo-meta.db`,存会话 / 设备 id / 服务器地址 / 外观。
+ * 会话必须先于"用哪个账号目录"被读出来,所以它不能放在账号目录里(那是先有鸡还是先有蛋)。
+ */
 const DB_NAME: string = 'ordo.db';
+const DB_NAME_META: string = 'ordo-meta.db';
+/** 元数据库在用户数据库之外,用 `..` 让调用方一眼看出这不是账号目录 */
+const DIR_META: string = '';
 
 const SQL_AREAS: string = 'CREATE TABLE IF NOT EXISTS areas (' +
   'id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT, "order" INTEGER, archived INTEGER, updatedAt INTEGER, deleted INTEGER)';
@@ -85,6 +94,12 @@ const DDL_STATEMENTS: string[] = [
   SQL_INDEX_OUTBOX
 ];
 
+/**
+ * 元数据库只需要 kv 一张表:会话(`ordo.session`)、deviceId、服务器地址、外观。
+ * 不建实体表,免得"应用级库里躺着一份没人用的空 todos"被误读成账号数据。
+ */
+const META_DDL_STATEMENTS: string[] = [SQL_KV];
+
 /** 实体表名(清空与快照对账用) */
 const ENTITY_TABLES: string[] = ['areas', 'projects', 'headings', 'todos', 'tags'];
 
@@ -98,22 +113,60 @@ const CONTEXT_CLEAR: string = '清空实体表';
 export class RdbOrdoStore implements OrdoStore {
   private context: common.UIAbilityContext;
   private rdb: relationalStore.RdbStore | null;
+  /**
+   * 账号数据目录名(契约 §7.6.3 硬约束)。
+   * 取值必须来自 `OrdoSessionHelper.userDataDirName(session.userId)`,**绝不允许**两个账号传同一个值;
+   * 空串表示这是"应用级元数据库",只用来存会话 / 设备 id / 服务器地址 / 外观,不存任何实体。
+   */
+  private dirName: string;
+  private metaOnly: boolean;
 
-  constructor(context: common.UIAbilityContext) {
+  constructor(context: common.UIAbilityContext, dirName: string, metaOnly: boolean) {
     this.context = context;
+    this.dirName = dirName;
+    this.metaOnly = metaOnly;
     this.rdb = null;
   }
 
   async init(): Promise<void> {
     const config: relationalStore.StoreConfig = {
-      name: DB_NAME,
+      name: this.metaOnly ? DB_NAME_META : DB_NAME,
       securityLevel: relationalStore.SecurityLevel.S1
     };
+    if (this.dirName.length > 0) {
+      // customDir 语义(SDK):<context.databaseDir>/rdb/<customDir>/<name>
+      config.customDir = this.dirName;
+    }
     const store: relationalStore.RdbStore = await this.openStore(config);
-    for (let i = 0; i < DDL_STATEMENTS.length; i++) {
-      await this.execSql(store, DDL_STATEMENTS[i], CONTEXT_DDL);
+    const ddl: string[] = this.metaOnly ? META_DDL_STATEMENTS : DDL_STATEMENTS;
+    for (let i = 0; i < ddl.length; i++) {
+      await this.execSql(store, ddl[i], CONTEXT_DDL);
     }
     this.rdb = store;
+  }
+
+  /**
+   * 账号数据目录名(设置页展示"数据落在哪个目录")。
+   * 元数据库返回 `(应用级)`,不是账号目录。
+   */
+  dataDirName(): string {
+    if (this.metaOnly) {
+      return '(应用级)';
+    }
+    return this.dirName;
+  }
+
+  /**
+   * 库文件绝对路径。鸿蒙的 ArkData 只允许把关系库建在应用沙箱的 databaseDir 下,
+   * 因此这里给出的是 `<databaseDir>/rdb/<userId>/ordo.db` —— 与契约 §7.6.3 里
+   * `filesDir/<userId>/` 的诉求完全一致:**每个账号一份、互不可见、退出登录不删**,
+   * 差别只是沙箱内由系统指定的那一级父目录名。
+   */
+  pathText(): string {
+    if (this.metaOnly) {
+      return this.context.databaseDir + '/rdb/' + DB_NAME_META;
+    }
+    return this.context.databaseDir + '/rdb/' + this.dirName + '/' + DB_NAME;
   }
 
   private db(): relationalStore.RdbStore {

@@ -70,6 +70,104 @@ public enum OrdoMotion {
         public static var ringPulse: Animation { .easeOut(duration: ringPulseDuration) }
     }
 
+    // MARK: 登录页(规范 §5.1)
+
+    public enum Login {
+        /// 进入登录页:fade + 上移 12px,220ms,`motion.easing.standard`。
+        public static let enterOffset: CGFloat = 12
+        public static let enterDuration: Double = base
+        public static var enter: Animation { .timingCurve(0.2, 0.8, 0.2, 1, duration: enterDuration) }
+        /// 输入框聚焦:边框转 accent,120ms。
+        public static let focusDuration: Double = fast
+        public static var focus: Animation { .easeOut(duration: focusDuration) }
+        /// 主按钮按压 scale → 0.98(90ms)。
+        public static let pressScale: CGFloat = 0.98
+        public static let pressDuration: Double = 0.09
+        public static var press: Animation { .easeOut(duration: pressDuration) }
+        /// 登录成功:卡片 fade out 160ms → 主界面 fade in 220ms。
+        public static let cardOutDuration: Double = 0.16
+        public static var cardOut: Animation { .easeIn(duration: cardOutDuration) }
+        public static var mainIn: Animation { .easeIn(duration: base) }
+        /// 错误抖动:振幅 6px,320ms,衰减两次。
+        public static let shakeAmplitude: CGFloat = 6
+        public static let shakeDuration: Double = 0.32
+        public static let shakeCycles: Int = 2
+        /// 错误区固定预留高度(规范 §5.1)。
+        public static let errorReservedHeight: CGFloat = 20
+        /// 登录卡片宽度(规范 §5.1:宽 400)。
+        public static let cardWidth: CGFloat = 400
+        /// 提交中转圈尺寸(规范 §5.1:16dp 转圈)。
+        public static let spinnerSize: CGFloat = 16
+    }
+
+    // MARK: 快加号集群(规范 §5.2)
+
+    public enum QuickAdd {
+        /// 直径 56(规范 §5.2;令牌 `OrdoSpacing.quickAddDiameter` 同步为 56)。
+        public static let diameter: CGFloat = 56
+        /// 按压 scale → 0.96(90ms)。
+        public static let pressScale: CGFloat = 0.96
+        public static let pressDuration: Double = 0.09
+        public static var press: Animation { .easeOut(duration: pressDuration) }
+        /// 长按到 400ms:轻微放大到 1.06 并保持。
+        public static let holdScale: CGFloat = 1.06
+        public static let holdDuration: Double = 0.4
+        public static var hold: Animation { .easeOut(duration: fast) }
+        /// 菜单展开:面板 scale 0.9→1 + alpha 0→1(180ms);收起反向 140ms。
+        public static let menuInitialScale: CGFloat = 0.9
+        public static let menuInDuration: Double = 0.18
+        public static let menuOutDuration: Double = 0.14
+        public static var menuIn: Animation { .easeOut(duration: menuInDuration) }
+        public static var menuOut: Animation { .easeIn(duration: menuOutDuration) }
+        /// 菜单项逐个错位 40ms 淡入并上移 6px。
+        public static let itemStagger: Double = 0.04
+        public static let itemOffset: CGFloat = 6
+        /// 展开时按钮旋转 45°(「+」变「×」)。
+        public static let expandedRotation: Double = 45
+        public static let rotateDuration: Double = 0.18
+        public static var rotate: Animation { .easeInOut(duration: rotateDuration) }
+    }
+
+    // MARK: 长按拖拽(规范 §5.4)
+
+    public enum Drag {
+        /// 长按 400ms 后进入拖拽。
+        public static let longPressDuration: Double = 0.4
+        /// 移动 < 6pt 视为点击(不抢走「打开详情」)。
+        public static let clickSlop: CGFloat = 6
+        /// 行抬起:scale 1.02 + 12dp 投影 + 背景转 surface。
+        public static let liftScale: CGFloat = 1.02
+        public static let liftShadowRadius: CGFloat = 12
+        public static let liftShadowOpacity: Double = 0.18
+        /// 被拖行 alpha 0.55。
+        public static let draggedOpacity: Double = 0.55
+        /// 其余行让位 120ms。
+        public static let othersShiftDuration: Double = fast
+        public static var othersShift: Animation { .easeOut(duration: othersShiftDuration) }
+        /// 行回落 160ms spring;插入指示线 2dp + 左端 4dp 圆点。
+        public static let dropDuration: Double = 0.16
+        public static var drop: Animation { .spring(response: dropDuration, dampingFraction: 0.78) }
+        public static let insertionLineHeight: CGFloat = 2
+        public static let insertionDotSize: CGFloat = 4
+        /// 抬起时的轻微触感反馈(平台有则用)。
+        public static let hapticOnLift = true
+    }
+
+    // MARK: 刷新控件(规范 §5.3)
+
+    public enum Refresh {
+        /// 同步中:图标连续旋转,每圈 900ms,linear。
+        public static let turnDuration: Double = 0.9
+        public static var spin: Animation { .linear(duration: turnDuration).repeatForever(autoreverses: false) }
+        /// 成功:图标短暂转 success 色 320ms,文字「已同步」,1.4s 后回到常态。
+        public static let successFlash: Double = 0.32
+        public static let resetDelay: Double = 1.4
+        /// 结束后 1.4s 内保持禁用(防抖)。
+        public static let debounce: Double = 1.4
+        /// 图标按钮直径 28(规范 §5.3)。
+        public static let iconSize: CGFloat = 28
+    }
+
     // MARK: 其它(规范 §5 末段)
 
     /// 清单展开 220ms ease-out。

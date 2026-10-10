@@ -447,9 +447,30 @@ public actor SwiftDataStorage: OrdoStorageProtocol {
     }
 
     /// 创建容器。磁盘不可用时由调用方降级到 `OrdoMemoryStorage`。
-    public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
-        let configuration = ModelConfiguration(schema: schema(), isStoredInMemoryOnly: inMemory)
-        return try ModelContainer(for: schema(), configurations: [configuration])
+    ///
+    /// - Parameter directory: **该账号专属**的数据目录(契约 §7.6.3)。
+    ///   传入时存储文件为 `<directory>/Ordo.store`,因此两个账号的本地数据物理隔离;
+    ///   为 `nil` 时退回系统默认位置(仅用于预览/测试)。
+    public static func makeContainer(
+        inMemory: Bool = false,
+        directory: URL? = nil,
+        fileName: String = OrdoSessionDirectory.storeFileName
+    ) throws -> ModelContainer {
+        let schema = schema()
+        guard !inMemory, let directory else {
+            let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: inMemory)
+            return try ModelContainer(for: schema, configurations: [configuration])
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storeURL = directory.appendingPathComponent(fileName, isDirectory: false)
+        let configuration = ModelConfiguration(schema: schema, url: storeURL)
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    /// 按 userId 打开本地库(契约 §7.6.3 硬约束:一个账号一个目录,绝不复用)。
+    public static func makeUserContainer(userId: String) throws -> ModelContainer {
+        let directory = try OrdoAppDirectories.userDirectory(userId: userId)
+        return try makeContainer(directory: directory)
     }
 
     public init(container: ModelContainer) {

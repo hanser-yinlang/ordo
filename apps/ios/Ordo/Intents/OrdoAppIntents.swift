@@ -14,6 +14,7 @@
 
 import AppIntents
 import Foundation
+import SwiftData
 
 // MARK: - 新建待办
 
@@ -177,16 +178,33 @@ final class OrdoIntentStore {
         if let storage, let engine { return (storage, engine) }
         let store: OrdoStorageProtocol
         do {
-            let container = try SwiftDataStorage.makeContainer()
+            // 契约 §7.6.3:必须打开**当前登录账号**的数据目录,
+            // 否则「用 Siri 记一条」会落到另一个目录里,用户回到 App 看不到它。
+            let container = try await Self.makeContainerForCurrentUser()
             store = SwiftDataStorage(container: container)
         } catch {
             store = OrdoMemoryStorage()
         }
-        // 与 App 相同的装配路径:预加载镜像 → 构造 KMP 引擎。
-        let bridge = await OrdoCoreBridge.make(storage: store, clock: clock)
+        // 与 App 相同的装配路径:预加载镜像 → 构造 KMP 引擎(deviceId 用应用级 kv)。
+        let bridge = await OrdoCoreBridge.make(storage: store, clock: clock, deviceId: Self.currentDeviceId())
         storage = store
         engine = bridge
         return (store, bridge)
+    }
+
+    /// 当前会话对应的账号目录;没有会话时退回系统默认位置(此时不写入任何账号数据)。
+    private static func makeContainerForCurrentUser() async throws -> ModelContainer {
+        guard let session = try? await OrdoCoreSessionStore.makeAppLevel().load() else {
+            return try SwiftDataStorage.makeContainer()
+        }
+        return try SwiftDataStorage.makeUserContainer(userId: session.userId)
+    }
+
+    /// 设备标识:与应用级 kv 保持一致(契约 §7.6.1「同一账号可有多台设备」)。
+    private static func currentDeviceId() -> String? {
+        guard let kv = try? OrdoFileKVStorage(fileURL: OrdoAppDirectories.sessionFileURL()) else { return nil }
+        let value = kv.kvGet(key: OrdoSessionTokenStore.deviceIdKey)
+        return (value?.isEmpty ?? true) ? nil : value
     }
 
     /// 标题的日期/时间/标签解析由 KMP 核心在 `createTodo` 内完成(契约 §5),

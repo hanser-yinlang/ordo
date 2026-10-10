@@ -34,8 +34,11 @@ export class MemoryOrdoStore implements OrdoStore {
   private outbox: Op[];
   private tombstones: Tombstone[];
   private kv: Map<string, string>;
+  /** 账号数据目录名(契约 §7.6.3;内存实现只用于自检展示) */
+  private dirName: string;
+  private metaOnly: boolean;
 
-  constructor(seed?: OrdoState) {
+  constructor(seed?: OrdoState, dirName?: string, metaOnly?: boolean) {
     this.areas = [];
     this.projects = [];
     this.headings = [];
@@ -44,6 +47,8 @@ export class MemoryOrdoStore implements OrdoStore {
     this.outbox = [];
     this.tombstones = [];
     this.kv = new Map<string, string>();
+    this.dirName = dirName === undefined ? '' : dirName;
+    this.metaOnly = metaOnly === true;
     if (seed !== undefined) {
       for (let i = 0; i < seed.areas.length; i++) {
         this.areas.push(cloneArea(seed.areas[i]));
@@ -66,6 +71,14 @@ export class MemoryOrdoStore implements OrdoStore {
 
   async init(): Promise<void> {
     // 内存实现无需初始化
+  }
+
+  /**
+   * 内存实现没有落盘路径。构造时传入的 `dirName` 仍会被记录,
+   * 这样"按用户隔离"的意图在降级模式下也能被断言(见 MemoryStore 的 dir 字段)。
+   */
+  pathText(): string {
+    return this.metaOnly ? '(内存 · 应用级)' : '(内存 · ' + this.dirName + ')';
   }
 
   /* ---------------------------------------------------------------- 读取 */

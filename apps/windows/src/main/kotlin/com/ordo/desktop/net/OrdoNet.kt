@@ -4,7 +4,10 @@ import com.ordo.core.model.Op
 import com.ordo.core.sync.AuthApi
 import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
+import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoApiException
+import com.ordo.core.sync.OrdoSession
+import com.ordo.core.sync.OrdoSessionStore
 import com.ordo.core.sync.PullResponse
 import com.ordo.core.sync.PushRequest
 import com.ordo.core.sync.PushResponse
@@ -13,6 +16,8 @@ import com.ordo.core.sync.RealtimeChannel
 import com.ordo.core.sync.ReminderPush
 import com.ordo.core.sync.SnapshotResponse
 import com.ordo.core.sync.SyncApi
+import com.ordo.core.sync.UpgradeRequest
+import com.ordo.core.sync.UpgradeResponse
 import com.ordo.core.storage.OrdoStorage
 import com.ordo.core.util.OrdoJson
 import io.ktor.client.HttpClient
@@ -83,8 +88,20 @@ suspend fun <T> HttpResponse.bodyOrThrow(deserializer: (String) -> T): T {
     )
 }
 
-/** 登录态与服务器地址(存本地 kv,契约 §8) */
+/**
+ * 登录态与服务器地址(契约 §7.6.1 / §8)。
+ *
+ * **令牌的唯一真源是 [com.ordo.core.sync.OrdoSession]**(存在 kv[OrdoSessionStore.KEY_SESSION]),
+ * 这里只是它的一层便捷门面:以前 access/refresh/email 各占一个 kv 键,和 session 两份状态会漂移
+ * (refresh 之后 session 还是旧的 expiresAt / token)。现在四端同源,401 刷新写回的就是会话本身。
+ *
+ * 传入的 storage 必须是**与账号无关的引导目录**(`%APPDATA%\Ordo`):登录发生在知道 userId 之前,
+ * 会话不能住在某个账号的数据目录里,否则读不到 = 永远进不去。
+ */
 class TokenStore(private val storage: OrdoStorage) {
+
+    /** 会话读写(契约 §7.6);登录页、退出登录、401 刷新都走它 */
+    val sessionStore = OrdoSessionStore(storage)
 
     var serverUrl: String
         get() = storage.kvGet(KEY_SERVER) ?: DEFAULT_SERVER
@@ -92,37 +109,31 @@ class TokenStore(private val storage: OrdoStorage) {
             storage.kvSet(KEY_SERVER, value.trim().trimEnd('/'))
         }
 
-    var accessToken: String?
-        get() = storage.kvGet(KEY_ACCESS)
-        set(value) {
-            storage.kvSet(KEY_ACCESS, value)
-        }
+    /** 当前会话(无会话 = 未登录) */
+    fun currentSession(): OrdoSession? = sessionStore.load()
 
-    var refreshToken: String?
-        get() = storage.kvGet(KEY_REFRESH)
-        set(value) {
-            storage.kvSet(KEY_REFRESH, value)
-        }
+    val accessToken: String? get() = currentSession()?.accessToken
 
-    var email: String?
-        get() = storage.kvGet(KEY_EMAIL)
-        set(value) {
-            storage.kvSet(KEY_EMAIL, value)
-        }
+    val refreshToken: String? get() = currentSession()?.refreshToken
+
+    val email: String? get() = currentSession()?.email
+
+    /** 游客账号(契约 §7.6.1:游客也持有正常令牌,只是没有邮箱口令) */
+    val isGuest: Boolean get() = currentSession()?.isGuest == true
+
+    val userId: String? get() = currentSession()?.userId
 
     val isLoggedIn: Boolean get() = !refreshToken.isNullOrBlank()
 
-    fun save(response: AuthResponse) {
-        accessToken = response.accessToken
-        refreshToken = response.refreshToken
-        email = response.user.email
+    /** 登录 / 注册 / 游客登录 / refresh 的统一落库入口 */
+    fun save(response: AuthResponse, nowMillis: Long = System.currentTimeMillis()) {
+        sessionStore.save(OrdoSessionStore.from(response, nowMillis))
     }
 
-    fun clear() {
-        accessToken = null
-        refreshToken = null
-        email = null
-    }
+    fun saveSession(session: OrdoSession) = sessionStore.save(session)
+
+    /** 退出登录:只清会话,保留该 userId 的数据目录(契约 §7.6.3 硬约束) */
+    fun clear() = sessionStore.clear()
 
     /** `https://host:port` → `wss://host:port/v1/ws?token=…`(契约 §7.5) */
     fun webSocketUrl(): String? {
@@ -138,9 +149,6 @@ class TokenStore(private val storage: OrdoStorage) {
 
     companion object {
         const val KEY_SERVER = "ordo.serverUrl"
-        const val KEY_ACCESS = "ordo.auth.accessToken"
-        const val KEY_REFRESH = "ordo.auth.refreshToken"
-        const val KEY_EMAIL = "ordo.auth.email"
         /** 默认指向本仓库自带的后端(server/.env.example:PORT=8080) */
         const val DEFAULT_SERVER = "http://127.0.0.1:8080"
     }
@@ -218,9 +226,38 @@ class KtorAuthApi(
             setBody(RefreshRequest(refreshToken))
         }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
 
-    /** 退出登录(204 无响应体) */
-    suspend fun logout() {
-        val token = tokens.refreshToken ?: return
+    /**
+     * 游客登录(契约 §7.6.2):服务端建匿名账号并返回**正常令牌** ——
+     * 游客不是离线模式,数据同样入库、同样多端同步,只是没有邮箱口令。
+     */
+    override suspend fun guest(request: GuestAuthRequest): AuthResponse =
+        client.post("${tokens.serverUrl}/v1/auth/guest") {
+            baseHeaders()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
+
+    /**
+     * 游客升级为正式账号(契约 §7.6.2):`userId` 与数据都不变。
+     *
+     * 与其它 auth 接口不同,这个必须带 Access Token(走 Authorization 头,不是 body)。
+     */
+    override suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse =
+        client.post("${tokens.serverUrl}/v1/auth/upgrade") {
+            baseHeaders()
+            header("Authorization", "Bearer $accessToken")
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(UpgradeResponse.serializer(), text) }
+
+    /**
+     * 退出登录(204 无响应体)。
+     *
+     * 显式传 refreshToken:退出时我们**先清本地会话再发请求**(不能因为网络阻塞就不退),
+     * 所以这里不能依赖读 [TokenStore] 的当前值。
+     */
+    suspend fun logout(refreshToken: String? = tokens.refreshToken) {
+        val token = refreshToken ?: return
         runCatching {
             client.post("${tokens.serverUrl}/v1/auth/logout") {
                 baseHeaders()

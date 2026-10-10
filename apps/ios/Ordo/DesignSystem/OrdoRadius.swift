@@ -22,6 +22,12 @@ public enum OrdoRadius {
     public static let pill: CGFloat = 999
     /// 输入框。
     public static let field: CGFloat = 10
+    /// 登录卡片(规范 §5.1:卡片 `radius 16`,与 §2.3 的 `radius.card` 14 不同)。
+    public static let loginCard: CGFloat = 16
+    /// 主按钮(规范 §5.1:`radius 10`,高 44)。
+    public static let primaryButton: CGFloat = 10
+    /// 主按钮高度(规范 §5.1:高 44)。
+    public static let primaryButtonHeight: CGFloat = 44
 }
 
 public enum OrdoElevation {

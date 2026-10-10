@@ -43,21 +43,32 @@ public struct OrdoEndpoint: Sendable {
     public var query: [String: String]
     public var body: Data?
     public var authorized: Bool
+    /// 显式指定的 Access Token(契约 §7.6.2 的 `upgrade(accessToken, …)` 需要它;
+    /// 为 nil 时按 `authorized` 从令牌存储取)。
+    public var bearerToken: String?
 
-    public init(method: String, path: String, query: [String: String] = [:], body: Data? = nil, authorized: Bool = true) {
+    public init(
+        method: String,
+        path: String,
+        query: [String: String] = [:],
+        body: Data? = nil,
+        authorized: Bool = true,
+        bearerToken: String? = nil
+    ) {
         self.method = method
         self.path = path
         self.query = query
         self.body = body
         self.authorized = authorized
+        self.bearerToken = bearerToken
     }
 
     public static func get(_ path: String, query: [String: String] = [:], authorized: Bool = true) -> OrdoEndpoint {
         OrdoEndpoint(method: "GET", path: path, query: query, authorized: authorized)
     }
 
-    public static func post(_ path: String, body: Data? = nil, authorized: Bool = true) -> OrdoEndpoint {
-        OrdoEndpoint(method: "POST", path: path, body: body, authorized: authorized)
+    public static func post(_ path: String, body: Data? = nil, authorized: Bool = true, bearerToken: String? = nil) -> OrdoEndpoint {
+        OrdoEndpoint(method: "POST", path: path, body: body, authorized: authorized, bearerToken: bearerToken)
     }
 }
 
@@ -144,10 +155,15 @@ public actor OrdoHTTPClient {
             request.setValue(await deviceIdentity.deviceId(), forHTTPHeaderField: "X-Ordo-Device")
         }
         if endpoint.authorized {
-            guard let tokens = await tokenStore.load() else {
-                throw OrdoAPIError(code: .authRequired, message: "本地没有访问令牌")
+            // 显式令牌优先(契约 §7.6.2 的 upgrade 需要携带调用方给的 Access Token)。
+            if let bearerToken = endpoint.bearerToken {
+                request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+            } else {
+                guard let tokens = await tokenStore.load() else {
+                    throw OrdoAPIError(code: .authRequired, message: "本地没有访问令牌")
+                }
+                request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
             }
-            request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         }
         if let body = endpoint.body {
             request.httpBody = body

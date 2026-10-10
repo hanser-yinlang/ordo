@@ -5,7 +5,9 @@
 //  设置(设计规范 §2.1 外观 / §4 状态 / §7 平台映射 / §8 无障碍)。
 //
 //  分区:外观 · 通知 · 同步与账号 · 数据 · 快捷键 · 关于。
-//  所有文案为简体中文;通知权限说明与 Info.plist 的 NSUserNotificationsUsageDescription 一致。
+//  「同步与账号」显示**当前账号**(邮箱或「游客」)、账号类型、userId、本地数据目录与退出登录
+//  (契约 §7.6.3:退出只清会话、保留目录);游客额外提供「升级为正式账号」。
+//  所有文案为简体中文;通知权限说明与 Info.plist 的 NSUserNotificationUsageDescription 一致。
 //
 
 import SwiftUI
@@ -16,11 +18,10 @@ public struct SettingsView: View {
     private let environment: AppEnvironment
 
     @Environment(\.dismiss) private var dismiss
-    @State private var email = ""
-    @State private var password = ""
-    @State private var isWorking = false
+    @State private var upgradeEmail = ""
+    @State private var upgradePassword = ""
+    @State private var isUpgrading = false
     @State private var showsResetConfirm = false
-    @State private var signedInEmail: String?
 
     public init(shell: ShellViewModel, environment: AppEnvironment) {
         self.shell = shell
@@ -50,9 +51,6 @@ public struct SettingsView: View {
                         .foregroundStyle(OrdoColor.accent)
                 }
             }
-        }
-        .task {
-            signedInEmail = await environment.currentUserEmail()
         }
         .alert("重置为示例数据?", isPresented: $showsResetConfirm) {
             Button("取消", role: .cancel) {}
@@ -130,7 +128,7 @@ public struct SettingsView: View {
         environment.notificationAuthorized ? "已开启" : "未开启"
     }
 
-    // MARK: 同步与账号
+    // MARK: 同步与账号(契约 §7.6)
 
     private var syncSection: some View {
         section("同步与账号") {
@@ -143,14 +141,46 @@ public struct SettingsView: View {
                     .foregroundStyle(shell.syncIsProblem ? OrdoColor.danger : OrdoColor.textSecondary)
             }
 
-            if let email = signedInEmail {
+            if let session = environment.session {
                 HStack {
-                    Text("账号")
+                    Text("当前账号")
                         .font(OrdoFont.body)
                     Spacer()
-                    Text(email)
+                    Text(session.displayName())
                         .font(OrdoFont.caption)
                         .foregroundStyle(OrdoColor.textSecondary)
+                }
+
+                HStack {
+                    Text("账号类型")
+                        .font(OrdoFont.body)
+                    Spacer()
+                    Text(session.isGuest ? "游客(数据同样云端同步)" : "正式账号")
+                        .font(OrdoFont.caption)
+                        .foregroundStyle(OrdoColor.textSecondary)
+                }
+
+                HStack(alignment: .firstTextBaseline) {
+                    Text("userId")
+                        .font(OrdoFont.body)
+                    Spacer()
+                    Text(session.userId)
+                        .font(OrdoFont.micro)
+                        .foregroundStyle(OrdoColor.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                // 契约 §7.6.3 硬约束的可核对证据:每个账号一个目录,换账号必然换目录。
+                HStack(alignment: .firstTextBaseline) {
+                    Text("本地数据目录")
+                        .font(OrdoFont.body)
+                    Spacer()
+                    Text(environment.userDataDirectory?.lastPathComponent ?? "内存模式(未落盘)")
+                        .font(OrdoFont.micro)
+                        .foregroundStyle(OrdoColor.textTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
 
                 HStack(spacing: OrdoSpacing.m) {
@@ -162,66 +192,72 @@ public struct SettingsView: View {
                     .buttonStyle(.plain)
 
                     Button("退出登录") {
-                        Task {
-                            await environment.signOut()
-                            signedInEmail = nil
-                        }
+                        Task { await environment.signOut() }
                     }
                     .font(OrdoFont.captionEmphasis)
                     .foregroundStyle(OrdoColor.danger)
                     .buttonStyle(.plain)
                 }
+
+                Text("退出登录只清除登录态,本地数据目录会保留;下次同一账号登录时数据仍在(离线可用)。")
+                    .font(OrdoFont.micro)
+                    .foregroundStyle(OrdoColor.textTertiary)
+
+                if session.isGuest {
+                    upgradeForm
+                }
             } else {
-                Text("登录后可在多台设备间同步。数据始终先保存在本机,离线也能正常使用。")
+                Text("当前没有登录会话。回到登录页可以选择登录、注册或以游客身份继续。")
                     .font(OrdoFont.caption)
                     .foregroundStyle(OrdoColor.textSecondary)
-
-                TextField("邮箱", text: $email)
-                    .textFieldStyle(.plain)
-                    .font(OrdoFont.body)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.emailAddress)
-                    .padding(OrdoSpacing.s)
-                    .background(
-                        RoundedRectangle(cornerRadius: OrdoRadius.field, style: .continuous)
-                            .fill(OrdoColor.surface)
-                    )
-                    .accessibilityLabel("邮箱")
-
-                SecureField("密码(至少 8 位)", text: $password)
-                    .textFieldStyle(.plain)
-                    .font(OrdoFont.body)
-                    .padding(OrdoSpacing.s)
-                    .background(
-                        RoundedRectangle(cornerRadius: OrdoRadius.field, style: .continuous)
-                            .fill(OrdoColor.surface)
-                    )
-                    .accessibilityLabel("密码")
-
-                HStack(spacing: OrdoSpacing.m) {
-                    Button("登录") { authenticate(register: false) }
-                        .font(OrdoFont.captionEmphasis)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, OrdoSpacing.m)
-                        .padding(.vertical, OrdoSpacing.xs)
-                        .background(Capsule().fill(OrdoColor.accent))
-                        .buttonStyle(.plain)
-                        .disabled(isWorking)
-
-                    Button("注册") { authenticate(register: true) }
-                        .font(OrdoFont.captionEmphasis)
-                        .foregroundStyle(OrdoColor.accent)
-                        .buttonStyle(.plain)
-                        .disabled(isWorking)
-
-                    if isWorking {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
             }
 
             Text("服务端地址:\(OrdoAPIEnvironment.default.baseURL.absoluteString)")
+                .font(OrdoFont.micro)
+                .foregroundStyle(OrdoColor.textTertiary)
+        }
+    }
+
+    /// 游客 → 正式账号(契约 §7.6.2:`userId` 与数据不变,只补邮箱口令)。
+    private var upgradeForm: some View {
+        VStack(alignment: .leading, spacing: OrdoSpacing.s) {
+            Text("升级为正式账号")
+                .font(OrdoFont.captionEmphasis)
+                .foregroundStyle(OrdoColor.textPrimary)
+
+            TextField("邮箱", text: $upgradeEmail)
+                .textFieldStyle(.plain)
+                .font(OrdoFont.body)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.emailAddress)
+                .padding(OrdoSpacing.s)
+                .background(
+                    RoundedRectangle(cornerRadius: OrdoRadius.field, style: .continuous)
+                        .fill(OrdoColor.canvas)
+                )
+                .accessibilityLabel("升级邮箱")
+
+            SecureField("口令(至少 8 位)", text: $upgradePassword)
+                .textFieldStyle(.plain)
+                .font(OrdoFont.body)
+                .padding(OrdoSpacing.s)
+                .background(
+                    RoundedRectangle(cornerRadius: OrdoRadius.field, style: .continuous)
+                        .fill(OrdoColor.canvas)
+                )
+                .accessibilityLabel("升级口令")
+
+            Button("升级") { upgrade() }
+                .font(OrdoFont.captionEmphasis)
+                .foregroundStyle(.white)
+                .padding(.horizontal, OrdoSpacing.m)
+                .padding(.vertical, OrdoSpacing.xs)
+                .background(Capsule().fill(OrdoColor.accent))
+                .buttonStyle(.plain)
+                .disabled(isUpgrading)
+
+            Text("升级后 userId 与全部数据不变,只是补上邮箱口令,可在其他设备登录。")
                 .font(OrdoFont.micro)
                 .foregroundStyle(OrdoColor.textTertiary)
         }
@@ -364,23 +400,20 @@ public struct SettingsView: View {
 
     // MARK: 动作
 
-    private func authenticate(register: Bool) {
-        guard let api = environment.authAPI else { return }
-        guard !email.isEmpty, password.count >= 8 else {
-            environment.toast("请输入邮箱,密码至少 8 位", kind: .failure)
+    /// 契约 §7.6.2:游客升级为正式账号。邮箱被占用时服务端返回 `AUTH_EMAIL_TAKEN`。
+    private func upgrade() {
+        let email = upgradeEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard OrdoLoginForm.looksLikeEmail(email), upgradePassword.count >= OrdoLoginForm.minimumPasswordLength else {
+            environment.toast("请输入有效邮箱,口令至少 \(OrdoLoginForm.minimumPasswordLength) 位", kind: .failure)
             return
         }
-        isWorking = true
+        isUpgrading = true
         Task {
-            defer { isWorking = false }
+            defer { isUpgrading = false }
             do {
-                let deviceName = await environment.deviceName()
-                let session = register
-                    ? try await api.register(email: email, password: password, deviceName: deviceName)
-                    : try await api.login(email: email, password: password, deviceName: deviceName)
-                await environment.handleSignedIn(session)
-                signedInEmail = session.user.email
-                environment.toast(register ? "注册成功,已开始同步" : "登录成功", kind: .success)
+                let session = try await environment.auth.upgrade(email: email, password: upgradePassword)
+                environment.toast("已升级为正式账号:\(session.displayName())", kind: .success)
+                upgradePassword = ""
             } catch let error as OrdoAPIError {
                 environment.toast(error.localizedHint, kind: .failure)
             } catch {

@@ -56,10 +56,6 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
     val inner = remember { MutableInteractionSource() }
 
     var serverUrl by remember { mutableStateOf(vm.serverUrl) }
-    var email by remember { mutableStateOf(vm.accountEmail.orEmpty()) }
-    var password by remember { mutableStateOf("") }
-    var register by remember { mutableStateOf(false) }
-    var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
     var autoStartOn by remember { mutableStateOf(vm.isAutoStartEnabled()) }
@@ -204,10 +200,23 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
             /* ---------------- 账号与同步 ---------------- */
             SectionTitle("账号与同步")
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val account = state.account
                 Text(
-                    text = if (vm.isLoggedIn) "已登录:${vm.accountEmail ?: "-"}" else "未登录(数据仅保存在本机)",
+                    text = when {
+                        account == null -> "未登录(请先登录再使用同步)"
+                        account.isGuest -> "当前账号：游客（无邮箱口令，数据同样同步到云端）"
+                        else -> "当前账号：${account.displayName}"
+                    },
                     style = OrdoType.caption,
                     color = colors.textSecondary
+                )
+            }
+            state.account?.let { account ->
+                Spacer(Modifier.height(OrdoSpace.xs))
+                Text(
+                    text = "本地数据目录：%APPDATA%\\Ordo\\${account.dataDirName()}\\（按账号隔离；退出登录不会删除）",
+                    style = OrdoType.micro,
+                    color = colors.textTertiary
                 )
             }
             Spacer(Modifier.height(OrdoSpace.s))
@@ -219,47 +228,14 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
             )
             Spacer(Modifier.height(OrdoSpace.s))
 
-            if (!vm.isLoggedIn) {
-                OrdoTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = "邮箱"
-                )
-                Spacer(Modifier.height(OrdoSpace.s))
-                OrdoTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = "口令(至少 8 位)"
-                )
-                Spacer(Modifier.height(OrdoSpace.s))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(OrdoSpace.m)
-                ) {
-                    OrdoTextButton(
-                        text = if (busy) "处理中…" else (if (register) "注册并登录" else "登录"),
-                        onClick = {
-                            if (busy) return@OrdoTextButton
-                            busy = true
-                            message = null
-                            vm.setServerUrl(serverUrl)
-                            vm.login(email, password, register) { ok, err ->
-                                busy = false
-                                message = if (ok) "登录成功,开始同步" else (err ?: "登录失败")
-                            }
-                        }
-                    )
-                    OrdoTextButton(
-                        text = if (register) "改用登录" else "注册新账号",
-                        onClick = { register = !register }
-                    )
-                }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(OrdoSpace.m)) {
-                    OrdoTextButton(text = "立即同步", onClick = { vm.setServerUrl(serverUrl); vm.syncNow() })
-                    OrdoTextButton(text = "退出登录", onClick = { vm.logout() }, danger = true)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(OrdoSpace.m)
+            ) {
+                OrdoTextButton(text = "立即同步", onClick = { vm.setServerUrl(serverUrl); vm.syncNow() })
+                if (vm.isLoggedIn) {
+                    // 退出登录:只清会话、保留该 userId 的数据目录(契约 §7.6.3)
+                    OrdoTextButton(text = "退出登录", onClick = { vm.signOut() }, danger = true)
                 }
             }
 
@@ -336,7 +312,8 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
             }
             Spacer(Modifier.height(OrdoSpace.xs))
             Text(
-                text = "本地数据位于 %APPDATA%\\Ordo;清空后不可恢复(云端数据需重新同步)。",
+                text = "本地数据位于 %APPDATA%\\Ordo\\<账号>\\（按账号隔离，契约 §7.6.3）；" +
+                    "清空只影响当前账号，云端数据需重新同步。",
                 style = OrdoType.micro,
                 color = colors.textTertiary
             )
@@ -395,12 +372,13 @@ private fun diagnosticsTime(clientTs: Long): String =
 private val SHORTCUTS = listOf(
     "Ctrl + N" to "新建待办",
     "Ctrl + K" to "快速查找(FastFind)",
+    "Ctrl + R" to "立即同步(等同于点状态栏右侧的刷新控件)",
     "Ctrl + D" to "切换外观(自动 / 浅色 / 深色)",
     "1 – 6" to "收件箱 / 今天 / 计划 / 随时 / 某天 / 日志簿",
     "↑ ↓" to "移动选中行",
     "Enter" to "打开详情卡片",
     "Space" to "切换完成状态",
     "Delete" to "删除选中待办",
-    "Esc" to "关闭浮层 / 详情;拖动中取消拖动",
-    "拖拽手柄" to "按住行尾手柄上下拖动排序"
+    "Esc" to "关闭浮层 / 详情;取消长按拖拽",
+    "长按 400ms 后拖动" to "待办行排序(按住行尾手柄可免长按直接拖)"
 )

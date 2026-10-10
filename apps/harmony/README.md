@@ -54,24 +54,27 @@ ordo/apps/harmony/
 │       │       │   ├── query/ListQuery.ets              §4 派生清单
 │       │       │   ├── nlp/NaturalDateParser.ets        §5 中文 NLP
 │       │       │   ├── repeat/RepeatEngine.ets          §6 重复引擎
-│       │       │   ├── sync/SyncApi|SyncEngine|RealtimeClient|SyncTypes.ets   §7 同步
-│       │       │   ├── storage/OrdoStore|RelationalStore|MemoryStore.ets      §8 存储
+│       │       │   ├── sync/SyncApi|SyncEngine|RealtimeClient|SyncTypes.ets   §7 同步(含 §7.6 guest/upgrade)
+│       │       │   ├── session/OrdoSession.ets          §7.6 会话 / 游客 / 按用户目录名(纯逻辑)
+│       │       │   ├── storage/OrdoStore|RelationalStore|MemoryStore.ets      §8 存储(账号库 + 应用级库)
 │       │       │   ├── notify/ReminderAgent.ets         reminderAgentManager 到点提醒
 │       │       │   ├── deeplink/DeepLink.ets            ordo:// 解析
 │       │       │   ├── util/{DateUtil,Ids}.ets          日期与 ULID
 │       │       │   └── SeedData.ets                     中文示例数据
-│       │       ├── theme/Tokens.ets                     04 §2 设计令牌(深浅两套)
-│       │       ├── viewmodel/AppStore.ets               @Observed 视图模型 + 派生缓存 + 账号状态
+│       │       ├── theme/Tokens.ets                     04 §2 设计令牌(深浅两套)+ OrdoIcons + 动效常量
+│       │       ├── viewmodel/AppStore.ets               @Observed 视图模型 + 派生缓存 + 会话/门禁
 │       │       ├── viewmodel/ReorderMath.ets            拖拽排序纯计算(容器键 / 落点 / 是否开放)
+│       │       ├── viewmodel/PressGesture.ets           04 §5.2/§5.4 长按 400ms + 6px 判定 + 落点换算(纯逻辑)
+│       │       ├── viewmodel/RefreshState.ets           04 §5.3 刷新控件状态机(纯逻辑)
 │       │       ├── view/{Sidebar,ListPage,DetailCard,ScheduleSheet,FastFindSheet,QuickAddButton}.ets
-│       │       ├── view/list/RowModel.ets               行模型 + 行指纹 + 行级差量(纯逻辑)
+│       │       ├── view/list/RowModel.ets               行模型 + 行指纹 + 行级差量 + 拖拽提示折进指纹(纯逻辑)
 │       │       ├── view/list/RowDataSource.ets          LazyForEach 数据源(BasicDataSource)
-│       │       ├── view/list/TodoRow.ets                待办行组件(按行指纹重渲染)
+│       │       ├── view/list/TodoRow.ets                待办行组件(按行指纹重渲染;抬起 / 让位 / 指示线)
 │       │       ├── view/list/SwipeActionBar.ets         左右滑动作区按钮
-│       │       ├── view/LoginPage.ets                   登录/注册浮层(LoginSheet)+ 独立页(LoginPage)
-│       │       ├── view/Common/{ProgressRing,EmptyState,OrdoToast}.ets
+│       │       ├── view/LoginPage.ets                   登录门禁 LoginGate(04 §5.1)+ 独立页 LoginPage
+│       │       ├── view/Common/{ProgressRing,EmptyState,OrdoToast,RefreshControl,GestureUtil}.ets
 │       │       └── pages/{Index,SettingsPage}.ets
-│       └── ohosTest/                  Hypium 六组用例 + 测试 Ability
+│       └── ohosTest/                  Hypium 九组用例 + 测试 Ability
 ├── _qa/                               构建与自检脚本(非运行时代码,不参与打包)
 │   ├── build.ps1                      环境变量 + 构建 + 告警计数包装脚本
 │   ├── warn-report.ps1                解析构建日志里的 ArkTS 告警/错误
@@ -111,19 +114,20 @@ ordo/apps/harmony/
 $deveco="C:\Program Files\Huawei\DevEco Studio"
 $env:DEVECO_SDK_HOME="$deveco\sdk"
 $env:PATH="$deveco\jbr\bin;$deveco\tools\node;$deveco\tools\ohpm\bin;$env:PATH"
-cd C:\Users\admin\Desktop\WeChat\ordo\apps\harmony
+cd C:\Users\admin\Desktop\Ordo\ordo\apps\harmony
 & "$deveco\tools\node\node.exe" "$deveco\tools\hvigor\bin\hvigorw.js" --mode module -p product=default assembleHap --no-daemon
 ```
 
-实测输出(2026-10-09):
+实测输出(第五轮 · 2026-10-10 11:26,登录门禁 + 游客 + 按用户隔离 + §5.2/§5.3/§5.4 落地后):
 
 ```
-> hvigor Finished :entry:assembleHap...
-> hvigor BUILD SUCCESSFUL in 1 s 403 ms
-33 tasks in total: 15 executed, 18 up-to-date
+> hvigor Finished :entry:default@CompileArkTS... after 7 s 131 ms
+> hvigor Finished :entry:default@PackageHap... after 324 ms
+> hvigor BUILD SUCCESSFUL in 10 s 19 ms
+33 tasks in total: 17 executed, 16 up-to-date
 ```
 
-产物:`entry/build/default/outputs/default/entry-default-unsigned.hap`(约 1.05 MB / 1074 KB)。
+产物:`entry/build/default/outputs/default/entry-default-unsigned.hap`(1375.5 KB)。
 
 > **注意**:`DEVECO_SDK_HOME` 必须先设置。未设置时 hvigor 直接报
 > `ERROR: 00303217 Configuration Error / Invalid value of 'DEVECO_SDK_HOME'`。
@@ -158,36 +162,49 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 
 ### 3.4 无设备时如何跑测试
 
-#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 82/82)
+#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 116/116)
 
-Hypium 用例在设备上跑需要签名,而本机没有证书。但**六组用例只依赖纯逻辑模块**
+Hypium 用例在设备上跑需要签名,而本机没有证书。但**九组用例只依赖纯逻辑模块**
 (`core/` 下除 `RelationalStore` / `RealtimeClient` / `SyncApi` / `ReminderAgent` 之外的模块,
-外加 `viewmodel/ReorderMath.ets`、`view/list/RowModel.ets`,全部不含 `@ohos`/`@kit` 依赖),
+外加 `core/session/OrdoSession.ets`、`viewmodel/ReorderMath.ets`、`viewmodel/PressGesture.ets`、
+`viewmodel/RefreshState.ets`、`view/list/RowModel.ets`,全部不含 `@ohos`/`@kit` 依赖),
 断言也只用到 `describe` / `it` / `expect` + `assertEqual|assertTrue|assertFalse`。
 因此工程内提供了一套**本机宿主**,用 DevEco 自带的 tsc 编译后由 Node 真正执行:
 
 ```powershell
-cd C:\Users\admin\Desktop\WeChat\ordo\apps\harmony
+cd C:\Users\admin\Desktop\Ordo\ordo\apps\harmony
 python _qa\build-harness.py
 ```
 
+> 工程根目录是**从脚本自身位置推导**的(`os.path.dirname(os.path.dirname(__file__))`)。
+> 项目从 `Desktop\WeChat\ordo` 迁到 `Desktop\Ordo\ordo` 时,写死的绝对路径会让宿主直接跑不起来
+> (`FileNotFoundError`),改成自推导后与仓库位置解耦。
+
 它做四件事:
 
-1. 把纯逻辑核心模块与 `ohosTest` 的六组用例复制到 `_qa/node-harness/src`,并去掉 `.ets` 后缀;
+1. 把纯逻辑核心模块与 `ohosTest` 的九组用例复制到 `_qa/node-harness/src`,并去掉 `.ets` 后缀;
 2. 用一个 Hypium 垫片(`_qa/node-harness/src/hypium-shim.ts`)实现 `describe/it/expect` 与断言,
    **真正 await 异步用例**(`async (done) => …` 形态,不会在断言执行前误判通过);
 3. 把时钟冻结到 **2026-10-08**(`freeze-clock.ts`)—— 用例注释明确写着"固定今天为 2026-10-08",
    但 `DateUtil.todayISO()` 一类路径仍会读系统时间,不冻结就会跨天假失败;
 4. `tsc`(strict + noImplicitAny + strictNullChecks)编译 → Node 运行 → 汇总,退出码 0 = 全通过。
 
-实测结果:
+实测结果(第五轮 · 2026-10-10):
 
 ```
-describe 块: 6      用例总数: 82      通过: 82      失败: 0
+describe 块: 9      用例总数: 116      通过: 116      失败: 0
 RESULT: ALL PASSED
 ```
 
-> 第三轮新增两组用例:`RowModel.test.ets`(行序列等价性 / 行键稳定性 / 差量分类 / 拖拽开关)、
+> 第五轮新增三组 31 条用例(总数 85 → 116,只增不减):
+> `Session.test.ets`(会话往返 / 游客标记 / displayName / 过期语义 / clear 只清会话 /
+> 损坏会话降级 / 无 userId 视为未登录 / **目录名清洗与防穿越** / 两个账号目录必不相同)、
+> `PressGesture.test.ets`(**400ms 阈值**精确到毫秒、**6px 位移**判点击、长按后未移动仍算点击、
+> 取消不提交、落点下标换算与夹边、位置未变不写库)、
+> `RefreshState.test.ets`(同步中连续旋转 + 禁用、成功 1.4s 回落、失败常驻 danger、
+> 重试回同步中、启动初始 idle 不冒充成功)。
+>
+> 第三轮新增:`RowModel.test.ets`(行序列等价性 / 行键稳定性 / 差量分类 / 拖拽开关)、
 > `ReorderMath.test.ets`(容器键 / 落点 / 跨容器拒绝)。`view/list/RowDataSource.ets` 用到 ArkUI 的
 > `IDataSource`/`DataChangeListener` 声明,不进这个宿主;它的**通知时序**由 `_qa/row-perf-harness.mjs`
 > 直接执行真实实现来验证(§7.3)。
@@ -200,7 +217,8 @@ RESULT: ALL PASSED
 ```powershell
 & "$deveco\tools\node\node.exe" "$deveco\tools\hvigor\bin\hvigorw.js" `
   --mode module -p module=entry@ohosTest -p product=default assembleHap --no-daemon
-# 实测:BUILD SUCCESSFUL,ArkTS WARN 0 / ERROR 0
+# 实测(第五轮 · 2026-10-10):BUILD SUCCESSFUL in 7 s 302 ms,ArkTS WARN 0 / ERROR 0
+# 产物:entry/build/default/outputs/ohosTest/entry-ohosTest-unsigned.hap(1722.6 KB)
 ```
 
 #### 3.4.3 设备上跑权威 Hypium
@@ -210,9 +228,12 @@ RESULT: ALL PASSED
 2. 确认设备可见:`hdc list targets` 应列出设备号(DevEco 的 Device Manager 也会显示)。
 3. 右键 `entry/src/ohosTest` → **Run 'OhosTest'**;
    或在选定 `entry` 模块的运行配置里把 Test 类型切到 `OhosTest` 后运行。
-4. 用例清单(`entry/src/ohosTest/ets/test/`):`NaturalDateParser.test.ets`(中文 NLP)、
+4. 用例清单(`entry/src/ohosTest/ets/test/`,共九组):`NaturalDateParser.test.ets`(中文 NLP)、
    `ListQuery.test.ets`(派生清单)、`RepeatEngine.test.ets`(重复引擎与月末溢出)、
-   `SyncMerge.test.ets`(§7.3 合并规则)。
+   `SyncMerge.test.ets`(§7.3 合并规则)、`RowModel.test.ets`(行序列与差量)、
+   `ReorderMath.test.ets`(拖拽排序数学)、`Session.test.ets`(契约 §7.6 会话/游客/目录名)、
+   `PressGesture.test.ets`(04 §5.2/§5.4 长按阈值与拖拽判定)、
+   `RefreshState.test.ets`(04 §5.3 刷新控件状态机)。
 5. 结果在 DevEco 的 Test 面板与 `<DevEco>\...\log` 中查看。
 
 > **两个前置条件**(缺一不可,都需要人工操作):
@@ -259,7 +280,7 @@ RESULT: ALL PASSED
 | §4 标签视图 | `tags.contains` + 只看未完成 | `ListQuery.tagTodos` |
 | §4 搜索 | 标题/备注包含,未完成优先 + updatedAt 倒序 | `ListQuery.search` / `sortForSearch` |
 | §4 项目进度 | `done/(done+open)`,无子项 0 | `ListQuery.projectProgress` |
-| §2.4 `order` / 04 §6 拖拽排序 | 同容器完整序列整批重写 `order = 下标` | `OrdoEngine.reorderTodos(ids)` / `viewmodel/ReorderMath.ets`(容器键与落点)/ `RowModel.diffRows`(行级差量) |
+| §2.4 `order` / 04 §6 拖拽排序 | 同容器完整序列整批重写 `order = 下标` | `OrdoEngine.reorderTodos(ids)` / `viewmodel/PressGesture.ets`(落点下标与半行取整)/ `RowModel.diffRows`(行级差量) |
 | §3 软删除的可撤销 | `deleted` 复位为 `false` + LWW 时间戳前移 | `OrdoEngine.restoreDeletedTodo(id)` / `AppStore.deleteTodoWithUndo` + `undoDelete()` |
 | §5 NLP | 全部写法 + 优先级 + 时段换算 + 标题清理 | `core/nlp/NaturalDateParser.ets` · `parseNatural` |
 | §6 重复引擎 | fixed/afterCompletion + 月末溢出 | `core/repeat/RepeatEngine.ets` · `completeWithRepeat` / `advanceOccurrence` |
@@ -273,6 +294,14 @@ RESULT: ALL PASSED
 | §7.3.6 空标题视为删除 | — | `applyRemoteTodo`(规则 6) / `setTodoTitle` |
 | §7.4 HTTP 接口 | 9 个端点 + 请求头 + 401 重放 | `core/sync/SyncApi.ets`(health/register/login/refresh/logout/snapshot/push/pull) |
 | §7.4 限制与错误码 | ≤500 ops / ≤256KB / ≤1000 pull;10 个错误码 | `Entities.ets` 常量 + `SyncTypes.errorText` + `SyncApi.push` 超限处理 |
+| §7.6.1 会话模型 | `userId/email?/isGuest/accessToken/refreshToken/expiresAt` | `core/session/OrdoSession.ets` · `OrdoSession` / `OrdoSessionHelper.isExpired` / `displayName` |
+| §7.6.1 会话存储 | `kv["ordo.session"]` | `OrdoSessionStore`(`KEY_SESSION = 'ordo.session'`),落在**应用级**库(`ordo-meta.db`) |
+| §7.6.2 `POST /v1/auth/guest` | `{deviceId?,deviceName,platform}` → 与 register 同构 | `SyncApi.guest()`;`UserDto.isGuest` → `AuthUser.isGuest` |
+| §7.6.2 `POST /v1/auth/upgrade` | 需带 Access Token,userId/数据不变 | `SyncApi.upgrade()` + `AppStore.upgradeGuest()` + 设置页「升级为正式账号」 |
+| §7.6.2 游客调 login 的引导 | `AUTH_INVALID_CREDENTIALS`(无口令可校验) | `SyncTypes.ERR_AUTH_GUEST_NEEDS_RESTORE` + `errorText()` 引导用「以游客身份继续」 |
+| §7.6.3 按 userId 隔离(**硬约束**) | 每账号一份目录、退出登录只清会话 | `OrdoSessionHelper.userDataDirName()` + `RdbOrdoStore(context, dirName, metaOnly)`(RDB `customDir`) |
+| §7.6.4 启动流程 | 读会话 → 有/无/过期三分支 | `AppStore.init()` → `enterSession()` / `authPhase` → `pages/Index.ets` 门禁 |
+| §8 存储 | 8 张表 + 字段名一致 + kv | `core/storage/RelationalStore.ets`(建表 SQL 与字段映射) |
 | §7.5 WebSocket | hello/ops/reminder/ping + ack + pong | `core/sync/RealtimeClient.ets` · `dispatch` |
 | §7.5 心跳与退避 | 心跳 25s / 超时 10s / 指数退避 | `SyncTypes.RealtimePolicy` + `RealtimeClient.startHeartbeat/scheduleReconnect` |
 | §7.5 Fastlane | reminder 即时下发 | `SyncEngine.handleRealtimeReminder` → `AppStore.onFastlaneReminder` → `ReminderAgent.refresh` |
@@ -291,47 +320,91 @@ RESULT: ALL PASSED
 | §4 组件(侧栏项 34 / 待办行 38 / 复选框 20 / chip 20 / 空状态 / Toast) | `Sidebar` / `view/list/TodoRow.ets` / `Common/{ProgressRing,EmptyState,OrdoToast}` |
 | §4 排期面板(宽 280) | `view/ScheduleSheet.ets` |
 | §4 快找浮层(输入 44 / 结果行 36) | `view/FastFindSheet.ets` |
-| §4 快加号(直径 52,长按展开菜单) | `view/QuickAddButton.ets` |
 | §4 提示条(底部居中 pill,2.4s) | `Common/OrdoToast.ets`;带「撤销」动作时停留 4s(见 §7.3 的删除可撤销) |
 | §5 完成动效 | `view/list/TodoRow.ets`(透明度/动画)+ `OrdoMotion` 常量;`Common/ProgressRing` 100% 脉冲 |
+| §5.1 登录页 | `view/LoginPage.ets`(卡片 400 / 浮动标签 / 口令显示隐藏 / 提交转圈 / 错误抖动 / 进入动效 / 三个入口) |
+| §5.2 快加号集群 | `view/QuickAddButton.ets`(只保留 56 单按钮;单击开输入行、**长按 400ms** 出菜单、展开旋转 45°、面板 0.9→1 + 菜单项错位 40ms) |
+| §5.3 刷新控件 | `view/Common/RefreshControl.ets` + `viewmodel/RefreshState.ets`(28dp 图标 + 文字;同步中连转 900ms/圈;成功 success `已同步` 1.4s;失败 danger `同步失败,点击重试`) |
+| §5.4 长按拖拽 | `viewmodel/PressGesture.ets` + `ListPage` 的长按手势 + `RowModel.applyDragHint`(抬起 1.02 + 投影 + alpha 0.55、插入指示线 2dp + 4dp 圆点、其余行让位 120ms、取消路径) |
 | §6 手势:右滑完成 / 左滑删除 + 排期 | `ListPage.todoItem` 的 `ListItem.swipeAction`:start = 完成(绿 `state.success`),end = 排期 + 删除(危险色 `state.danger`);删除后可撤销 |
-| §6 手势:长按拖拽排序 | `ListItem.onDragStart/onDrop` → `ReorderMath.movedOrder` → `AppStore.reorderTodos(ids)` → `OrdoEngine.reorderTodos`(《04》§6「鸿蒙 = 长按拖拽」) |
+| §6 手势:长按拖拽排序 | `ListItem.onTouch` → `PressTracker`(400ms / 6px)→ `moveIdToIndex` → `AppStore.reorderTodos(ids)` → `OrdoEngine.reorderTodos`(《04》§6「鸿蒙 = 长按拖拽」) |
 | §6 键盘与手势(其余鸿蒙列) | 设置页列出映射;点击行展开、点击复选框完成、长按快加号出菜单 |
 | §7 平台映射(RelationalStore / reminderAgentManager / ordo://) | `RelationalStore.ets` / `ReminderAgent.ets` / `module.json5` skills |
-| §8 无障碍 | 所有可点元素 ≥44vp(`OrdoSize.minTouchTarget`)、滑动动作区宽 72vp、状态不只靠颜色(逾期同时有图标+红色) |
+| §8 无障碍 | 所有可点元素 ≥44vp(`OrdoSize.minTouchTarget`)、滑动动作区宽 72vp、状态不只靠颜色(逾期同时有图标+红色;刷新失败同时有 `!` 文案与朗读文本) |
 
-## 6. 账号与服务器地址
+## 6. 登录门禁、会话与按用户隔离(契约 §7.6 / UI §5.1)
 
-### 6.1 入口与形态
+### 6.1 启动门禁(§7.6.4)
 
-| 入口 | 位置 | 说明 |
+`AppStore.init()` 的顺序是**先读会话、再决定用哪个账号目录**:
+
+```
+打开应用级库 ordo-meta.db → 读 kv["ordo.session"]
+  ├─ 有且未过期            → enterSession() 直接进主界面 + 后台静默 syncNow()
+  ├─ 有但 accessToken 过期 → enterSession() 进主界面 + 后台 refresh
+  │                            ├─ 成功后补一次增量同步
+  │                            ├─ 网络不可达 → 留在主界面离线可用(会话与目录都不动)
+  │                            └─ 服务端拒绝 → forceLogin():清会话回登录页,**保留 userId 目录**
+  └─ 无                    → authPhase = 'login',整屏只有登录页
+```
+
+`authPhase`(`booting | login | entering | ready`)由 `pages/Index.ets` 消费:不是 `ready` 时
+**主界面根本不构造**(不是盖一层浮层),登录成功走 `entering` 播完 160ms 卡片淡出后再进
+`ready`,主界面首帧透明、下一帧 220ms 淡入(§5.1「卡片 fade out 160ms → 主界面 fade in 220ms」)。
+
+### 6.2 三个入口(§5.1 硬约束)
+
+| 入口 | 实现 | 说明 |
 |---|---|---|
-| 设置 → 同步 → 「登录 / 注册」 | `pages/SettingsPage.ets`(`SettingsSheet`) | 未登录时显示绿色按钮,点击后关设置、开登录浮层 |
-| 主界面浮层 | `pages/Index.ets`(`store.loginOpen`) | 居中遮罩浮层,复用 `LoginSheet` |
-| 自动弹出 | `AppStore` 的 `sync.setListener` | 同步返回 `AUTH_REQUIRED` 时自动 `loginOpen = true` |
-| 独立页 | `view/LoginPage.ets`(`@Entry LoginPage`,`main_pages.json` 注册) | 便于以后做深链直达登录 |
+| 登录 / 注册 | 主按钮(高 44,radius 10,accent)+ 底部文本链接切模式 | `AppStore.login/register` |
+| **以游客身份继续** | **与主按钮同级**的次要按钮(surface 底 + hairline 描边,同高 44) | `AppStore.continueAsGuest()` → `SyncApi.guest()` |
+| 服务器地址 | 卡片底部折叠项(默认收起) | `store.setBaseUrl()` 写应用级 kv 并热切换 `SyncApi`/WS 地址 |
 
-### 6.2 交互与状态
+游客登录与正式登录走**完全相同**的后续路径(写会话 → 开该 userId 目录 → 首次快照 → 同步),
+因此"体验对等"是结构上的,不是靠文案保证的。
 
-| 能力 | 实现 |
+### 6.3 按 userId 隔离(§7.6.3 硬约束)
+
+| 项 | 做法 |
 |---|---|
-| 登录 / 注册切换 | `LoginSheet.modeChip` 分段控件,`store.login/register` |
-| 邮箱 + 口令 | `TextInput` + `InputType.Email` / `InputType.Password`;提交前校验邮箱形态与口令 ≥6 位 |
-| 服务器地址 | 折叠区「服务器地址」可改,`store.setBaseUrl()` 写 kv 并热切换 `SyncApi.baseUrl` 与 WS 地址 |
-| 服务器探活 | `setBaseUrl` 保存后立即 `syncNow()` 一次,失败走错误码提示 |
-| 错误提示 | 一律 `SYNC 错误码 → errorText()`(契约 §7.4),UI 不硬编码错误文案 |
-| 成功动作 | 令牌写 kv(`accessToken`/`refreshToken`)、邮箱写 kv、`onTokensUpdated()` 重连 WS、清示例数据、`resyncSnapshot()` + `syncNow()` |
-| 退出登录 | 设置页「退出登录」→ `logout()`:服务端 logout + 清 kv 令牌 + 断开 WS,**本地数据保留** |
-| 防重复提交 | `store.loginBusy` 期间按钮禁用并显示「请稍候…」 |
+| 目录名 | `OrdoSessionHelper.userDataDirName(userId)`:只保留 `[A-Za-z0-9_-]`,其余(含 `.` `/` `\` 空格)替换成 `_`;清洗后为空则退化为 `_`,**绝不返回空串**(空串 = 根目录 = 所有人共用) |
+| 账号库 | `new RdbOrdoStore(context, dirName, false)` → `<context.databaseDir>/rdb/<userId>/ordo.db`(RDB `customDir`) |
+| 应用级库 | `new RdbOrdoStore(context, '', true)` → `ordo-meta.db`,只建 `kv` 一张表,存会话 / deviceId / baseUrl / 外观 |
+| 令牌 | 存**账号库**的 kv(`accessToken`/`refreshToken`),与实体同目录;会话本身存应用级库 |
+| 演示数据 | 先 `resyncSnapshot()` 再判断:引擎仍为空才 `persistAll(seed)` 并写 `kv["ordo.seeded"]=1`;**拉不到服务端就不写**,等下次判定(§7.6.3「首次登录且服务端无数据时才写」) |
+| 退出登录 | `AppStore.logout()`:服务端 logout → 清账号库令牌 → 清应用级会话 → 停 WS + `ReminderAgent.cancelAll()`;**目录与实体一律保留** |
+| 可见性 | 设置页显示账号(游客带「游客」chip)、`userId`、**数据目录名**与**库文件绝对路径** —— 便于当场核对"两个账号没有共用目录" |
 
-### 6.3 AppStore 新增的对外成员
+> **平台差异(需要在契约里注一句)**:契约 §7.6.3 写的是「鸿蒙 `filesDir/<userId>/`」,
+> 而鸿蒙的 ArkData 只允许关系库落在应用沙箱的 `databaseDir` 下(`StoreConfig.customDir` 的语义就是
+> `<databaseDir>/rdb/<customDir>/<name>`)。落地为 `<databaseDir>/rdb/<userId>/ordo.db`:
+> 同样是**应用私有、按 userId 一份、退出登录不删、两个账号绝不可共用**,
+> 差别只是沙箱内那一级父目录由系统指定而不是 `filesDir`。
 
-`loginOpen` / `loginBusy` / `loginError` / `loginPrefersRegister` / `baseUrl`,
-方法 `openLogin(preferRegister)` / `closeLogin()` / `isSignedIn()` / `login(email, pwd)` /
-`register(email, pwd)` / `logout()` / `setBaseUrl(url)` / `serverText()` / `accountText()`。
+### 6.4 登录页交互细节(§5.1)
 
-> 首次登录会 `persistAll(空)` 清掉首次安装写入的示例数据,避免把演示内容推到用户账号里;
-> 随后先 `resyncSnapshot()` 拉服务端全量,再 `syncNow()` 推送本地 op(契约 §7.4)。
+| 规范 | 实现 |
+|---|---|
+| 卡片 400 宽、radius 16、12dp 投影、画布 + ≤6% 品牌渐变光晕 | `LoginGate` 根容器 `.width(400)` + `linearGradient('#0F5B5BD6' → '#005B5BD6')` |
+| 浮动标签:聚焦时上移 12px 并转 accent | 标签 `translate(y: 8/18)` + 11/15 号字 + `border` 转 `accent`(120ms) |
+| 口令显示 / 隐藏 | 右侧 44×44 按钮切换 `InputType.Password ↔ Normal`,`showPasswordIcon(false)` 关掉系统自带的眼睛 |
+| 提交中禁用 + 16dp 转圈 | `LoadingProgress(16)` 在按钮内;`loginBusy` 期间输入框、主按钮、游客按钮全部禁用 |
+| 错误区固定预留 20 高 + 抖动 | `.height(20)` 恒定;失败时 `keyframeAnimateTo` 播放 6/-6/3/-3/0(每段 64ms = 320ms) |
+| 触控目标 ≥44、错误不只靠颜色 | 底部链接高 44;错误同时给 `!` 字形与文案 |
+
+### 6.5 AppStore 对外成员(会话相关)
+
+- 状态:`authPhase`(`booting|login|entering|ready`)/ `session` / `userDir` / `accountEmail` /
+  `loginBusy` / `loginError` / `loginPrefersRegister` / `baseUrl` / `dragActive` / `dragCancelSeq`
+- 方法:`login(email, pwd)` / `register(email, pwd)` / `continueAsGuest()` / `upgradeGuest(email, pwd)` /
+  `logout()` / `completeEnter()` / `isSignedIn()` / `isGuest()` / `accountText()` / `accountDetailText()` /
+  `userDirText()` / `dataPathText()` / `setBaseUrl(url)` / `serverText()` / `setLoginPrefersRegister(b)` /
+  `requestDragCancel()` / `tapRefresh()` / `refreshLabel()` / `refreshTone()` / `refreshSpinning()` /
+  `refreshEnabled()` / `refreshA11y()`
+
+> 上一轮"登录前先写示例数据、登录成功后再清空"的做法已被 §7.6.3 的规则取代:
+> 演示数据改为**先拉服务端快照、确认服务端为空**才写,并且写在**该账号自己的目录**里,
+> 因此不存在"把演示内容推到用户账号里"的问题(`persistAll` 不产生 op,本来就是本地写入)。
 
 ## 7. 性能优化:写放大与局部刷新
 
@@ -438,15 +511,15 @@ RESULT: ALL PASSED
 |---|---|---|
 | 右滑 → 完成 | `swipeAction.start` = 绿色 `state.success` 动作区;`onAction`(滑过阈值松手)与按钮点击都走 `store.toggleDone` | iOS `ordoSwipeActions(leading: .complete)` 同义 |
 | 左滑 → 删除 + 排期 | `swipeAction.end` = 排期 + 删除两个 72vp 动作区;删除走"软删除 + 提示条撤销"(04 §6 未规定二次确认,按可撤销实现) | iOS `trailing: .delete` 同义;撤销是本端补的兜底 |
-| 长按拖拽 | `onDragStart/onDrop` → `movedOrder` → `reorderTodos(ids)` | 与 iOS `movedOrder` 同形(先移除再插入);落点规则见下 |
+| 长按拖拽 | `ListItem.onTouch` → `PressTracker`(400ms / 6px)→ `moveIdToIndex` → `reorderTodos(ids)` | 与 iOS 长按拖拽同形(先移除再插入);落点规则见下 |
 | 提交的序列 | **同一容器内的完整可见序列**(界面顺序),核心按 `ids[i].order = i` 整批落库 | 与 iOS `AppEnvironment.reorderTodos(ids:)`、桌上端 `ReorderMath.applySectionOrder` 同一契约 |
 | 容器 = | `(when, projectId, headingId)`(`ReorderMath.containerKeyOf`),与 `OrdoEngine.nextOrder` 的作用域一致 | 三端同口径;跨容器拖拽直接拒绝并提示 |
 | 开放拖拽的清单 | 今天 / 收件箱 / 随时 / 某天 / 项目 / 区域;且要求该分区**同容器且 ≥2 行** | iOS `canReorder` 同判据(本端额外开放「今天」,因其排序末位比较键就是 `order`) |
 
-> 落点规则与 iOS 有一处**刻意的差异**:鸿蒙用通用拖拽(`onDragStart/onDrop`),落点最小单位是整行,
-> 拿不到"指针是否越过目标行中点"的信息,因此按拖动方向表达意图——向下拖落在目标行**之后**、
-> 向上拖落在目标行**之前**(等价于桌上端"指针落在目标行下半部分"的结果)。
-> 否则"往下拖一行"会变成空操作(iOS 的 `targetIndex - 1` 在整行落点下就是这个后果)。
+> **第五轮把拖拽入口从"系统通用拖拽"换成了"自己的长按手势"**(§5.4 要求 400ms 阈值、6px 位移判定、
+> 拖回原位/返回键取消且不写库)。系统 `draggable/onDragStart/onDrop` 的阈值与取消语义都由系统决定,
+> 端上无法满足这三条;现在的落点由位移换算(`dragTargetIndex` 半行取整、上下对称),
+> 与 iOS「越过行中点即换位」在语义上等价。
 
 ## 8. 编译告警(ArkTS)
 
@@ -510,26 +583,45 @@ RESULT: ALL PASSED
    本端 `canCompleteProject` 严格执行,并提供 `archiveHeading`(要求其下无未完成待办)。
 6. **`reminder` 与 `date` 的联动**:§3 要求 reminder 日期部分等于 `(when==date ? date : 今天)`。
    因此修改日期时提醒会随之平移;`RepeatEngine` 生成的新实例也把提醒平移到新日期同一时刻。
+7. **`filesDir/<userId>/` 在鸿蒙的可落地形式**:ArkData 的 `StoreConfig` 只提供
+   `name` + `customDir`,实际路径被限定为 `<context.databaseDir>/rdb/<customDir>/<name>`,
+   无法把关系库放到 `filesDir`。本端取 `customDir = userDataDirName(userId)`,
+   即 `<databaseDir>/rdb/<userId>/ordo.db` —— 硬约束(每账号一份、互不可见、退出登录不删)完全满足,
+   父目录名与文档措辞不同。**请契约方确认是否接受这条平台映射,或把措辞改成"应用私有目录/<userId>/"**。
+8. **快加号直径:§4 写 52,§5.2 写 56**:取 §5.2(更新且更具体的那一节,同处还明确"只保留一个圆形按钮"),
+   `OrdoSize.quickAdd = 56`。§4 组件表那一行的 52 未同步更新。
+9. **"refresh 失败 → 登录页"的边界**:§7.6.4 未区分失败原因。本端把**网络不可达**视为"暂时拿不到新令牌"
+   (留在主界面离线可用、状态栏走 §5.3 失败态),只有**服务端明确拒绝**才回登录页。
+   否则离线启动会被永久卡在登录页,与 §7.6.3"离线可用"的取向冲突。
 
 ## 10. 已知限制 / 未完成项
 
 - **未签名 / 未上真机**:本机没有调试证书,产物为 unsigned HAP,`hdc install` 会失败;
   纯逻辑用例可在本机宿主里真实执行(§3.4.1),但**设备上的 Hypium 与真机手势仍未跑过**。
 - **未接入真实后端**:`SyncApi` 默认 `https://api.ordo.app`,可在登录页「服务器地址」或设置页改;
-  登录/注册 UI 与服务器地址切换已完成(§6),但**尚无可用服务端**做端到端联调。
-- **手势与帧率未在设备上实测**:左右滑动作区、长按拖拽、`LazyForEach` 的真实滚动帧率都只在编译与
-  纯逻辑层面验证过(§7.3 末尾列了兜底改法);动作区按钮的触摸热区在 44vp 以上,但没有真机手感验证。
-- **拖拽落点为整行**:见 §7.4 末尾,通用拖拽拿不到行内中点,所以"向下拖 = 落在目标行之后"是**行级**语义;
-  若将来改用 `List.onItemDragStart/onItemDrop`,可以拿到 `insertIndex` 做行内中点细分。
+  登录/注册/**游客登录**/升级为正式账号的 UI 与地址切换都已完成(§6),但**尚无可用服务端**做端到端联调。
+- **登录门禁只在本机静态验证**:`authPhase` 三分支(有会话/无会话/过期)的页面切换、淡入淡出、
+  抖动动效都只在编译与纯逻辑层面验证过(会话判定与状态机有 31 条用例覆盖),**没有真机点击验证**。
+- **手势与帧率未在设备上实测**:左右滑动作区、长按拖拽(400ms/6px)、`LazyForEach` 的真实滚动帧率都只在
+  编译与纯逻辑层面验证过;阈值本身有用例钉住,但"手感"未验。
+- **拖拽跟手靠行键变化**:`LazyForEach` 只在键变化时重建行,所以拖拽位移被折进了行指纹
+  (`RowModel.applyDragHint`)。代价是拖动中被拖行会按帧重建,长列表下的帧率未实测;
+  若真机上偏卡,兜底是只把「让位行」折进指纹、被拖行改用 `translate` 属性动画。
+- **按用户隔离的目录名映射**:契约写 `filesDir/<userId>/`,鸿蒙 ArkData 只允许落在
+  `<databaseDir>/rdb/<customDir>/`,故实现为 `<databaseDir>/rdb/<userId>/ordo.db`(§6.3 末尾有说明);
+  需要契约方确认这条平台映射。
+- **旧版单库数据不做迁移**:第五轮之前只有一个 `ordo.db`(无 customDir),其中的数据不会被迁进新的
+  `<userId>/ordo.db`。开发期无真实用户数据,故按"不迁移"处理;上线前若有存量用户需要补迁移脚本。
 - **拖拽只在同容器生效**:跨分区/跨项目拖动会被拒绝(提示「手动排序只在同一分区/项目内生效」),
   这是契约 `order` 的作用域决定的;混合容器的分区(如「今天」里同时有 `when=today` 与 `when=date` 的行)整体不开放拖拽。
 - **长距离拖拽退化为整表 reload**:位移超过 `MAX_SWAPS = 64` 格时,为免一次拖拽发出上百条通知,改发一次 reload
   (≤ 已渲染行数,不会回到 1000 行时代)。
 - **日历事件为本地种子数据**:`§2.8` 的 `CalendarEvent` 只读展示,尚未接 `@ohos.calendarManager`。
-- **图标为占位图形**:侧栏与元信息使用文本字形(▤ ★ ▦ ≡ ◇ ▣ ⏰ ⚑ ⟳),等设计给出矢量资源后替换为
-  `$media:` 资源或 `SymbolGlyph`。
+- **图标为占位图形**:侧栏与元信息使用文本字形(▤ ★ ▦ ≡ ◇ ▣ ⏰ ⚑ ⟳),刷新控件用 `↻`
+  (`OrdoIcons.refresh`)而不是 `SymbolGlyph($r('sys.symbol.…'))`:后者需要额外的符号资源与 API 版本确认,
+  本机无设备无法验证渲染结果,故先用字形 + 统一色板(等设计给矢量资源再替换)。
 - **撤销窗口 4s**:04 §4 只规定普通提示 2.4s;带「撤销」动作的提示条延长到 4s(样式/位置/圆角不变),
-  属本轮为"删除可撤销"补的约定,需契约方确认是否接受。
+  属"删除可撤销"补的约定,需契约方确认是否接受。
 - **`_qa/`**:构建与自检脚本 + 历史日志,不属于 App 运行时代码,不参与打包。
 
 ## 11. 变更记录
@@ -540,3 +632,4 @@ RESULT: ALL PASSED
 | 2026-10-09 | 环境固化(SDK 26.0.0 / hvigor 6.26.4,§3 本机构建)+ 签名缺失说明;ArkTS 告警 71 → 0(§8);新增登录/注册与服务器地址(§6);本地库写盘改增量 upsert、UI 派生结果加版本缓存(§7);修复 ohosTest 编译(5 ERROR → 0);新增 `_qa/build.ps1`、`_qa/warn-report.ps1` 自检脚本 |
 | 2026-10-09 | P0:新增**本机逻辑测试宿主**(§3.4.1),四组 Hypium 用例在本机真实执行 **55/55 通过**;据此修掉 3 个真 bug(`firstOccurrenceOnOrAfter` 边界、`下下周三` 周偏移双重计入、`upcoming` 重复待办被丢弃)与 1 处落后断言(§8.4);`_qa/build-harness.py` + `_qa/node-harness/` |
 | 2026-10-09 | 第三轮(鸿蒙端):① 列表渲染改 **`List + LazyForEach` + 行数据源**(§7.3),1000 条待办下"改一行 = 1 行重建、拖拽 = 0 重建";新增 `view/list/{RowModel,RowDataSource,TodoRow,SwipeActionBar}.ets`、`viewmodel/ReorderMath.ets`;② **左右滑手势**(右滑完成 / 左滑删除 + 排期,删除可撤销)与 **长按拖拽排序**(提交同容器完整可见序列,跨容器拒绝)(§7.4);③ 引擎补 `reorderTodos(ids)` / `restoreDeletedTodo(id)`;④ 新增 `_qa/row-perf-harness.mjs`(真实行模型在 Node 上评测,§7.3)+ `RowModel/ReorderMath` 两组 Hypium 用例(宿主内 **82/82 通过**) |
+| 2026-10-10 | **第五轮**:① 契约 §7.6 落地——新增 `core/session/OrdoSession.ets`(会话 / 游客 / `userDataDirName`)、`SyncApi.guest()/upgrade()`、`AuthUser.isGuest`;② §7.6.3 按 userId 隔离:应用级 `ordo-meta.db`(会话/设备/地址/外观)+ 账号级 `<databaseDir>/rdb/<userId>/ordo.db`,设置页显示账号与目录并提供退出登录;③ §5.1 登录门禁:重写 `view/LoginPage.ets`(卡片 400 / 浮动标签 / 口令显示隐藏 / 提交转圈 / 错误抖动 / 进入与淡出淡入 / 游客为同级次要按钮),`pages/Index.ets` 按 `authPhase` 门禁;④ §5.2 快加号:去掉多余元素、直径 56、长按 400ms 出菜单、旋转 45°、面板与菜单项错位动效;⑤ §5.3 刷新控件:新增 `view/Common/RefreshControl.ets` + `viewmodel/RefreshState.ets`(连转 / success 1.4s / danger 常驻);⑥ §5.4 长按拖拽:新增 `viewmodel/PressGesture.ets`,去掉系统通用拖拽,补插入指示线与取消路径(返回键);⑦ 宿主新增三组 31 条用例(**116/116 通过**),并修掉宿主里写死的旧工程路径(`WeChat\ordo` → 自推导) |

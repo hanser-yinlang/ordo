@@ -1,29 +1,35 @@
 /**
- * Ordo · 主列表页(04 §3 布局骨架;§4 待办行规格;§5 完成动效;§6 手势)
+ * Ordo · 主列表页(04 §3 布局骨架;§4 待办行规格;§5 完成动效;§5.3 刷新控件;§5.4 长按拖拽;§6 手势)
  *
- * 组成:大标题(28/34)+ 计数 + 工具按钮 → 列表(日程区块 → 分组 → 待办行 38vp)→ 状态栏
+ * 组成:大标题(28/34)+ 计数 + 工具按钮 → 列表(日程区块 → 分组 → 待办行 38vp)→ 状态栏(含刷新控件)
  *
- * 本轮改造(渲染粒度):
- *  · `Scroll + Column + ForEach` → `List + LazyForEach + RowDataSource`
- *    —— 只创建可见区 + cachedCount 内的行,行内容变化只对该下标发一次通知(见 view/list/RowModel.ets);
- *  · 数据源按**清单键**缓存(`sources`),来回切清单不丢已建好的行,只补差量;
- *  · 待办行抽成独立组件 `TodoRow`,由行指纹 `rowRev` 驱动,粒度从"整页"降到"单行";
- *  · 手势:右滑 = 完成(`state.success`),左滑 = 删除(`state.danger`,可撤销)+ 排期入口;
- *  · 拖拽:`onDragStart/onDrop` 提交**同容器完整可见序列**给核心 `reorderTodos(ids)`,跨容器拒绝。
+ * 本轮改造:
+ *  · 状态栏右侧换成 §5.3 的**刷新控件**(28dp 圆形图标 + 文字):同步中连续旋转、
+ *    成功转 success 并显示「已同步」、失败转 danger 并常驻「同步失败,点击重试」;
+ *  · 拖拽从"系统 universal drag(onDragStart/onDrop)"改为 §5.4 的**长按 400ms 后拖拽**:
+ *    位移 <6px 视为点击,行抬起 scale 1.02 + 投影,拖回原位/按返回键取消且不写库。
+ *    (去掉 onDragStart/onDrop 的原因:系统拖拽的阈值与取消语义由系统决定,
+ *     端上无法保证 400ms/6px,也没有"拖回原位不写库"的精确语义。)
  *
- * 视觉与改前一致:分组标题、今晚分区(琥珀色)、行高、圆角、令牌取值全部沿用,只有承载容器换了。
- */
+ * 渲染粒度(沿用):`List + LazyForEach + RowDataSource`,行内容变化只对该下标发一次通知。 */
 
-import { Todo } from '../core/model/Entities.ets';
 import { todayISO } from '../core/util/DateUtil.ets';
+import { nowMillis } from '../core/util/Ids.ets';
 import { AppStore, TodaySections } from '../viewmodel/AppStore.ets';
-import { containerKeyOf, movedOrder } from '../viewmodel/ReorderMath.ets';
-import { ListRow, RowInput, buildRows } from './list/RowModel.ets';
+import { LONG_PRESS_MS, PressTracker, dragTargetIndex, moveIdToIndex } from '../viewmodel/PressGesture.ets';
+import { DragHint, ListRow, RowInput, buildRows } from './list/RowModel.ets';
 import { RowDataSource } from './list/RowDataSource.ets';
 import { SwipeActionBar } from './list/SwipeActionBar.ets';
 import { TodoRow } from './list/TodoRow.ets';
+import { RefreshControl } from './Common/RefreshControl.ets';
+import { touchOf } from './Common/GestureUtil.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 import { EmptyState } from './Common/EmptyState.ets';
+
+/** 拖拽让位的步长:行高 + 上下内边距(§4 待办行高 38) */
+const ROW_EXTENT: number = OrdoSize.rowHeight + OrdoSpace.s;
+/** 拖完之后的这段窗口内忽略点击,避免"松手顺手打开详情" */
+const TAP_SUPPRESS_MS: number = 350;
 
 @Component
 export struct ListPage {
@@ -35,6 +41,8 @@ export struct ListPage {
    * 它一变就算一次行模型并对数据源做**最小通知**(见 syncRows)。
    */
   @Prop @Watch('onStoreChanged') storeRev: number = 0;
+  /** `AppStore.dragCancelSeq`:返回键请求取消拖拽(§5.4 取消路径) */
+  @Prop @Watch('onDragCancelRequested') dragCancelSeq: number = 0;
 
   /**
    * 行数据源:**整个组件生命周期内只创建一次**。
@@ -42,13 +50,37 @@ export struct ListPage {
    * 而是由 `RowDataSource.sync(清单键, 行序列)` 在内部换行序列(见 view/list/RowDataSource.ets)。
    */
   private data: RowDataSource = new RowDataSource();
-  /** 正在被拖拽的待办 id(universal drag 的载荷;不参与渲染,故不用 @State) */
-  private draggingId: string = '';
   /** 最近一次同步发出的通知条数(自检与 README §7.4 的计数口径) */
   lastEdits: number = 0;
 
+  /* ------------------------------------------------------------ 长按拖拽状态(§5.4) */
+  /** 手势判定:400ms 阈值 + 6px 位移阈值(与快加号共用同一套纯状态机) */
+  private tracker: PressTracker = new PressTracker();
+  private pressTimer: number = -1;
+  private pressRowId: string = '';
+  private suppressTimer: number = -1;
+  /** 正在被拖的待办 id(空串 = 没有拖拽) */
+  @State private dragId: string = '';
+  /** 拖拽所在的容器(同一容器内才允许换序) */
+  private dragContainer: string = '';
+  /** 拖拽开始时该容器的可见序列 */
+  private dragIds: string[] = [];
+  @State private dragFrom: number = 0;
+  @State private dragTo: number = 0;
+  @State private dragDy: number = 0;
+  /** 刚拖完的行:短暂忽略点击 */
+  @State private suppressId: string = '';
+
   aboutToAppear(): void {
     this.syncRows();
+  }
+
+  aboutToDisappear(): void {
+    this.clearPressTimer();
+    if (this.suppressTimer >= 0) {
+      clearTimeout(this.suppressTimer);
+      this.suppressTimer = -1;
+    }
   }
 
   /** store.changeSeq 变化:重算行模型 → 差量 → 最小通知 */
@@ -88,6 +120,16 @@ export struct ListPage {
       logbook: [],
       todos: []
     };
+    // 拖拽期必须把拖拽状态折进行指纹:LazyForEach 只在键变化时重建行(见 RowModel 键值口径)
+    if (this.dragId.length > 0) {
+      const hint: DragHint = {
+        draggedId: this.dragId,
+        dy: this.dragDy,
+        toIndex: this.dragTo,
+        extent: ROW_EXTENT
+      };
+      input.drag = hint;
+    }
     if (this.store.list === 'today') {
       const s: TodaySections = this.store.todaySections();
       input.main = s.main;
@@ -206,7 +248,11 @@ export struct ListPage {
         store: this.store,
         todoId: row.todoId,
         rowRev: row.rev,
-        animating: this.animatingId === row.todoId
+        animating: this.animatingId === row.todoId,
+        lifted: row.lifted,
+        shift: row.shift,
+        dropLine: row.dropLine,
+        suppressTap: this.suppressId === row.todoId
       })
     }
     .swipeAction({
@@ -230,18 +276,10 @@ export struct ListPage {
       },
       edgeEffect: SwipeEdgeEffect.None
     })
-    .draggable(row.dragEnabled)
-    .onDragStart((event: DragEvent, extraParams?: string): DragItemInfo => {
-      // 载荷放在 extraInfo;拖拽预览交给系统(组件快照)
-      this.draggingId = row.todoId;
-      const info: DragItemInfo = { extraInfo: row.todoId };
-      return info;
-    })
-    .onDrop((event: DragEvent, extraParams?: string): void => {
-      this.dropOnRow(row);
-    })
-    .onDragEnd((event: DragEvent, extraParams?: string): void => {
-      this.draggingId = '';
+    // 04 §5.4:长按 400ms 后拖拽。这里**不再**用系统 universal drag(.draggable/onDragStart/onDrop):
+    // 它的阈值与取消语义由系统决定,端上无法保证 400ms / 6px,也没有"拖回原位不写库"的精确语义。
+    .onTouch((event: TouchEvent): void => {
+      this.onRowTouch(row, event);
     })
   }
 
@@ -390,6 +428,182 @@ export struct ListPage {
     .height(28)
   }
 
+  /* ------------------------------------------------------------ 长按拖拽手势(04 §5.4) */
+
+  private clearPressTimer(): void {
+    if (this.pressTimer >= 0) {
+      clearTimeout(this.pressTimer);
+      this.pressTimer = -1;
+    }
+  }
+
+  /**
+   * 按下后计时 400ms。等待时长按"按下时刻 + 400ms"精确定——用 setTimeout 的近似值会早触发几毫秒,
+   * 而 `PressTracker.hold()` 会如实回答"还没到 400ms",拖拽就永远进不去。
+   */
+  private armLongPress(): void {
+    this.clearPressTimer();
+    const wait: number = LONG_PRESS_MS - (nowMillis() - this.tracker.downTime());
+    this.pressTimer = setTimeout((): void => {
+      this.pressTimer = -1;
+      if (this.tracker.hold(this.tracker.downTime() + LONG_PRESS_MS)) {
+        // 长按达成:行抬起(scale 1.02 + 投影),真正开始移动要等位移 ≥6px
+        this.store.dragActive = true;
+        this.bumpRows();
+      }
+    }, wait > 0 ? wait : 0);
+  }
+
+  private onRowTouch(row: ListRow, event: TouchEvent): void {
+    const touch: TouchObject = touchOf(event);
+    if (event.type === TouchType.Down) {
+      if (!row.dragEnabled || this.dragId.length > 0) {
+        // 该分区不可拖(混合容器 / 只有一条),或已经在拖另一行
+        return;
+      }
+      this.tracker.begin(touch.x, touch.y, nowMillis());
+      this.pressRowId = row.todoId;
+      this.armLongPress();
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      if (this.pressRowId.length === 0) {
+        return;
+      }
+      const phase: string = this.tracker.move(touch.x, touch.y);
+      if (phase === 'cancelled') {
+        // 位移 ≥6px 且还没到 400ms:这是滚动/滑动,不进入拖拽(§5.4「移动 <6px 视为点击」)
+        this.clearPressTimer();
+        this.cancelDrag(false);
+        return;
+      }
+      if (phase === 'dragging') {
+        this.applyDragMove(row);
+      }
+      return;
+    }
+    // Up / Cancel
+    this.clearPressTimer();
+    if (event.type === TouchType.Cancel) {
+      this.tracker.cancel();
+      this.cancelDrag(true);
+      return;
+    }
+    const outcome: string = this.tracker.end();
+    const wasDragging: boolean = this.dragId.length > 0;
+    this.pressRowId = '';
+    if (!wasDragging) {
+      // 未进入拖拽:长按达成但没移动 → 仍算点击(由 TodoRow 的 onClick 打开详情)
+      this.store.dragActive = false;
+      this.bumpRows();
+      return;
+    }
+    if (outcome === 'dragCommit') {
+      this.commitDrag();
+    }
+    this.suppressClickAfterDrag();
+    this.resetDrag();
+  }
+
+  private applyDragMove(row: ListRow): void {
+    const dy: number = this.tracker.dy();
+    if (this.dragId.length === 0) {
+      // 刚跨过 6px:正式进入拖拽,锁定容器与可见序列
+      this.dragId = row.todoId;
+      this.dragContainer = row.container;
+      this.dragIds = this.containerIds(row.container);
+      this.dragFrom = this.dragIds.indexOf(row.todoId);
+      if (this.dragFrom < 0) {
+        this.dragFrom = 0;
+      }
+      this.dragTo = this.dragFrom;
+      this.store.dragActive = true;
+    }
+    this.dragDy = dy;
+    this.dragTo = dragTargetIndex(this.dragFrom, dy, ROW_EXTENT, this.dragIds.length);
+    this.bumpRows();
+  }
+
+  /** 落库:提交同容器的**完整可见序列**;位置未变则不写库(§5.4) */
+  private commitDrag(): void {
+    const container: string = this.dragContainer;
+    const id: string = this.dragId;
+    const to: number = this.dragTo;
+    const from: number = this.dragFrom;
+    if (id.length === 0 || to === from) {
+      return;
+    }
+    const ids: string[] = this.containerIds(container);
+    const moved: string[] | null = moveIdToIndex(ids, id, to);
+    if (moved === null) {
+      return;
+    }
+    if (!this.store.reorderTodos(moved)) {
+      this.store.showToast('手动排序只在同一分区/项目内生效');
+    }
+  }
+
+  /** 取消(返回键 / 拖出窗口 / 位移超限):行回原位,不写库 */
+  private cancelDrag(notify: boolean): void {
+    if (this.dragId.length === 0 && this.pressRowId.length === 0) {
+      return;
+    }
+    this.pressRowId = '';
+    if (this.dragId.length > 0) {
+      this.suppressClickAfterDrag();
+      this.resetDrag();
+      if (notify) {
+        this.store.showToast('已取消排序');
+      }
+      return;
+    }
+    this.store.dragActive = false;
+    this.bumpRows();
+  }
+
+  private resetDrag(): void {
+    this.dragId = '';
+    this.dragContainer = '';
+    this.dragIds = [];
+    this.dragFrom = 0;
+    this.dragTo = 0;
+    this.dragDy = 0;
+    this.store.dragActive = false;
+    this.bumpRows();
+  }
+
+  /** 松手后的一小段时间内忽略该行的点击:否则"拖完一松手"会顺带打开详情 */
+  private suppressClickAfterDrag(): void {
+    const id: string = this.dragId;
+    if (id.length === 0) {
+      return;
+    }
+    this.suppressId = id;
+    if (this.suppressTimer >= 0) {
+      clearTimeout(this.suppressTimer);
+    }
+    this.suppressTimer = setTimeout((): void => {
+      this.suppressTimer = -1;
+      this.suppressId = '';
+      this.bumpRows();
+    }, TAP_SUPPRESS_MS);
+  }
+
+  /** 返回键请求取消拖拽(Index 的 onBackPress → AppStore.requestDragCancel) */
+  onDragCancelRequested(): void {
+    if (this.dragId.length === 0 && !this.store.dragActive) {
+      return;
+    }
+    this.tracker.cancel();
+    this.clearPressTimer();
+    this.cancelDrag(true);
+  }
+
+  /** 行模型有变(拖拽跟手、让位):重算行序列并做最小通知 */
+  private bumpRows(): void {
+    this.syncRows();
+  }
+
   /* ------------------------------------------------------------ 手势与拖拽 */
 
   private onEmptyAction(target: string): void {
@@ -400,35 +614,6 @@ export struct ListPage {
     } else if (target === 'quickadd') {
       this.store.openQuickAdd('', '', '');
     }
-  }
-
-  /**
-   * 把 `draggingId` 落到 `target` 行所在的位置。
-   *
-   * 提交给核心的是**当前清单里同容器的完整可见序列**(不是"被拖的那一条"):
-   * 核心的语义是 `ids[i].order = i`,残缺序列会把没提交的条目挤到末尾。
-   * 跨容器(不同 when / projectId / headingId)直接拒绝并提示,与 iOS `reorderTodos(ids:)` 一致。
-   */
-  private dropOnRow(target: ListRow): void {
-    const sourceId: string = this.draggingId;
-    this.draggingId = '';
-    if (sourceId.length === 0 || sourceId === target.todoId) {
-      return;
-    }
-    const src: Todo | null = this.store.findTodo(sourceId);
-    if (src === null) {
-      return;
-    }
-    if (containerKeyOf(src) !== target.container) {
-      this.store.showToast('手动排序只在同一分区/项目内生效');
-      return;
-    }
-    const ids: string[] = this.containerIds(target.container);
-    const moved: string[] | null = movedOrder(ids, sourceId, target.todoId);
-    if (moved === null) {
-      return;
-    }
-    this.store.reorderTodos(moved);
   }
 
   /** 当前清单里某个容器的完整可见序列(顺序即屏幕顺序) */
@@ -446,19 +631,35 @@ export struct ListPage {
 
   /* ------------------------------------------------------------ 状态栏 */
 
+  /**
+   * 状态栏(04 §3 布局骨架 + §5.3 刷新控件)。
+   * 右侧不再是"可点击的文字",而是图标 + 文字的刷新控件:
+   * 同步中连续旋转,成功转 success + 「已同步」,失败转 danger + 「同步失败,点击重试」。
+   */
   @Builder
   statusBar() {
     Row({ space: OrdoSpace.s }) {
       Text(this.store.statsText())
         .fontSize(OrdoFont.micro.size)
         .fontColor(this.c().textTertiary)
-      Text('· ' + this.store.syncText() + this.store.pendingText())
+      Text(this.store.pendingText())
         .fontSize(OrdoFont.micro.size)
         .fontColor(this.c().textTertiary)
       Blank()
       Text(this.store.storageText())
         .fontSize(OrdoFont.micro.size)
         .fontColor(this.c().textTertiary)
+      RefreshControl({
+        label: this.store.refreshLabel(),
+        tone: this.store.refreshTone(),
+        spinning: this.store.refreshSpinning(),
+        canTap: this.store.refreshEnabled(),
+        a11yText: this.store.refreshA11y(),
+        dark: this.store.isDark(),
+        onTap: (): void => {
+          this.store.tapRefresh();
+        }
+      })
     }
     .width('100%')
     .padding({ left: OrdoSpace.xl, right: OrdoSpace.xl, top: OrdoSpace.xs, bottom: OrdoSpace.xs })

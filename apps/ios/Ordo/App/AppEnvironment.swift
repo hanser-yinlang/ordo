@@ -10,6 +10,12 @@
 //                                          ↘ SyncCoordinator 异步 push
 //    远端 ops → engine.applyRemote(契约 §7.3 合并)→ snapshot 变化 → 重绘 + 提醒重排期
 //
+//  登录门禁与目录隔离(契约 §7.6.3 / §7.6.4):
+//    RootView 先读会话(`OrdoAuthService.restore()`)→ 有会话才打开
+//    `Application Support/Ordo/<userDataDirName(userId)>/Ordo.store`;
+//    换账号 = 换目录,两个账号**永不共用**同一份本地数据。
+//    退出登录只清会话(见 `signOut()`),目录原样保留。
+//
 //  存储降级:SwiftData 容器创建失败时退回 `OrdoMemoryStorage`,并在状态栏提示(storageNotice)。
 //
 
@@ -26,7 +32,10 @@ public final class AppEnvironment {
 
     public let storage: OrdoStorageProtocol
     public let engine: OrdoEngineProtocol
-    public let tokenStore: OrdoStorageTokenStore
+    /// 令牌 / 设备标识(会话宿主)。
+    public let tokenStore: OrdoAccountTokenStore
+    /// 登录态与三个入口(登录 / 注册 / 游客)。
+    public let auth: OrdoAuthService
     public let parser: OrdoNaturalLanguageParser
     public let clock: OrdoClock
     public let reminders: ReminderScheduler
@@ -35,8 +44,14 @@ public final class AppEnvironment {
     /// 测试 / 预览可换成 `OrdoSampleAgendaProvider` / `OrdoEmptyAgendaProvider` / 自定义实现。
     public let agenda: OrdoAgendaProviding
     public private(set) var sync: SyncCoordinator?
-    public private(set) var authAPI: URLSessionAuthApi?
     public private(set) var realtime: OrdoRealtimeClient?
+    /// 本账号的本地数据目录(契约 §7.6.3;`nil` = 内存模式,未落盘)。
+    public let userDataDirectory: URL?
+
+    /// 当前会话(契约 §7.6.1)。直接读 `auth`,避免两处状态不一致。
+    public var session: OrdoSessionRecord? { auth.session }
+
+    public var authAPI: OrdoAuthAPI { auth.authAPI }
 
     // MARK: 状态
 
@@ -59,43 +74,57 @@ public final class AppEnvironment {
     public init(
         storage: OrdoStorageProtocol,
         engine: OrdoEngineProtocol,
-        tokenStore: OrdoStorageTokenStore,
+        tokenStore: OrdoAccountTokenStore,
+        auth: OrdoAuthService,
         parser: OrdoNaturalLanguageParser,
         reminders: ReminderScheduler,
         clock: OrdoClock,
+        userDataDirectory: URL? = nil,
         storageNotice: String? = nil,
         agenda: OrdoAgendaProviding = OrdoEnvironmentAgendaProvider()
     ) {
         self.storage = storage
         self.engine = engine
         self.tokenStore = tokenStore
+        self.auth = auth
         self.parser = parser
         self.reminders = reminders
         self.clock = clock
+        self.userDataDirectory = userDataDirectory
         self.storageNotice = storageNotice
         self.agenda = agenda
     }
 
-    /// 组装整个应用(启动路径)。
+    /// 组装整个应用(登录成功后的启动路径)。
     ///
-    /// 步骤:打开本地库 → 预加载存储镜像 → 构造 KMP 引擎 → 首次运行写入演示数据
-    /// → 订阅 → 构造同步与提醒。
+    /// 步骤:打开**该 userId 专属**的本地库 → 预加载存储镜像 → 构造 KMP 引擎
+    /// → 首次运行写入演示数据 → 订阅 → 构造同步与提醒。
+    ///
+    /// - Parameters:
+    ///   - auth: 已完成登录鉴权的服务(提供会话 / 令牌 / 网络层)。
+    ///   - session: 当前会话;决定本地数据目录(契约 §7.6.3 硬约束)。
     public static func bootstrap(
+        auth: OrdoAuthService,
+        session: OrdoSessionRecord,
         apiBaseURL: URL = OrdoAPIEnvironment.default.baseURL,
         useInMemoryStorage: Bool = false,
         seedIfEmpty: Bool = true
     ) async -> AppEnvironment {
         let clock = OrdoSystemClock()
         let uuid = OrdoDefaultUUIDProvider()
+        let tokenStore = auth.tokenStore
 
-        // 1) 本地存储(SwiftData;失败则降级为内存)
+        // 1) 本地存储:该账号专属目录(契约 §7.6.3)
         var notice: String?
         var storage: OrdoStorageProtocol
+        var directory: URL?
         do {
             if useInMemoryStorage {
                 storage = OrdoMemoryStorage()
             } else {
-                let container = try SwiftDataStorage.makeContainer()
+                let userDirectory = try OrdoAppDirectories.userDirectory(userId: session.userId)
+                directory = userDirectory
+                let container = try SwiftDataStorage.makeContainer(directory: userDirectory)
                 storage = SwiftDataStorage(container: container)
             }
         } catch {
@@ -107,7 +136,9 @@ public final class AppEnvironment {
         try? await storage.kvSetInt(OrdoKVKey.schemaVersion, value: Int64(OrdoSchema.version))
 
         // 3) KMP 引擎(内部会同步读取镜像中的快照/outbox/墓碑/kv)
-        let engine = await OrdoCoreBridge.make(storage: storage, clock: clock, uuid: uuid)
+        //    deviceId 用**设备级**值(根目录 kv),保证 HTTP 头与 op.deviceId 一致(契约 §7.6.1)。
+        let deviceId = await tokenStore.currentDeviceId()
+        let engine = await OrdoCoreBridge.make(storage: storage, clock: clock, uuid: uuid, deviceId: deviceId)
 
         // 4) 首次运行写入演示数据(由 KMP 核心提供,四端一致)
         if seedIfEmpty, engine.snapshot.todos.isEmpty, engine.snapshot.projects.isEmpty {
@@ -115,16 +146,13 @@ public final class AppEnvironment {
             await engine.flushStorage()
         }
 
-        // 5) 令牌 / 网络 / 实时通道
-        let tokenStore = OrdoStorageTokenStore(storage: storage)
-        let deviceId = engine.deviceId
+        // 5) 网络 / 实时通道(令牌来自会话)
         let httpClient = OrdoHTTPClient(
             environment: OrdoAPIEnvironment(baseURL: apiBaseURL),
             tokenStore: tokenStore,
             deviceIdentity: tokenStore
         )
-        let authAPI = URLSessionAuthApi(client: httpClient)
-        await httpClient.setRefresher(authAPI)
+        await httpClient.setRefresher(auth.tokenRefresher)
         let syncAPI = URLSessionSyncApi(client: httpClient)
         let realtime = OrdoRealtimeClient(
             configuration: OrdoRealtimeClient.Configuration(baseURL: apiBaseURL, deviceId: deviceId),
@@ -140,9 +168,11 @@ public final class AppEnvironment {
             storage: storage,
             engine: engine,
             tokenStore: tokenStore,
+            auth: auth,
             parser: OrdoCoreNaturalLanguageParser(),
             reminders: reminders,
             clock: clock,
+            userDataDirectory: directory,
             storageNotice: notice,
             agenda: OrdoEnvironmentAgendaProvider()
         )
@@ -168,10 +198,21 @@ public final class AppEnvironment {
         coordinator.onSnapshotRequiresReschedule = { [weak environment] in
             environment?.rescheduleReminders()
         }
+        // 令牌被服务端判定失效(401 且 refresh 失败)→ 清会话回登录页,但**保留本地目录**
+        coordinator.onAuthExpired = { [weak environment] in
+            await environment?.handleAuthExpired()
+        }
         environment.sync = coordinator
-        environment.authAPI = authAPI
 
         return environment
+    }
+
+    /// 拆掉本环境(换账号 / 退回登录页时调用):停同步、取消引擎订阅。
+    public func shutdown() async {
+        sync?.stop()
+        subscription?.cancel()
+        subscription = nil
+        isReady = false
     }
 
     // MARK: 生命周期
@@ -584,6 +625,11 @@ public final class AppEnvironment {
         await tokenStore.isSignedIn()
     }
 
+    /// 当前账号是否为游客(契约 §7.6.1)。
+    public func isGuest() async -> Bool {
+        await tokenStore.userIsGuest()
+    }
+
     public func deviceName() async -> String {
         await tokenStore.deviceName()
     }
@@ -603,21 +649,26 @@ public final class AppEnvironment {
         }
     }
 
-    // MARK: 登录 / 登出
+    // MARK: 登录 / 登出(契约 §7.6.3 / §7.6.4)
 
-    public func handleSignedIn(_ session: OrdoAuthSession) async {
-        await tokenStore.save(session: session)
-        await sync?.handleSignedIn(session)
+    /// 登录成功后的收尾:把本地已有的数据推上去,或拉取远端快照(契约 §7.1)。
+    public func finishSignIn() async {
         await sync?.bootstrapFromRemoteIfEmpty()
     }
 
-    /// 契约 §7.4:refresh 也失败 → 转登录态但**保留本地数据**。
+    /// 退出登录:只清**会话**(契约 §7.6.3),该 userId 的本地数据目录原样保留,
+    /// 下次同一账号登录时数据仍在(离线可用,联网后增量同步)。
+    ///
+    /// 调用方(RootView)会在 `auth.session` 变为 nil 后拆掉本环境并回到登录页。
     public func signOut() async {
-        if let tokens = await tokenStore.load(), let authAPI {
-            try? await authAPI.logout(refreshToken: tokens.refreshToken)
-        }
+        await auth.signOut()
         await sync?.handleSignedOut()
-        toast("已退出登录,本地数据保留", kind: .info)
+    }
+
+    /// 令牌被服务端判定失效(401 + refresh 失败):清会话回登录页,但**不删数据目录**。
+    public func handleAuthExpired() async {
+        await auth.invalidateSession()
+        await sync?.handleSignedOut()
     }
 }
 

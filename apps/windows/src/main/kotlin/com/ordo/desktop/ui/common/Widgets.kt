@@ -356,13 +356,20 @@ fun SectionHeader(
     }
 }
 
-/** 给整行用的 hover 高亮容器 */
+/**
+ * 给整行用的 hover 高亮容器。
+ *
+ * @param gestureModifier 追加在 `clickable` **之后**(也就是更靠内)的手势层。
+ *   长按拖拽就挂在这里:内层先收到 Main 阶段的事件,长按成立后 consume,
+ *   外层 `clickable` 会因为事件被消费而自动取消 —— 拖完一行不会顺手打开详情。
+ */
 @Composable
 fun HoverRow(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = RoundedCornerShape(OrdoRadius.row),
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
+    gestureModifier: Modifier = Modifier,
     content: @Composable (hovered: Boolean) -> Unit
 ) {
     val colors = ordoColors
@@ -391,6 +398,7 @@ fun HoverRow(
                     )
                 }
             )
+            .then(gestureModifier)
     ) {
         content(hovered)
     }

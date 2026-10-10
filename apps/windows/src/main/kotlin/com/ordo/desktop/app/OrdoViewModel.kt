@@ -86,7 +86,9 @@ class OrdoViewModel(
                 projectCards = projectCards,
                 headings = snapshot.headings.filter { h -> !h.deleted },
                 tags = engine.tags(),
-                agenda = if (route == OrdoRoute.Today) LocalAgenda.eventsFor(storage) else it.agenda
+                agenda = if (route == OrdoRoute.Today) LocalAgenda.eventsFor(storage) else it.agenda,
+                // 账号快照:登录 / 退出 / 401 刷新都只改会话,界面从这里读到最新值
+                account = account
             )
         }
     }
@@ -466,7 +468,6 @@ class OrdoViewModel(
                     )
                 }
             }
-            Unit
         }
         coordinator.addResultListener(listener)
         unsubscribeSync = { coordinator.removeResultListener(listener) }
@@ -483,13 +484,34 @@ class OrdoViewModel(
 
     // ---------------------------------------------------------------- 账号
 
-    /** 由入口注入;未注入时设置页的登录按钮会提示"网络层未初始化" */
+    /** 由入口注入:令牌 / 会话(唯一真源是 kv[ordo.session])与服务器地址 */
     var authApi: com.ordo.desktop.net.KtorAuthApi? = null
     var tokens: com.ordo.desktop.net.TokenStore? = null
+
+    /** 登录成功后由入口调用(建立实时通道并做一次全量同步) */
     var onAuthChanged: (() -> Unit)? = null
 
+    /**
+     * 退出登录后通知入口:入口据此把界面切回登录页,并为新账号新建一份数据目录。
+     *
+     * 视图模型自己**只清会话,不删目录**(契约 §7.6.3:退出登录保留该 userId 的数据)。
+     */
+    var onSignedOut: (() -> Unit)? = null
+
+    /** 当前账号(邮箱或"游客") */
+    val account: AccountInfo? get() = AccountInfo.ofOrNull(tokens?.currentSession())
+
+    val accountEmail: String? get() = account?.email
+
+    /** 设置页展示用:邮箱,或游客的"游客" */
+    val accountLabel: String get() = account?.displayName ?: "未登录"
+
+    val isGuest: Boolean get() = account?.isGuest == true
+
+    /** 当前账号的数据目录名(设置页展示,便于用户找到自己的本地数据) */
+    val dataDirName: String? get() = account?.dataDirName()
+
     val serverUrl: String get() = tokens?.serverUrl ?: com.ordo.desktop.net.TokenStore.DEFAULT_SERVER
-    val accountEmail: String? get() = tokens?.email
     val isLoggedIn: Boolean get() = tokens?.isLoggedIn == true
 
     fun setServerUrl(url: String) {
@@ -497,40 +519,23 @@ class OrdoViewModel(
         refresh()
     }
 
-    fun login(email: String, password: String, register: Boolean, done: (Boolean, String?) -> Unit) {
+    /** 账号变化后刷新界面(登录 / 退出都走这里,设置页立刻显示新账号) */
+    fun refreshAccount() = _state.update { it.copy(account = account) }
+
+    /**
+     * 退出登录(契约 §7.6.3):尽力通知服务端吊销 refresh token,然后**只清会话**,
+     * 该 userId 的数据目录原样保留 —— 下次同一账号登录,待办还在,联网后增量同步。
+     */
+    fun signOut() {
         val api = authApi
-        val store = tokens
-        if (api == null || store == null) {
-            done(false, "网络层未初始化")
-            return
-        }
-        val request = com.ordo.core.sync.AuthRequest(
-            email = email.trim(),
-            password = password,
-            deviceName = "Ordo Windows",
-            platform = "windows"
-        )
-        scope.launch {
-            runCatching { if (register) api.register(request) else api.login(request) }
-                .onSuccess { response ->
-                    store.save(response)
-                    _state.update { it.copy(syncStatus = SyncStatus.SYNCING) }
-                    onAuthChanged?.invoke()
-                    done(true, null)
-                }
-                .onFailure { error -> done(false, error.message ?: "请求失败") }
-        }
+        val token = tokens?.refreshToken
+        scope.launch { runCatching { api?.logout(token) } }
+        tokens?.clear()
+        syncCoordinator?.onLoggedOut()
+        _state.update { it.copy(account = null, syncStatus = SyncStatus.LOCAL, syncDetail = null) }
+        onSignedOut?.invoke()
     }
 
-    fun logout() {
-        val api = authApi
-        scope.launch {
-            runCatching { api?.logout() }
-            tokens?.clear()
-            _state.update { it.copy(syncStatus = SyncStatus.LOCAL, syncDetail = null) }
-            onAuthChanged?.invoke()
-        }
-    }
 
     fun pendingOpCount(): Int = engine.pendingOpCount()
 

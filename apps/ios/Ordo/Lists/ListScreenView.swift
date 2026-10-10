@@ -25,16 +25,23 @@ public struct ListScreenView: View {
     @State private var collapsedSections: Set<String> = []
     @State private var composerSectionId: String?
     @State private var composerText = ""
-    /// 正在被拖拽的行(设计规范 §6:拖拽时行整体降透明度,由系统拖拽预览表达)。
+    /// 正在被拖拽的行(规范 §5.4:长按 400ms 后行抬起)。
     @State private var draggingTodoId: String?
-    /// 当前高亮的投放目标行。
+    /// 当前高亮的投放目标行(插入指示线画在它上方)。
     @State private var dropTargetTodoId: String?
-    /// 拖拽状态复位任务(拖拽被取消时 `performDrop` 不会被调用,需要兜底清理)。
+    /// 每一行在列表坐标系中的位置(把手指位置换算成投放目标,不依赖系统拖放会话)。
+    @State private var rowFrames: [String: CGRect] = [:]
+    /// 列表可视区域大小(判断「拖出窗口 → 取消」)。
+    @State private var viewportSize: CGSize = .zero
+    /// 拖拽状态复位任务(兜底:手势被系统中断时不会有 onEnded)。
     @State private var dragResetTask: Task<Void, Never>?
     @FocusState private var composerFocused: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    /// 行的列表坐标空间(命中测试与插入线都基于它)。
+    static let listCoordinateSpace = "ordo.list"
 
     public init(shell: ShellViewModel, environment: AppEnvironment, onRequestFocus: @escaping () -> Void = {}) {
         self.shell = shell
@@ -84,6 +91,14 @@ public struct ListScreenView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.horizontal, OrdoSpacing.contentHorizontalPadding)
             }
+            // 长按拖拽(规范 §5.4):行位置在同一个坐标空间里采集
+            .coordinateSpace(name: Self.listCoordinateSpace)
+            // 拖拽期间禁止列表滚动(否则行在移动、列表也在滚)
+            .scrollDisabled(draggingTodoId != nil)
+            .background(viewportReader)
+            .onPreferenceChange(OrdoRowFramePreferenceKey.self) { frames in
+                rowFrames = frames
+            }
             .scrollDismissesKeyboard(.interactively)
         }
         .background(OrdoColor.canvas)
@@ -100,16 +115,28 @@ public struct ListScreenView: View {
             beginComposer(in: nil)
             shell.requestComposer = false
         }
-        // 拖拽被取消时不会有任何 DropDelegate 回调,这里做状态兜底复位
+        // UI 规范 §5.4:Esc 取消拖拽(行回原位,不写库)
+        .onChange(of: shell.dragCancelToken) { _, _ in
+            cancelDrag()
+        }
+        // 拖拽被系统中断时不会有 onEnded,这里做状态兜底复位
         .onChange(of: draggingTodoId) { _, newValue in
             dragResetTask?.cancel()
             guard newValue != nil else { return }
             dragResetTask = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
                 guard !Task.isCancelled, draggingTodoId != nil else { return }
-                draggingTodoId = nil
-                dropTargetTodoId = nil
+                cancelDrag()
             }
+        }
+    }
+
+    /// 采集可视区域尺寸(用于「拖出窗口 → 取消」的判定)。
+    private var viewportReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { viewportSize = proxy.size }
+                .onChange(of: proxy.size) { _, size in viewportSize = size }
         }
     }
 
@@ -286,6 +313,8 @@ public struct ListScreenView: View {
     private func rowView(_ todo: OrdoTodo, in section: OrdoListSection) -> some View {
         let isExpanded = shell.expandedTodoId == todo.id
         let isCompleting = completing.contains { $0.todo.id == todo.id }
+        let isDragging = draggingTodoId == todo.id
+        let isReorderable = canReorder(section)
 
         VStack(alignment: .leading, spacing: 0) {
             TodoRowView(
@@ -293,6 +322,7 @@ public struct ListScreenView: View {
                 isExpanded: isExpanded,
                 isHighlighted: highlightedTodoId == todo.id,
                 isCompleting: isCompleting,
+                isLifted: isDragging,
                 projectName: environment.snapshot.project(id: todo.projectId)?.name,
                 tagColor: { name in environment.snapshot.tags.first { $0.name == name }?.color },
                 onToggleDone: { toggleDone(todo, in: section) },
@@ -304,7 +334,8 @@ public struct ListScreenView: View {
                 onSchedule: { shell.scheduleTarget = .when(todoId: todo.id) },
                 onDeadline: { shell.scheduleTarget = .deadline(todoId: todo.id) },
                 onTagTap: { name in shell.open(.tag(name)) },
-                onRestore: todo.status == .open ? nil : { restore(todo) }
+                onRestore: todo.status == .open ? nil : { restore(todo) },
+                frameCoordinateSpace: Self.listCoordinateSpace
             )
             .ordoSwipeActions(
                 leading: todo.status == .open
@@ -312,23 +343,29 @@ public struct ListScreenView: View {
                     : [],
                 trailing: [.delete { environment.deleteTodo(id: todo.id) }]
             )
-            .opacity(draggingTodoId == todo.id ? 0.45 : 1)
-            .modifier(OrdoReorderModifier(
-                isEnabled: canReorder(section),
-                todoId: todo.id,
-                isDropTarget: dropTargetTodoId == todo.id,
-                delegate: OrdoReorderDropDelegate(
-                    target: todo,
-                    section: section,
-                    dragging: $draggingTodoId,
-                    dropTarget: $dropTargetTodoId,
-                    onCommit: { moved in
-                        withAnimation(OrdoMotion.resolved(OrdoMotion.fastEase, reduceMotion: reduceMotion)) {
-                            _ = environment.reorderTodos(ids: moved)
-                        }
-                    }
-                )
+            // 规范 §5.4:被拖行 alpha 0.55
+            .opacity(isDragging ? OrdoMotion.Drag.draggedOpacity : 1)
+            .ordoRowFrame(id: todo.id, in: Self.listCoordinateSpace)
+            .modifier(OrdoLongPressDragModifier(
+                // 不可手动排序的分区仍保留「点击打开详情」,只是不进入拖拽
+                isEnabled: isReorderable,
+                isDragging: isDragging,
+                isDropTarget: dropTargetTodoId == todo.id && isReorderable,
+                coordinateSpace: Self.listCoordinateSpace,
+                onPressChange: { _ in },
+                onBegin: { beginDrag(todo.id) },
+                onMove: { location in updateDropTarget(dragging: todo.id, at: location, in: section) },
+                onEnd: { commitDrag(in: section) },
+                onCancel: { cancelDrag() },
+                onTap: { location in
+                    // §5.4:落在行内控件(复选框 / 排期 / 截止 / 恢复)上的点击由控件自己处理,
+                    // 否则一次点击会既完成待办又展开详情。
+                    guard !TodoRowView.isControlLocation(location, todoId: todo.id, frames: rowFrames) else { return }
+                    onRequestFocus()
+                    shell.toggleExpanded(todo.id)
+                }
             ))
+            .animation(OrdoMotion.resolved(OrdoMotion.Drag.othersShift, reduceMotion: reduceMotion), value: isDragging)
 
             if isExpanded {
                 TodoDetailView(todoId: todo.id, shell: shell, environment: environment)
@@ -386,6 +423,76 @@ public struct ListScreenView: View {
         ids.insert(moved, at: min(max(insertion, 0), ids.count))
         guard ids != todos.map(\.id) else { return nil }
         return ids
+    }
+
+    // MARK: 长按拖拽的状态流转(规范 §5.4)
+
+    /// 行抬起(长按 400ms 到点)。
+    private func beginDrag(_ todoId: String) {
+        draggingTodoId = todoId
+        dropTargetTodoId = nil
+    }
+
+    /// 拖拽中:把手指位置换算成投放目标行。
+    ///
+    /// 三种落空都视为「没有目标」(松手 = 不写库):
+    /// ① 位置落在任何行之外;② 拖出可视区域(规范 §5.4「拖出窗口」);③ 目标就是自己。
+    private func updateDropTarget(dragging todoId: String, at location: CGPoint, in section: OrdoListSection) {
+        guard draggingTodoId == todoId else { return }
+
+        let margin = OrdoSpacing.minTouchTarget * 2
+        if location.y < -margin || location.y > viewportSize.height + margin {
+            cancelDrag()
+            return
+        }
+
+        let candidates = section.todos.filter { candidate in
+            guard let frame = rowFrames[candidate.id] else { return false }
+            return location.y >= frame.minY && location.y <= frame.maxY
+        }
+        let target = candidates.first { $0.id != todoId }?.id
+            ?? nearestRow(to: location, in: section, excluding: todoId)
+        dropTargetTodoId = target
+    }
+
+    /// 兜底:取竖直方向上离手指最近的一行(行与行之间的空隙也能投放)。
+    private func nearestRow(to location: CGPoint, in section: OrdoListSection, excluding todoId: String) -> String? {
+        let best = section.todos
+            .filter { $0.id != todoId }
+            .compactMap { candidate -> (id: String, distance: CGFloat)? in
+                guard let frame = rowFrames[candidate.id] else { return nil }
+                return (candidate.id, abs(frame.midY - location.y))
+            }
+            .min { $0.distance < $1.distance }
+        return best?.id
+    }
+
+    /// 松手:位置变了才写库(规范 §5.4「位置未变则不写库」)。
+    private func commitDrag(in section: OrdoListSection) {
+        let sourceId = draggingTodoId
+        let targetId = dropTargetTodoId
+        defer {
+            draggingTodoId = nil
+            dropTargetTodoId = nil
+        }
+        guard let sourceId, OrdoLongPressDragState.shouldCommit(sourceId: sourceId, targetId: targetId),
+              let targetId,
+              let moved = Self.movedOrder(section.todos, moving: sourceId, before: targetId)
+        else { return }
+
+        withAnimation(OrdoMotion.resolved(OrdoMotion.Drag.drop, reduceMotion: reduceMotion)) {
+            _ = environment.reorderTodos(ids: moved)
+        }
+    }
+
+    /// 取消(Esc / 拖出窗口):行回原位,不写库(规范 §5.4)。
+    private func cancelDrag() {
+        dragResetTask?.cancel()
+        dragResetTask = nil
+        withAnimation(OrdoMotion.resolved(OrdoMotion.Drag.drop, reduceMotion: reduceMotion)) {
+            draggingTodoId = nil
+            dropTargetTodoId = nil
+        }
     }
 
     // MARK: 行内新建
@@ -636,99 +743,5 @@ public struct ListScreenView: View {
         let name = "新区域 \(environment.snapshot.areas.count + 1)"
         _ = environment.createArea(name: name)
         environment.toast("已创建区域:\(name)", kind: .success)
-    }
-}
-
-// MARK: - 拖拽排序的投放代理
-
-/// `onDrag` / `onDrop` 的桥接(delegate 形式,而不是 `.dropDestination(for:)`)。
-///
-/// 原因:delegate 能拿到**目标行的上下文**(分区 + 该行在分区中的位置),
-/// 可以明确算出「插到目标行之前」的新顺序;`Transferable` 形式在 iOS 17 上
-/// 还需要为局部使用的 `String` 声明 `UTType` 导出,多一层不必要的注册。
-///
-/// 标注 `@MainActor`:委托回调都在主线程触发,且它持有指向视图 `@State` 的 `Binding`
-/// (非 `Sendable`),限定主执行器可避免 Swift 6 严格并发下的「捕获非 Sendable 值」报错。
-@MainActor
-struct OrdoReorderDropDelegate: DropDelegate {
-
-    let target: OrdoTodo
-    let section: OrdoListSection
-    @Binding var dragging: String?
-    @Binding var dropTarget: String?
-    let onCommit: ([String]) -> Void
-
-    /// 数据变化时 SwiftUI 会调用;返回 true 让系统在拖拽过程中实时反馈。
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    /// 开始拖动新的一行时复位上一次的拖拽状态(上一次可能被取消而没走到 `performDrop`)。
-    func resetDragState(keeping todoId: String) {
-        dragging = todoId
-        dropTarget = nil
-    }
-
-    func dropEntered(info: DropInfo) {
-        dropTarget = target.id
-    }
-
-    func dropExited(info: DropInfo) {
-        if dropTarget == target.id { dropTarget = nil }
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        defer {
-            dragging = nil
-            dropTarget = nil
-        }
-        guard let sourceId = dragging, sourceId != target.id else { return false }
-        // 源与目标必须同容器(核心 order 的作用域),否则拒绝
-        guard Set(section.todos.map(AppEnvironment.containerKey(for:))).count == 1,
-              let source = section.todos.first(where: { $0.id == sourceId }),
-              AppEnvironment.containerKey(for: source) == AppEnvironment.containerKey(for: target),
-              let moved = ListScreenView.movedOrder(section.todos, moving: sourceId, before: target.id)
-        else { return false }
-
-        onCommit(moved)
-        return true
-    }
-}
-
-/// 行的拖拽 / 投放修饰器:仅当分区可排序时才挂上手势。
-struct OrdoReorderModifier: ViewModifier {
-
-    let isEnabled: Bool
-    let todoId: String
-    let isDropTarget: Bool
-    let delegate: OrdoReorderDropDelegate
-
-    func body(content: Content) -> some View {
-        if isEnabled {
-            content
-                // 长按后拖动:系统生成行快照作为拖拽预览(规范 §6)
-                .onDrag {
-                    // 兜底:上一次拖拽若被取消(没有命中任何投放目标),这里复位,避免行一直停在半透明态
-                    delegate.resetDragState(keeping: todoId)
-                    return NSItemProvider(object: todoId as NSString)
-                } preview: {
-                    Text("移动")
-                        .font(OrdoFont.caption)
-                        .padding(.horizontal, OrdoSpacing.s)
-                        .padding(.vertical, OrdoSpacing.xs)
-                        .background(Capsule().fill(OrdoColor.surface))
-                }
-                .onDrop(of: [.text], delegate: delegate)
-                .overlay(alignment: .top) {
-                    // 投放位置提示(不靠颜色单独传达状态:同时插入一条 2pt 强调线)
-                    Rectangle()
-                        .fill(OrdoColor.accent)
-                        .frame(height: 2)
-                        .opacity(isDropTarget ? 1 : 0)
-                        .accessibilityHidden(true)
-                }
-        } else {
-            content
-        }
     }
 }

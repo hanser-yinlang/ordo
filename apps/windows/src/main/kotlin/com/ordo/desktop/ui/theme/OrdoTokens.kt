@@ -134,7 +134,9 @@ object OrdoSize {
     val checkbox: Dp = 20.dp
     val checkboxStroke: Dp = 1.6.dp
     val sidebarItem: Dp = 34.dp
-    val fab: Dp = 52.dp
+
+    /** 快加号直径(04-UI规范 §5.2:只保留一个 56dp 的蓝色「+」) */
+    val fab: Dp = 56.dp
     val iconSm: Dp = 14.dp
     val icon: Dp = 18.dp
     val touchTarget: Dp = 32.dp

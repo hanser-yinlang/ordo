@@ -6,11 +6,24 @@
  */
 
 import { AppStore } from '../viewmodel/AppStore.ets';
-import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoRadius, OrdoSize, OrdoSpace, OrdoTheme, ThemeMode } from '../theme/Tokens.ets';
+import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoMotion, OrdoRadius, OrdoSize, OrdoSpace, OrdoTheme, ThemeMode } from '../theme/Tokens.ets';
 
 @Component
 export struct SettingsSheet {
   @ObjectLink store: AppStore;
+  /** 游客升级表单(契约 §7.6.2) */
+  @State private upgradeOpen: boolean = false;
+  @State private upgradeEmail: string = '';
+  @State private upgradePassword: string = '';
+
+  private submitUpgrade(): void {
+    this.store.upgradeGuest(this.upgradeEmail, this.upgradePassword).then((ok: boolean): void => {
+      if (ok) {
+        this.upgradeOpen = false;
+        this.upgradePassword = '';
+      }
+    });
+  }
 
   private c(): OrdoColorTokens {
     return OrdoColors.of(this.store.isDark());
@@ -94,11 +107,10 @@ export struct SettingsSheet {
       this.row('统计', this.store.statsText())
 
       this.sectionTitle('同步')
-      this.row('状态', this.store.syncText() + this.store.pendingText())
+      this.row('状态', this.store.refreshLabel() + this.store.pendingText())
       this.row('实时通道', this.store.syncStatus.realtimeConnected ? '已连接' : '未连接')
       this.row('服务端游标', this.store.syncStatus.lastServerSeq.toString())
       this.row('服务器地址', this.store.serverText())
-      this.row('账号', this.store.accountText())
       if (this.store.syncStatus.lastErrorText !== null) {
         this.row('最近错误', this.store.syncStatus.lastErrorText)
       }
@@ -113,37 +125,137 @@ export struct SettingsSheet {
           .borderRadius(OrdoRadius.pill)
           .textAlign(TextAlign.Center)
           .onClick(() => {
-            this.store.syncNow();
+            this.store.tapRefresh();
           })
-        if (this.store.isSignedIn()) {
-          Text('退出登录')
-            .fontSize(OrdoFont.caption.size)
-            .fontColor(this.c().stateDanger)
-            .backgroundColor(this.c().chipBg)
-            .height(32)
-            .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
-            .borderRadius(OrdoRadius.pill)
-            .textAlign(TextAlign.Center)
-            .onClick(() => {
-              this.store.logout();
-            })
-        } else {
-          Text('登录 / 注册')
-            .fontSize(OrdoFont.caption.size)
-            .fontColor('#FFFFFF')
-            .backgroundColor(this.c().stateSuccess)
-            .height(32)
-            .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
-            .borderRadius(OrdoRadius.pill)
-            .textAlign(TextAlign.Center)
-            .onClick(() => {
-              this.store.settingsOpen = false;
-              this.store.openLogin(false);
-            })
-        }
         Blank()
       }
       .width('100%')
+
+      this.sectionTitle('账号')
+      Row({ space: OrdoSpace.s }) {
+        Text(this.store.accountText())
+          .fontSize(OrdoFont.body.size)
+          .fontWeight(500)
+          .fontColor(this.c().textPrimary)
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.store.isGuest()) {
+          Text('游客')
+            .fontSize(OrdoFont.micro.size)
+            .fontColor(this.c().accentPrimary)
+            .backgroundColor(this.c().chipBg)
+            .height(OrdoSize.chipHeight)
+            .padding({ left: 6, right: 6 })
+            .borderRadius(OrdoRadius.pill)
+        }
+      }
+      .width('100%')
+      .height(28)
+
+      // 契约 §7.6.3:每个账号一份本地目录;这里把它显示出来,便于核对"没有串号"
+      this.row('账号标识', this.store.accountDetailText())
+      this.row('数据目录', this.store.userDirText())
+      this.row('库文件', this.store.dataPathText())
+
+      // 契约 §7.6.2:游客可升级为正式账号(userId 与数据都不变)
+      if (this.store.isGuest()) {
+        if (this.upgradeOpen) {
+          Column({ space: OrdoSpace.xs }) {
+            TextInput({ placeholder: '邮箱', text: this.upgradeEmail })
+              .type(InputType.Email)
+              .height(40)
+              .fontSize(OrdoFont.caption.size)
+              .backgroundColor(this.c().chipBg)
+              .borderRadius(OrdoRadius.row)
+              .onChange((v: string): void => {
+                this.upgradeEmail = v;
+                this.store.loginError = '';
+              })
+            TextInput({ placeholder: '口令(至少 6 位)', text: this.upgradePassword })
+              .type(InputType.Password)
+              .height(40)
+              .fontSize(OrdoFont.caption.size)
+              .backgroundColor(this.c().chipBg)
+              .borderRadius(OrdoRadius.row)
+              .onChange((v: string): void => {
+                this.upgradePassword = v;
+                this.store.loginError = '';
+              })
+            if (this.store.loginError.length > 0) {
+              Text(this.store.loginError)
+                .fontSize(OrdoFont.micro.size)
+                .fontColor(this.c().stateDanger)
+                .width('100%')
+            }
+            Row({ space: OrdoSpace.s }) {
+              Text('确认升级')
+                .fontSize(OrdoFont.caption.size)
+                .fontColor('#FFFFFF')
+                .backgroundColor(this.c().accentPrimary)
+                .height(32)
+                .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+                .borderRadius(OrdoRadius.pill)
+                .textAlign(TextAlign.Center)
+                .onClick((): void => {
+                  this.submitUpgrade();
+                })
+              Text('取消')
+                .fontSize(OrdoFont.caption.size)
+                .fontColor(this.c().textSecondary)
+                .backgroundColor(this.c().chipBg)
+                .height(32)
+                .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+                .borderRadius(OrdoRadius.pill)
+                .textAlign(TextAlign.Center)
+                .onClick((): void => {
+                  this.upgradeOpen = false;
+                  this.store.loginError = '';
+                })
+              Blank()
+            }
+            .width('100%')
+          }
+          .width('100%')
+        } else {
+          Row() {
+            Text('升级为正式账号')
+              .fontSize(OrdoFont.caption.size)
+              .fontColor(this.c().accentPrimary)
+              .height(32)
+              .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+              .borderRadius(OrdoRadius.pill)
+              .backgroundColor(this.c().chipBg)
+              .textAlign(TextAlign.Center)
+              .onClick((): void => {
+                this.upgradeOpen = true;
+              })
+            Blank()
+          }
+          .width('100%')
+        }
+      }
+
+      Row({ space: OrdoSpace.s }) {
+        Text('退出登录')
+          .fontSize(OrdoFont.caption.size)
+          .fontColor('#FFFFFF')
+          .backgroundColor(this.c().stateDanger)
+          .height(OrdoMotion.loginButtonHeight)
+          .padding({ left: OrdoSpace.l, right: OrdoSpace.l })
+          .borderRadius(OrdoRadius.row)
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.store.logout();
+          })
+        Blank()
+      }
+      .width('100%')
+
+      Text('退出登录只清除会话,本账号的本地数据目录会保留;下次用同一账号登录时数据仍在,联网后增量同步。')
+        .fontSize(OrdoFont.micro.size)
+        .fontColor(this.c().textTertiary)
+        .width('100%')
 
       this.sectionTitle('键盘与手势(鸿蒙)')
       this.row('新建待办', '快加号 / 长按')

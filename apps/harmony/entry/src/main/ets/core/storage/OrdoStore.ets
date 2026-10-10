@@ -39,6 +39,12 @@ export interface OrdoStore {
   /** 打开数据库并建表(幂等);RDB 实现需要 UIAbilityContext */
   init(): Promise<void>;
 
+  /**
+   * 该实例实际使用的库文件路径(仅用于设置页展示与自检;内存实现返回 '(内存)')。
+   * 契约 §7.6.3 硬约束要求每个账号一份独立目录,这个字符串就是"到底落在哪"的证据。
+   */
+  pathText(): string;
+
   /* ---- 读取 ---- */
   loadAreas(): Promise<Area[]>;
   loadProjects(): Promise<Project[]>;
@@ -94,4 +100,11 @@ export class KvKeys {
   static readonly USER_EMAIL: string = 'userEmail';
   static readonly BASE_URL: string = 'baseUrl';
   static readonly THEME_MODE: string = 'themeMode';
+  /**
+   * 该用户目录是否已经决定过"首次演示数据"(契约 §7.6.3:首次登录某账号且服务端无数据时才写)。
+   * 写在**用户目录**里:换账号等于换目录,标记天然互不影响。
+   */
+  static readonly SEEDED: string = 'ordo.seeded';
+  /** 上一次登录的邮箱(应用级;登录页回填用,不属于会话) */
+  static readonly LAST_EMAIL: string = 'ordo.lastEmail';
 }

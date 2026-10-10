@@ -7,11 +7,14 @@ import com.ordo.core.store.OrdoEngine
 import com.ordo.core.sync.AuthApi
 import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
+import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.PullResponse
 import com.ordo.core.sync.PushRequest
 import com.ordo.core.sync.PushResponse
 import com.ordo.core.sync.SnapshotResponse
 import com.ordo.core.sync.SyncApi
+import com.ordo.core.sync.UpgradeRequest
+import com.ordo.core.sync.UpgradeResponse
 import com.ordo.desktop.net.TokenStore
 import com.ordo.desktop.sync.SyncCoordinator
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +49,9 @@ class MultiWindowTest {
         override suspend fun register(request: AuthRequest): AuthResponse = error("测试不使用注册")
         override suspend fun login(request: AuthRequest): AuthResponse = error("测试不使用登录")
         override suspend fun refresh(refreshToken: String): AuthResponse = error("测试不使用刷新")
+        override suspend fun guest(request: GuestAuthRequest): AuthResponse = error("测试不使用游客登录")
+        override suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse =
+            error("测试不使用游客升级")
     }
 
     private fun setup(): Triple<InMemoryStorage, OrdoEngine, CoroutineScope> {

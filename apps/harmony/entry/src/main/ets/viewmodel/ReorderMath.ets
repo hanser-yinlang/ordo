@@ -53,10 +53,11 @@ export function sectionCanReorder(containers: string[]): boolean {
  *  - 向下拖(源在目标之上)→ 落在目标行**之后**(否则"往下拖一行"会变成空操作);
  *  - 向上拖(源在目标之下)→ 落在目标行**之前**。
  *
- * 落点公式与 iOS `ListScreenView.movedOrder` 同形(先移除自身,再以"移除后"的数组为基准插入),
- * 差别只在这里的插入下标取 `target` 而不是 `targetIndex - 1`:鸿蒙用的是通用拖拽(`onDragStart/onDrop`),
- * 落点最小单位是**整行**,拿不到 iOS/桌上端那种"指针是否越过行中点"的信息,
- * 因此按拖动方向表达意图(等价于桌上端"指针落在目标行下半部分"的结果)。
+ * 落点公式与 iOS `ListScreenView.movedOrder` 同形(先移除自身,再以"移除后"的数组为基准插入)。
+ *
+ * 现状(04 §5.4 长按拖拽落地后):`ListPage` 的手势路径改为按**落点下标**提交
+ * (`PressGesture.moveIdToIndex`,由位移换算半行取整),本函数保留为"按目标行提交"这一等价入口,
+ * 供 `ReorderMath.test` 与后续需要"拖到某一行"语义的场景使用。
  *
  * @returns 新的完整序列;不需要变更(同一条、找不到、或结果与原序列相同)时返回 null
  */

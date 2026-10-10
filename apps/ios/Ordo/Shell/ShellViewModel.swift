@@ -30,6 +30,10 @@ public final class ShellViewModel {
     public var isSettingsPresented = false
     /// 由快加号/快捷键发起的「打开行内新建输入框」请求(列表视图消费后置回 false)。
     public var requestComposer = false
+    /// ⌘R / Ctrl+R 的「立即同步」请求(状态栏刷新控件消费,UI 规范 §5.3 / §6)。
+    public var refreshRequestToken = 0
+    /// Esc 取消进行中的长按拖拽(UI 规范 §5.4「取消」路径,列表视图消费)。
+    public var dragCancelToken = 0
     /// 排期面板:为某条待办排期(`when`)或设置截止(`deadline`)。
     public enum ScheduleTarget: Equatable, Sendable {
         case when(todoId: String)
@@ -206,11 +210,20 @@ public final class ShellViewModel {
 
     /// ⌘N「新建待办」:与快加号**单击**同义 —— 请求列表视图打开行内输入框。
     ///
-    /// 原实现只置一个 `isQuickAddMenuPresented` 标志,而没有任何视图消费它
-    /// (SwiftUI 的 `.contextMenu` 只能由长按弹出,无法编程打开),
-    /// 于是 ⌘N 表现为「按了没有任何反应」。
+    /// 快加号菜单由 `QuickAddButton` 自己用「长按 400ms」实现(UI 规范 §5.2),
+    /// 因此这里只需要一个能被编程触发的「打开输入行」信号。
     public func beginQuickAdd() {
         requestComposer = true
+    }
+
+    /// 状态栏刷新控件 / ⌘R 的「立即同步」请求(规范 §5.3)。
+    public func requestRefresh() {
+        refreshRequestToken += 1
+    }
+
+    /// Esc 取消进行中的长按拖拽(规范 §5.4:取消 → 行回原位,不写库)。
+    public func cancelActiveDrag() {
+        dragCancelToken += 1
     }
 
     /// 在当前清单里新建一条待办(快加号单击行为)。

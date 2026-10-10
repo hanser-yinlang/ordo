@@ -58,6 +58,11 @@ public enum OrdoFont {
     /// 11 / 14 · 500
     public static let micro = Font.system(size: Size.micro, weight: .medium, design: .default)
 
+    /// 登录页品牌字(UI 规范 §5.1:24 / 32 · 600;清单大标题用 `display` 28/34,两者刻意不同)。
+    public static let loginBrand = Font.system(size: loginBrandSize, weight: .semibold, design: .default)
+    public static let loginBrandSize: CGFloat = 24
+    public static let loginBrandLineHeight: CGFloat = 32
+
     /// 等宽(备注中的 `代码`、调试信息)。
     public static let mono = Font.system(size: Size.caption, weight: .regular, design: .monospaced)
 

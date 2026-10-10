@@ -54,6 +54,12 @@ export interface ListRow {
   container: string;
   /** 该行当前是否允许拖拽排序 */
   dragEnabled: boolean;
+  /** 正被拖动(04 §5.4:scale 1.02 + 12dp 投影 + 背景 surface + alpha 0.55) */
+  lifted: boolean;
+  /** 拖拽期这一行的纵向让位量(vp;正数向下)。0 = 不动 */
+  shift: number;
+  /** 插入指示线的位置:'none' | 'top' | 'bottom'(2dp accent + 左端 4dp 圆点) */
+  dropLine: string;
   /** 分组标题文案 / 标题分组的名字 */
   label: string;
   /** 分组计数 */
@@ -73,6 +79,22 @@ export interface ListRow {
   calendarText: string;
 }
 
+/**
+ * 拖拽期给行序列的提示(04 §5.4)。由 ListPage 的手势状态机产出,
+ * 在 buildRows 末端折进行指纹 —— 因为 `LazyForEach` 只在**键变化**时才重建子组件,
+ * 光靠父组件重渲染传 @Prop 是刷不动已有行的(见本文件开头的键值口径说明)。
+ */
+export interface DragHint {
+  /** 正在被拖的待办 id(空串 = 没有拖拽) */
+  draggedId: string;
+  /** 被拖行相对按下点的纵向位移(vp) */
+  dy: number;
+  /** 同一容器内的落点下标 */
+  toIndex: number;
+  /** 行的纵向跨度(vp):让位量的步长 */
+  extent: number;
+}
+
 /** 组装行序列所需的输入(全部来自 AppStore 的派生缓存,不额外遍历实体) */
 export interface RowInput {
   /** 清单键(`list|projectId|areaId|tagName|keyword|showCompleted`) */
@@ -90,6 +112,8 @@ export interface RowInput {
   logbook: LogbookGroup[];
   /** 其余清单(收件箱/随时/某天/区域/标签/搜索)的扁平序列 */
   todos: Todo[];
+  /** 拖拽期提示(04 §5.4);不拖拽时省略,行指纹不受影响 */
+  drag?: DragHint;
 }
 
 /* ------------------------------------------------------------ 行指纹 */
@@ -159,6 +183,9 @@ function blankRow(kind: RowKind, id: string, rev: number): ListRow {
     todoId: '',
     container: '',
     dragEnabled: false,
+    lifted: false,
+    shift: 0,
+    dropLine: 'none',
     label: '',
     count: 0,
     tone: 'secondary',
@@ -317,8 +344,81 @@ export function buildRows(input: RowInput): ListRow[] {
     }
   }
   markDragEnabled(rows, listSupportsReorder(input.list));
+  const hint: DragHint | undefined = input.drag;
+  if (hint !== undefined && hint.draggedId.length > 0) {
+    applyDragHint(rows, hint);
+  }
   ensureUniqueIds(rows);
   return rows;
+}
+
+/**
+ * 把拖拽提示折进受影响的行(04 §5.4):
+ *  - 被拖行:lifted = true,shift = dy(跟手);
+ *  - 起点与落点之间的行:整体让位一个行跨度(动画 120ms);
+ *  - 落点行:显示插入指示线。
+ *
+ * `LazyForEach` 只在键变化时重建子组件,所以这些字段必须**折进行指纹**,
+ * 否则拖拽过程中界面不会动(行不会跟手、其它行也不会让位)。
+ */
+function applyDragHint(rows: ListRow[], hint: DragHint): void {
+  let draggedIndex: number = -1;
+  let container: string = '';
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].kind === 'todo' && rows[i].todoId === hint.draggedId) {
+      draggedIndex = i;
+      container = rows[i].container;
+      break;
+    }
+  }
+  if (draggedIndex < 0) {
+    return;
+  }
+  // 同一容器内的可见序列(与 ListPage.containerIds() 同一口径:顺序即屏幕顺序)
+  const seq: number[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (rows[i].kind === 'todo' && rows[i].container === container) {
+      seq.push(i);
+    }
+  }
+  let from: number = -1;
+  for (let k = 0; k < seq.length; k++) {
+    if (seq[k] === draggedIndex) {
+      from = k;
+      break;
+    }
+  }
+  if (from < 0) {
+    return;
+  }
+  let to: number = hint.toIndex;
+  if (to < 0) {
+    to = 0;
+  }
+  if (to > seq.length - 1) {
+    to = seq.length - 1;
+  }
+  const extent: number = hint.extent <= 0 ? 1 : hint.extent;
+  for (let k = 0; k < seq.length; k++) {
+    const row: ListRow = rows[seq[k]];
+    let shift: number = 0;
+    if (k === from) {
+      row.lifted = true;
+      shift = hint.dy;
+    } else if (from < to && k > from && k <= to) {
+      shift = -extent;
+    } else if (to < from && k >= to && k < from) {
+      shift = extent;
+    }
+    row.shift = shift;
+    if (k === to && to !== from) {
+      row.dropLine = to > from ? 'bottom' : 'top';
+    }
+    row.rev = foldNum(row.rev, Math.round(shift));
+    row.rev = foldNum(row.rev, row.lifted ? 1 : 0);
+    row.rev = fold(row.rev, row.dropLine);
+    row.key = row.id + '@' + row.rev.toString();
+  }
 }
 
 function emptyTitleOf(list: ListKind): string {

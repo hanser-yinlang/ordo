@@ -12,6 +12,7 @@ import { registerRoutes } from './routes';
 import { RouteDeps } from './routes/deps';
 import { registerErrorHandling } from './routes/errors';
 import { AuthService } from './services/auth';
+import { createMailSender, MailSender } from './services/mail';
 import { createPasswordHasher, PasswordHasher } from './services/password';
 import { TokenBucketLimiter } from './services/rate-limit';
 import { RealtimeService } from './services/realtime';
@@ -28,6 +29,11 @@ export interface BuildAppOptions {
   /** 覆盖日志级别(测试里常显式设为 info) */
   logLevel?: string;
   hasher?: PasswordHasher;
+  /**
+   * 覆盖发信通道(测试可注入内存实现以断言邮件正文;不传则按 config.mail 构造)。
+   * 契约 §7.6.5:console 通道写日志,http 通道 POST 到通用邮件网关。
+   */
+  mail?: MailSender;
   /** 复用外部构造的指标注册表(测试断言用);不传则内部创建 */
   metrics?: Metrics;
   /** 存储是否已降级(暴露到 /metrics 的 ordo_storage_degraded) */
@@ -38,6 +44,8 @@ export interface BuiltApp {
   app: FastifyInstance;
   deps: RouteDeps;
   hasher: PasswordHasher;
+  /** 实际使用的发信通道(测试断言 transport=http 时真的发了报文) */
+  mail: MailSender;
   limiter: TokenBucketLimiter;
   metrics: Metrics;
   purger: TombstonePurger;
@@ -58,7 +66,9 @@ export async function buildApp(
       degraded: options.degraded ?? false,
       wsConnections: () => realtime.totalConnections()
     });
-  const auth = new AuthService(repo, config, hasher);
+  // 发信通道:console(默认,写日志)/ http(POST 到通用邮件网关)。契约 §7.6.5。
+  const mail = options.mail ?? createMailSender(config);
+  const auth = new AuthService(repo, config, hasher, Date.now, mail);
   const reminders = new ReminderService(repo, realtime, config, Date.now, metrics);
   const sync = new SyncService(repo, config, realtime, reminders, Date.now, metrics);
   const limiter = new TokenBucketLimiter(config.rateLimit.capacity, config.rateLimit.refillPerSec);
@@ -77,6 +87,12 @@ export async function buildApp(
 
   // 清理任务的日志接到 Fastify 的结构化 logger(与 HTTP 日志同一格式)
   purger.logger = {
+    info: (obj, msg) => app.log.info(obj, msg),
+    warn: (obj, msg) => app.log.warn(obj, msg)
+  };
+  // 发信通道的日志同样接到 Fastify logger:console 通道的开发回显、http 通道的投递结果
+  // 都要走结构化日志(契约 §9:日志永不打印 token/口令;验证码只在非生产打印)。
+  mail.logger = {
     info: (obj, msg) => app.log.info(obj, msg),
     warn: (obj, msg) => app.log.warn(obj, msg)
   };
@@ -120,7 +136,7 @@ export async function buildApp(
   registerRoutes(app, deps);
   registerWsRoute(app, deps);
 
-  return { app, deps, hasher, limiter, metrics, purger };
+  return { app, deps, hasher, mail, limiter, metrics, purger };
 }
 
 /** 已登录请求按 userId 计数,匿名请求按 IP 计数 */

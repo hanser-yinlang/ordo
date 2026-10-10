@@ -57,6 +57,28 @@ export struct SettingsSheet {
     .height(40)
   }
 
+  /**
+   * 与 `row()` 相同,额外给**值文本**挂一个测试 id。
+   * 只为端到端取证(uitest dumpLayout 读取文本),不影响任何生产行为。
+   */
+  @Builder
+  rowId(label: string, value: string, valueId: string) {
+    Row({ space: OrdoSpace.s }) {
+      Text(label)
+        .fontSize(OrdoFont.body.size)
+        .fontColor(this.c().textPrimary)
+        .layoutWeight(1)
+      Text(value)
+        .fontSize(OrdoFont.caption.size)
+        .fontColor(this.c().textSecondary)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .id(valueId)
+    }
+    .width('100%')
+    .height(40)
+  }
+
   @Builder
   themeChip(mode: ThemeMode) {
     Text(OrdoTheme.label(mode))
@@ -86,6 +108,7 @@ export struct SettingsSheet {
           .width(OrdoSize.minTouchTarget)
           .height(OrdoSize.minTouchTarget)
           .textAlign(TextAlign.Center)
+          .id('ordo_settings_close')
           .onClick(() => {
             this.store.settingsOpen = false;
             this.store.bump();
@@ -110,7 +133,7 @@ export struct SettingsSheet {
       this.row('状态', this.store.refreshLabel() + this.store.pendingText())
       this.row('实时通道', this.store.syncStatus.realtimeConnected ? '已连接' : '未连接')
       this.row('服务端游标', this.store.syncStatus.lastServerSeq.toString())
-      this.row('服务器地址', this.store.serverText())
+      this.rowId('服务器地址', this.store.serverText(), 'ordo_settings_server')
       if (this.store.syncStatus.lastErrorText !== null) {
         this.row('最近错误', this.store.syncStatus.lastErrorText)
       }
@@ -140,6 +163,7 @@ export struct SettingsSheet {
           .layoutWeight(1)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .id('ordo_settings_account')
         if (this.store.isGuest()) {
           Text('游客')
             .fontSize(OrdoFont.micro.size)
@@ -154,8 +178,8 @@ export struct SettingsSheet {
       .height(28)
 
       // 契约 §7.6.3:每个账号一份本地目录;这里把它显示出来,便于核对"没有串号"
-      this.row('账号标识', this.store.accountDetailText())
-      this.row('数据目录', this.store.userDirText())
+      this.rowId('账号标识', this.store.accountDetailText(), 'ordo_settings_userid')
+      this.rowId('数据目录', this.store.userDirText(), 'ordo_settings_userdir')
       this.row('库文件', this.store.dataPathText())
 
       // 契约 §7.6.2:游客可升级为正式账号(userId 与数据都不变)
@@ -245,6 +269,7 @@ export struct SettingsSheet {
           .padding({ left: OrdoSpace.l, right: OrdoSpace.l })
           .borderRadius(OrdoRadius.row)
           .textAlign(TextAlign.Center)
+          .id('ordo_settings_logout')
           .onClick(() => {
             this.store.logout();
           })

@@ -187,6 +187,13 @@ fun OrdoTextField(
     label: String? = null,
     /** 口令框：内容掩码 + 显示/隐藏切换 */
     isPassword: Boolean = false,
+    /**
+     * 键盘类型；默认按 [isPassword] 推断。
+     * 验证码框传 `KeyboardType.NumberPassword`（纯数字键盘，契约 §7.6.5 的 6 位数字码）。
+     */
+    keyboardType: KeyboardType? = null,
+    /** 尾部插槽（如验证码框右侧的「获取验证码」）：不参与聚焦，点它不会丢焦点 */
+    trailing: (@Composable () -> Unit)? = null,
     enabled: Boolean = true,
     isError: Boolean = false,
     /** 提交中禁用时的遮罩透明度 */
@@ -257,7 +264,8 @@ fun OrdoTextField(
                 },
                 cursorBrush = SolidColor(colors.accent),
                 keyboardOptions = KeyboardOptions(
-                    keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text,
+                    keyboardType = keyboardType
+                        ?: if (isPassword) KeyboardType.Password else KeyboardType.Text,
                     imeAction = if (singleLine) ImeAction.Done else ImeAction.Default,
                 ),
                 keyboardActions = KeyboardActions(
@@ -297,6 +305,7 @@ fun OrdoTextField(
                 )
             }
         }
+        trailing?.invoke()
     }
 }
 

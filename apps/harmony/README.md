@@ -54,7 +54,7 @@ ordo/apps/harmony/
 │       │       │   ├── query/ListQuery.ets              §4 派生清单
 │       │       │   ├── nlp/NaturalDateParser.ets        §5 中文 NLP
 │       │       │   ├── repeat/RepeatEngine.ets          §6 重复引擎
-│       │       │   ├── sync/SyncApi|SyncEngine|RealtimeClient|SyncTypes.ets   §7 同步(含 §7.6 guest/upgrade)
+│       │       │   ├── sync/SyncApi|SyncEngine|RealtimeClient|SyncTypes.ets   §7 同步(含 §7.6 guest/upgrade + §7.6.5 邮箱验证码)
 │       │       │   ├── session/OrdoSession.ets          §7.6 会话 / 游客 / 按用户目录名(纯逻辑)
 │       │       │   ├── storage/OrdoStore|RelationalStore|MemoryStore.ets      §8 存储(账号库 + 应用级库)
 │       │       │   ├── notify/ReminderAgent.ets         reminderAgentManager 到点提醒
@@ -66,6 +66,7 @@ ordo/apps/harmony/
 │       │       ├── viewmodel/ReorderMath.ets            拖拽排序纯计算(容器键 / 落点 / 是否开放)
 │       │       ├── viewmodel/PressGesture.ets           04 §5.2/§5.4 长按 400ms + 6px 判定 + 落点换算(纯逻辑)
 │       │       ├── viewmodel/RefreshState.ets           04 §5.3 刷新控件状态机(纯逻辑)
+│       │       ├── viewmodel/EmailCodeState.ets          §7.6.5 验证码倒计时 + 满 6 位自动提交(纯逻辑)
 │       │       ├── view/{Sidebar,ListPage,DetailCard,ScheduleSheet,FastFindSheet,QuickAddButton}.ets
 │       │       ├── view/list/RowModel.ets               行模型 + 行指纹 + 行级差量 + 拖拽提示折进指纹(纯逻辑)
 │       │       ├── view/list/RowDataSource.ets          LazyForEach 数据源(BasicDataSource)
@@ -74,7 +75,7 @@ ordo/apps/harmony/
 │       │       ├── view/LoginPage.ets                   登录门禁 LoginGate(04 §5.1)+ 独立页 LoginPage
 │       │       ├── view/Common/{ProgressRing,EmptyState,OrdoToast,RefreshControl,GestureUtil}.ets
 │       │       └── pages/{Index,SettingsPage}.ets
-│       └── ohosTest/                  Hypium 九组用例 + 测试 Ability
+│       └── ohosTest/                  Hypium 十组用例 + 测试 Ability + testrunner(命令行 aa test 入口)
 ├── _qa/                               构建与自检脚本(非运行时代码,不参与打包)
 │   ├── build.ps1                      环境变量 + 构建 + 告警计数包装脚本
 │   ├── warn-report.ps1                解析构建日志里的 ArkTS 告警/错误
@@ -129,6 +130,17 @@ cd C:\Users\admin\Desktop\Ordo\ordo\apps\harmony
 
 产物:`entry/build/default/outputs/default/entry-default-unsigned.hap`(1375.5 KB)。
 
+同一命令在**第六轮**(2026-10-10,新增 §7.6.5 邮箱验证码登录后)的实测:
+
+```
+> hvigor Finished :entry:default@CompileArkTS... after 5 s 44 ms
+> hvigor BUILD SUCCESSFUL in 8 s 325 ms
+33 tasks in total: 17 executed, 16 up-to-date
+```
+
+产物:`entry-default-unsigned.hap`(1446.1 KB);ArkTS ERROR 0 / WARN 0,
+stderr 里只有既有的 `WARN: No signingConfig found for product default`。
+
 > **注意**:`DEVECO_SDK_HOME` 必须先设置。未设置时 hvigor 直接报
 > `ERROR: 00303217 Configuration Error / Invalid value of 'DEVECO_SDK_HOME'`。
 > 另外该命令会把 `WARN: No signingConfig found for product default` 写到 stderr,
@@ -144,30 +156,32 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -Clean        
 powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest       # 编译 ohosTest 测试代码
 ```
 
-### 3.3 签名配置缺失(当前无法上真机 / 模拟器)
+### 3.3 签名配置与"能不能上设备"(第六轮已实测)
 
 - 工程**故意留空 `signingConfigs`**(`build-profile.json5`),以免把本机证书路径提交进仓库;
-  因此当前产物是 **unsigned HAP**,`hdc install` 会因签名校验失败,
-  hvigor 也会提示 `WARN: No signingConfig found for product default`。
-- 本机 `%USERPROFILE%\.ohos\config` 下**没有**任何调试证书(已确认),所以现在**不能**签名,也不能跑 Hypium。
-- 补齐签名的两条路(都需要华为开发者账号):
+  hvigor 因此提示 `WARN: No signingConfig found for product default`,产物是 **unsigned HAP**。
+- 本机 `%USERPROFILE%\.ohos\config` 下**没有**任何调试证书(第六轮再次确认)。
+- **但鸿蒙模拟器接受 unsigned HAP**:第六轮在 `emulator 7.0.0.107(API 26)` 上实测
+  `hdc install entry-default-unsigned.hap` → `install bundle successfully`,
+  `hdc install entry-ohosTest-unsigned.hap` 同样成功,`aa test` 也能跑完整套用例(见 §3.4.3)。
+  所以**"无证书"只挡真机/上架,不挡模拟器**;早期"不能跑 Hypium"的结论据此更正。
+- 真机 / 上架仍需签名(两条路,都要华为开发者账号):
   1. **自动签名(推荐)**:DevEco Studio → `File > Project Structure > Signing Configs` →
      登录华为账号 → 勾选 **Automatically generate signature**。此操作会生成
      `%USERPROFILE%\.ohos\config\openharmony\default_*.p12/.cer/.p7b` 并自动回填 `signingConfigs`
      (**不要把这些路径提交进仓库**)。
   2. **手动签名**:在 AppGallery Connect 申请调试证书 + Profile,再用 SDK 自带的
-     `<DevEco>\sdk\default\openharmony\toolchains\lib\hap-sign-tool.jar` 对
-     `entry-default-unsigned.hap` 签名。
-- 签名完成后:`hdc install entry-default-signed.hap`,或 DevEco 里直接 `Run 'entry'`。
+     `<DevEco>\sdk\default\openharmony\toolchains\lib\hap-sign-tool.jar` 签名。
 
-### 3.4 无设备时如何跑测试
+### 3.4 跑测试(本机宿主 + 模拟器两条路)
 
-#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 116/116)
+#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 134/134)
 
-Hypium 用例在设备上跑需要签名,而本机没有证书。但**九组用例只依赖纯逻辑模块**
+Hypium 用例在设备上跑需要签名,而本机没有证书。但**十组用例只依赖纯逻辑模块**
 (`core/` 下除 `RelationalStore` / `RealtimeClient` / `SyncApi` / `ReminderAgent` 之外的模块,
 外加 `core/session/OrdoSession.ets`、`viewmodel/ReorderMath.ets`、`viewmodel/PressGesture.ets`、
-`viewmodel/RefreshState.ets`、`view/list/RowModel.ets`,全部不含 `@ohos`/`@kit` 依赖),
+`viewmodel/RefreshState.ets`、`viewmodel/EmailCodeState.ets`、`view/list/RowModel.ets`,
+全部不含 `@ohos`/`@kit` 依赖),
 断言也只用到 `describe` / `it` / `expect` + `assertEqual|assertTrue|assertFalse`。
 因此工程内提供了一套**本机宿主**,用 DevEco 自带的 tsc 编译后由 Node 真正执行:
 
@@ -182,20 +196,29 @@ python _qa\build-harness.py
 
 它做四件事:
 
-1. 把纯逻辑核心模块与 `ohosTest` 的九组用例复制到 `_qa/node-harness/src`,并去掉 `.ets` 后缀;
+1. 把纯逻辑核心模块与 `ohosTest` 的十组用例复制到 `_qa/node-harness/src`,并去掉 `.ets` 后缀;
 2. 用一个 Hypium 垫片(`_qa/node-harness/src/hypium-shim.ts`)实现 `describe/it/expect` 与断言,
    **真正 await 异步用例**(`async (done) => …` 形态,不会在断言执行前误判通过);
 3. 把时钟冻结到 **2026-10-08**(`freeze-clock.ts`)—— 用例注释明确写着"固定今天为 2026-10-08",
    但 `DateUtil.todayISO()` 一类路径仍会读系统时间,不冻结就会跨天假失败;
 4. `tsc`(strict + noImplicitAny + strictNullChecks)编译 → Node 运行 → 汇总,退出码 0 = 全通过。
 
-实测结果(第五轮 · 2026-10-10):
+实测结果(第六轮 · 2026-10-10,新增 §7.6.5 邮箱验证码登录):
 
 ```
-describe 块: 9      用例总数: 116      通过: 116      失败: 0
+describe 块: 11     用例总数: 134      通过: 134      失败: 0
 RESULT: ALL PASSED
 ```
 
+> 第六轮新增一组 18 条用例(总数 116 → 134,只增不减):
+> `EmailCodeState.test.ets`(§7.6.5:6 位 / 300s / 60s 常量、响应 `retryAfter` 起倒计时、
+> 缺值与超大 `retryAfter` 的兜底与夹取、按秒 tick 且到点恢复可点、请求中禁用与"发送中…"文案、
+> 只留数字并截到 6 位、满 6 位**只自动提交一次**且失败后可重试、`devCode` 只接受 6 位数字
+> (生产无回显时不依赖)、reset 清倒计时与提交记忆;以及 `details.reason` 四个 reason →
+> 中文提示、四个提示互不相同、命中 reason 优先于错误码、未命中回落错误码文案、
+> **错误体秒数字段名 `details.retryAfterSec`**(用错 `retryAfter` 时取不到秒数 → 回落 60s 兜底)、
+> details 缺失 / 非对象 / 字符串秒数 / 负数 / 小数都不抛异常)。
+>
 > 第五轮新增三组 31 条用例(总数 85 → 116,只增不减):
 > `Session.test.ets`(会话往返 / 游客标记 / displayName / 过期语义 / clear 只清会话 /
 > 损坏会话降级 / 无 userId 视为未登录 / **目录名清洗与防穿越** / 两个账号目录必不相同)、
@@ -217,30 +240,51 @@ RESULT: ALL PASSED
 ```powershell
 & "$deveco\tools\node\node.exe" "$deveco\tools\hvigor\bin\hvigorw.js" `
   --mode module -p module=entry@ohosTest -p product=default assembleHap --no-daemon
-# 实测(第五轮 · 2026-10-10):BUILD SUCCESSFUL in 7 s 302 ms,ArkTS WARN 0 / ERROR 0
-# 产物:entry/build/default/outputs/ohosTest/entry-ohosTest-unsigned.hap(1722.6 KB)
+# 实测(第六轮 · 2026-10-10,含 testrunner 与验证码用例):BUILD SUCCESSFUL,ArkTS WARN 0 / ERROR 0
+# 产物:entry/build/default/outputs/ohosTest/entry-ohosTest-unsigned.hap
 ```
 
-#### 3.4.3 设备上跑权威 Hypium
+#### 3.4.3 模拟器上跑权威 Hypium(**第六轮已实测 134/134**)
 
-1. 启动模拟器:DevEco Studio → `Device Manager` → 选中已部署的 **Pura X View**
-   (HarmonyOS 7.0.0 / API 26.0.0,x86_64)→ Start;或 USB 连真机并开启「开发者模式 + USB 调试」。
-2. 确认设备可见:`hdc list targets` 应列出设备号(DevEco 的 Device Manager 也会显示)。
-3. 右键 `entry/src/ohosTest` → **Run 'OhosTest'**;
-   或在选定 `entry` 模块的运行配置里把 Test 类型切到 `OhosTest` 后运行。
-4. 用例清单(`entry/src/ohosTest/ets/test/`,共九组):`NaturalDateParser.test.ets`(中文 NLP)、
-   `ListQuery.test.ets`(派生清单)、`RepeatEngine.test.ets`(重复引擎与月末溢出)、
-   `SyncMerge.test.ets`(§7.3 合并规则)、`RowModel.test.ets`(行序列与差量)、
-   `ReorderMath.test.ets`(拖拽排序数学)、`Session.test.ets`(契约 §7.6 会话/游客/目录名)、
-   `PressGesture.test.ets`(04 §5.2/§5.4 长按阈值与拖拽判定)、
-   `RefreshState.test.ets`(04 §5.3 刷新控件状态机)。
-5. 结果在 DevEco 的 Test 面板与 `<DevEco>\...\log` 中查看。
+设备:`emulator 7.0.0.107(SP8DEVC00E999R4P11)`,API 26(x86_64),`hdc list targets` = `127.0.0.1:5555 Connected`。
 
-> **两个前置条件**(缺一不可,都需要人工操作):
-> 1. **签名**(§3.3)—— 否则测试 HAP 无法安装,`Run 'OhosTest'` 会在安装阶段失败。
-> 2. **模拟器许可证** —— 本机 `Emulator.exe -license` 显示还有 2 份协议待接受。
->    首次启动模拟器时 DevEco 会弹出协议,需要**用户本人**点击同意
->    (这是与华为之间的法律协议,不应由工具代签)。命令行等价形式:`Emulator.exe -license accept`。
+```bash
+# 1) 装两个 HAP(模拟器接受 unsigned,见 §3.3)
+hdc install entry/build/default/outputs/default/entry-default-unsigned.hap
+hdc install entry/build/default/outputs/ohosTest/entry-ohosTest-unsigned.hap
+# 2) 命令行跑全部用例(TestRunner 会拉起 TestAbility → Hypium.hypiumTest(testsuite))
+hdc shell aa test -b com.ordo.app -m entry_test -s unittest OpenHarmonyTestRunner -s timeout 300000
+```
+
+实测输出(第六轮 · 2026-10-10,`_qa/ohostest-device-r6-runner.log`):
+
+```
+OHOS_REPORT_RESULT: stream=Tests run: 134, Failure: 0, Error: 0, Pass: 134, Ignore: 0
+OHOS_REPORT_CODE: 0
+TestFinished-ResultCode: 0
+TestFinished-ResultMsg: your test finished!!!
+```
+
+也可以只用 DevEco 面板:右键 `entry/src/ohosTest` → **Run 'OhosTest'**。
+用例清单(`entry/src/ohosTest/ets/test/`,共十组):`NaturalDateParser.test.ets`(中文 NLP)、
+`ListQuery.test.ets`(派生清单)、`RepeatEngine.test.ets`(重复引擎与月末溢出)、
+`SyncMerge.test.ets`(§7.3 合并规则)、`RowModel.test.ets`(行序列与差量)、
+`ReorderMath.test.ets`(拖拽排序数学)、`Session.test.ets`(契约 §7.6 会话/游客/目录名)、
+`PressGesture.test.ets`(04 §5.2/§5.4 长按阈值与拖拽判定)、
+`RefreshState.test.ets`(04 §5.3 刷新控件状态机)、
+`EmailCodeState.test.ets`(契约 §7.6.5 验证码倒计时 / 自动提交 / reason 文案)。
+
+> **命令行跑测试需要 `testrunner/OpenHarmonyTestRunner.ets`**(第六轮补):`aa test` 把
+> `-s unittest OpenHarmonyTestRunner` 解析成 HAP 内的 `ets/testrunner/OpenHarmonyTestRunner.abc`
+> 作为应用入口点,缺了它会以 `Cannot find module ...` 崩掉(`TestFinished-ResultCode: -1` / `App died`);
+> DevEco 面板走 TestAbility,不经过它。这也是首次真机跑测试暴露出的工程缺口。
+>
+> **真机跑测试与宿主的一个环境差异**:宿主把时钟冻结在 2026-10-08(`_qa/node-harness/src/freeze-clock.ts`),
+> 而设备上是真实日期。任何把期望日期写死的用例都只在"今天恰好是那天"时通过 ——
+> 第六轮真机首跑就抓到一条(`SyncMerge.test.ets` 的
+> `invariants_reminder_moves_inbox_to_today_and_aligns_date` 期望 `2026-10-08T18:00`,
+> 而引擎按契约把 reminder 日期平移到真实今天),已改为用 `todayISO()` 现算期望值。
+> 写新用例时请照此办理:**不要写死日期**。
 
 ### 3.5 真机 / 模拟器运行
 
@@ -249,8 +293,25 @@ RESULT: ALL PASSED
    `File > Sync and Refresh Project`。
 3. **配置签名**:见 §3.3。
 4. **构建**:`Build > Build Hap(s)/APP(s) > Build Hap(s)`,产物在 `entry/build/default/outputs/default/`。
-5. **运行**:选中 `entry` 模块 → `Run 'entry'`。
-6. **深链自测**(可选):
+5. **运行**:选中 `entry` 模块 → `Run 'entry'`;
+   或纯命令行(**模拟器无需签名**,第六轮实测):
+   ```bash
+   hdc list targets                                     # 期望 127.0.0.1:5555 Connected
+   hdc install entry/build/default/outputs/default/entry-default-unsigned.hap
+   hdc shell aa force-stop com.ordo.app
+   hdc shell aa start -a EntryAbility -b com.ordo.app
+   hdc shell snapshot_display -f /data/local/tmp/ordo.jpeg   # 截图取证
+   hdc file recv /data/local/tmp/ordo.jpeg _qa/ordo.jpeg
+   ```
+6. **UI 取证与自动化点击**(第六轮用它验证登录页):
+   ```bash
+   hdc shell uitest dumpLayout -p /data/local/tmp/layout.json   # 按 .id() 取控件 bounds
+   hdc shell uitest uiInput click <x> <y>
+   ```
+   第六轮实测(1320×2232 屏,`_qa/ordo-login-*.jpeg`):口令模式 / 验证码模式 / 空邮箱点
+   「获取验证码」→ 错误区显示「! 请输入有效的邮箱地址」三张截图;
+   `ordo_login_get_code` 的 bounds 为 `[902,1069][1170,1201]` = 268×132 px(3 倍密度下正好 44vp,满足 §8)。
+7. **深链自测**(可选):
    ```bash
    hdc shell aa start -a EntryAbility -b com.ordo.app -U "ordo://today"
    hdc shell aa start -a EntryAbility -b com.ordo.app -U "ordo://project/<项目id>"
@@ -292,7 +353,7 @@ RESULT: ALL PASSED
 | §7.3.4 清单项合并 | 按 id 合并 | `OrdoEngine.mergeChecklist` |
 | §7.3.5 删除墓碑 | 30 天 TTL | `OrdoEngine.recordTombstone` / `findTombstone` / `pruneTombstones` |
 | §7.3.6 空标题视为删除 | — | `applyRemoteTodo`(规则 6) / `setTodoTitle` |
-| §7.4 HTTP 接口 | 9 个端点 + 请求头 + 401 重放 | `core/sync/SyncApi.ets`(health/register/login/refresh/logout/snapshot/push/pull) |
+| §7.4 HTTP 接口 | 12 个端点 + 请求头 + 401 重放 | `core/sync/SyncApi.ets`(health/register/login/guest/upgrade/**email-code/email-login**/refresh/logout/snapshot/push/pull) |
 | §7.4 限制与错误码 | ≤500 ops / ≤256KB / ≤1000 pull;10 个错误码 | `Entities.ets` 常量 + `SyncTypes.errorText` + `SyncApi.push` 超限处理 |
 | §7.6.1 会话模型 | `userId/email?/isGuest/accessToken/refreshToken/expiresAt` | `core/session/OrdoSession.ets` · `OrdoSession` / `OrdoSessionHelper.isExpired` / `displayName` |
 | §7.6.1 会话存储 | `kv["ordo.session"]` | `OrdoSessionStore`(`KEY_SESSION = 'ordo.session'`),落在**应用级**库(`ordo-meta.db`) |
@@ -301,6 +362,9 @@ RESULT: ALL PASSED
 | §7.6.2 游客调 login 的引导 | `AUTH_INVALID_CREDENTIALS`(无口令可校验) | `SyncTypes.ERR_AUTH_GUEST_NEEDS_RESTORE` + `errorText()` 引导用「以游客身份继续」 |
 | §7.6.3 按 userId 隔离(**硬约束**) | 每账号一份目录、退出登录只清会话 | `OrdoSessionHelper.userDataDirName()` + `RdbOrdoStore(context, dirName, metaOnly)`(RDB `customDir`) |
 | §7.6.4 启动流程 | 读会话 → 有/无/过期三分支 | `AppStore.init()` → `enterSession()` / `authPhase` → `pages/Index.ets` 门禁 |
+| §7.6.5 `POST /v1/auth/email/code` | `{email}` → 202 `{sent,expiresIn:300,retryAfter:60}` | `SyncApi.requestEmailCode()` + `EmailCodeMachine.applySent()`(倒计时取响应 `retryAfter`) |
+| §7.6.5 `POST /v1/auth/email/login` | `{email,code,deviceId?,deviceName,platform}` → 与 register **同构**(未注册邮箱自动建号) | `SyncApi.emailLogin()` → `parseAuth()` → `AppStore.emailCodeLogin()` → `adoptSession()`(同一 userId / 同一份数据) |
+| §7.6.5 验证码错误 reason | 不新增错误码,`details.reason` 细化提示 | `SyncTypes.reasonText/errorTextWithReason` + `parseErrorDetails()`(`reason` + `retryAfterSec`) |
 | §8 存储 | 8 张表 + 字段名一致 + kv | `core/storage/RelationalStore.ets`(建表 SQL 与字段映射) |
 | §7.5 WebSocket | hello/ops/reminder/ping + ack + pong | `core/sync/RealtimeClient.ets` · `dispatch` |
 | §7.5 心跳与退避 | 心跳 25s / 超时 10s / 指数退避 | `SyncTypes.RealtimePolicy` + `RealtimeClient.startHeartbeat/scheduleReconnect` |
@@ -322,7 +386,7 @@ RESULT: ALL PASSED
 | §4 快找浮层(输入 44 / 结果行 36) | `view/FastFindSheet.ets` |
 | §4 提示条(底部居中 pill,2.4s) | `Common/OrdoToast.ets`;带「撤销」动作时停留 4s(见 §7.3 的删除可撤销) |
 | §5 完成动效 | `view/list/TodoRow.ets`(透明度/动画)+ `OrdoMotion` 常量;`Common/ProgressRing` 100% 脉冲 |
-| §5.1 登录页 | `view/LoginPage.ets`(卡片 400 / 浮动标签 / 口令显示隐藏 / 提交转圈 / 错误抖动 / 进入动效 / 三个入口) |
+| §5.1 登录页 | `view/LoginPage.ets`(卡片 400 / 浮动标签 / 口令显示隐藏 / 提交转圈 / 错误抖动 / 进入动效 / 三个入口 / **口令登录 ↔ 验证码登录同级页签**) |
 | §5.2 快加号集群 | `view/QuickAddButton.ets`(只保留 56 单按钮;单击开输入行、**长按 400ms** 出菜单、展开旋转 45°、面板 0.9→1 + 菜单项错位 40ms) |
 | §5.3 刷新控件 | `view/Common/RefreshControl.ets` + `viewmodel/RefreshState.ets`(28dp 图标 + 文字;同步中连转 900ms/圈;成功 success `已同步` 1.4s;失败 danger `同步失败,点击重试`) |
 | §5.4 长按拖拽 | `viewmodel/PressGesture.ets` + `ListPage` 的长按手势 + `RowModel.applyDragHint`(抬起 1.02 + 投影 + alpha 0.55、插入指示线 2dp + 4dp 圆点、其余行让位 120ms、取消路径) |
@@ -358,10 +422,26 @@ RESULT: ALL PASSED
 |---|---|---|
 | 登录 / 注册 | 主按钮(高 44,radius 10,accent)+ 底部文本链接切模式 | `AppStore.login/register` |
 | **以游客身份继续** | **与主按钮同级**的次要按钮(surface 底 + hairline 描边,同高 44) | `AppStore.continueAsGuest()` → `SyncApi.guest()` |
+| **验证码登录**(§7.6.5) | 卡片内「口令登录 / 验证码登录」两个同级页签(各高 44,选中 accent 文字 + 2px 指示条) | `AppStore.requestEmailCode/emailCodeLogin` → `SyncApi.requestEmailCode/emailLogin` |
 | 服务器地址 | 卡片底部折叠项(默认收起) | `store.setBaseUrl()` 写应用级 kv 并热切换 `SyncApi`/WS 地址 |
 
 游客登录与正式登录走**完全相同**的后续路径(写会话 → 开该 userId 目录 → 首次快照 → 同步),
 因此"体验对等"是结构上的,不是靠文案保证的。
+
+#### 6.2.1 邮箱验证码登录(契约 §7.6.5,v1.3)
+
+免密登录:**未注册的邮箱由服务端自动建号**,已注册则直接登录该账号;客户端不需要区分"登录 / 注册"。
+
+| 项 | 实现 |
+|---|---|
+| 请求验证码 | `POST /v1/auth/email/code {email}` → 202 `{sent, expiresIn:300, retryAfter:60}`;`SyncApi.requestEmailCode(email)` |
+| 登录 | `POST /v1/auth/email/login {email, code, deviceId, deviceName, platform:'harmony'}` → 与 register/login/guest **同构**;`SyncApi.emailLogin()` → `parseAuth()` → `AppStore.adoptSession()`(同一 userId / 同一份云端数据 / 同一套 refreshToken) |
+| 倒计时与置灰 | `viewmodel/EmailCodeState.ets` 的 `EmailCodeMachine`:`applySent(expiresIn, retryAfter, now)` 起倒计时,`tick(now)` 按秒推进,`canRequest(now)` 决定「获取验证码」是否可点;文案 `获取验证码 / 60s 后重取 / 发送中…`。登录页每秒 `store.tickEmailCode()`,**只有秒数变化才重绘** |
+| 满 6 位自动提交 | 输入框 `onChange` 先 `normalizeCode()`(只留数字、截 6 位),再由 `shouldAutoSubmit(code)` 判定;`markSubmitted()` 保证**同一串验证码只自动提交一次**,`markSubmitFailed()` 允许失败后重试 |
+| `devCode`(仅开发模式) | `EmailCodeMachine.validDevCode()` 只接受 6 位数字;非空时自动填入并尝试自动提交。**生产恒为空,界面不依赖它**(照常手输) |
+| 错误提示 | 不新增错误码(§7.4 冻结枚举):`SyncTypes.reasonText()` 把 `code_invalid` / `code_expired` / `code_attempts_exceeded` / `code_throttled` 映射成中文,`errorTextWithReason(code, reason)` 命中 reason 时优先于通用文案;`SyncTypes.parseErrorDetails()` 从 `error.details` 取回 `reason` 与 `retryAfterSec`,`SyncApi.toApiError()` 填进 `OrdoApiError` |
+| 限流兜底 | 429 `RATE_LIMITED` 时优先用错误体的 `details.retryAfterSec` 起倒计时(**注意:错误体里是 `retryAfterSec`,成功响应顶层才是 `retryAfter`**);没带该字段才回落到契约的 60s(`EMAIL_CODE_RESEND_SECONDS`),避免"点了没反应还一直点";服务端给的荒唐大值会被夹到 1 小时(`EMAIL_CODE_MAX_RESEND_SECONDS`) |
+| 视觉基线 | 验证码框沿用口令框那套:Stack(`Alignment.TopStart`)+ 固定基线浮动标签 + 画布底 + 发丝描边;右侧按钮点击区 44(§8);错误沿用同一个错误区与抖动 |
 
 ### 6.3 按 userId 隔离(§7.6.3 硬约束)
 
@@ -391,12 +471,18 @@ RESULT: ALL PASSED
 | 提交中禁用 + 16dp 转圈 | `LoadingProgress(16)` 在按钮内;`loginBusy` 期间输入框、主按钮、游客按钮全部禁用 |
 | 错误区固定预留 20 高 + 抖动 | `.height(20)` 恒定;失败时 `keyframeAnimateTo` 播放 6/-6/3/-3/0(每段 64ms = 320ms) |
 | 触控目标 ≥44、错误不只靠颜色 | 底部链接高 44;错误同时给 `!` 字形与文案 |
+| 登录方式同级切换(§7.6.5) | 品牌区下方「口令登录 / 验证码登录」两个等宽页签(各高 44;选中 accent 文字 + 2px 指示条,未选中 `textTertiary`),切换时清错误区不动已填邮箱 |
+| 验证码框 | 与口令框同一基线(Stack `Alignment.TopStart` + 固定基线浮动标签 + 画布底 + 发丝描边);`InputType.Number` + `maxLength(6)` + `normalizeCode()`;右侧「获取验证码」点击区 44,倒计时期间文字转 `textTertiary` 且 `enabled(false)` |
 
 ### 6.5 AppStore 对外成员(会话相关)
 
 - 状态:`authPhase`(`booting|login|entering|ready`)/ `session` / `userDir` / `accountEmail` /
-  `loginBusy` / `loginError` / `loginPrefersRegister` / `baseUrl` / `dragActive` / `dragCancelSeq`
+  `loginBusy` / `loginError` / `loginPrefersRegister` / `baseUrl` / `dragActive` / `dragCancelSeq` /
+  `emailCode`(`EmailCodeMachine`)/ `codeRequestBusy` / `emailCodeDevCode` / `emailCodeTtl`
 - 方法:`login(email, pwd)` / `register(email, pwd)` / `continueAsGuest()` / `upgradeGuest(email, pwd)` /
+  `requestEmailCode(email)` / `emailCodeLogin(email, code, deviceId)` /
+  `codeCanRequest()` / `codeButtonLabel()` / `codeRequesting()` / `codeCounting()` / `codeRemaining()` /
+  `tickEmailCode()` / `shouldAutoSubmitCode(code)` / `devEchoCode()` / `codeTtlText()` /
   `logout()` / `completeEnter()` / `isSignedIn()` / `isGuest()` / `accountText()` / `accountDetailText()` /
   `userDirText()` / `dataPathText()` / `setBaseUrl(url)` / `serverText()` / `setLoginPrefersRegister(b)` /
   `requestDragCancel()` / `tapRefresh()` / `refreshLabel()` / `refreshTone()` / `refreshSpinning()` /
@@ -596,14 +682,18 @@ RESULT: ALL PASSED
 
 ## 10. 已知限制 / 未完成项
 
-- **未签名 / 未上真机**:本机没有调试证书,产物为 unsigned HAP,`hdc install` 会失败;
-  纯逻辑用例可在本机宿主里真实执行(§3.4.1),但**设备上的 Hypium 与真机手势仍未跑过**。
+- **未签名**:本机没有调试证书,产物为 unsigned HAP;**模拟器接受 unsigned**(第六轮实测:两个 HAP 都能装、
+  `aa test` 能跑完 **134/134**),但**真机 / 上架仍需签名**(§3.3)。
 - **未接入真实后端**:`SyncApi` 默认 `https://api.ordo.app`,可在登录页「服务器地址」或设置页改;
-  登录/注册/**游客登录**/升级为正式账号的 UI 与地址切换都已完成(§6),但**尚无可用服务端**做端到端联调。
-- **登录门禁只在本机静态验证**:`authPhase` 三分支(有会话/无会话/过期)的页面切换、淡入淡出、
-  抖动动效都只在编译与纯逻辑层面验证过(会话判定与状态机有 31 条用例覆盖),**没有真机点击验证**。
+  登录/注册/**游客登录**/升级为正式账号/邮箱验证码登录的 UI 与地址切换都已完成(§6),
+  但**尚无可用服务端**做端到端联调 —— 邮箱验证码的**发信/校验链路**未跑过真实服务端,
+  只验证到"未填邮箱 → 客户端拦截提示"这一段;`retryAfter` 倒计时、`reason` 文案、`devCode` 自动填入
+  由宿主与设备上的纯逻辑用例覆盖,`SyncApi` 的 HTTP 编解码本身仍是静态验证。
+- **登录门禁的设备验证到"页面级"**:`authPhase` 三分支(有会话/无会话/过期)的页面切换与登录页渲染
+  已在模拟器上截图核对(口令模式 / 验证码模式 / 空邮箱错误态,`_qa/ordo-login-*.jpeg`),
+  但**没有真实账号完成一次成功登录**(需要服务端),淡入淡出与抖动动效的观感仍靠静态核对。
 - **手势与帧率未在设备上实测**:左右滑动作区、长按拖拽(400ms/6px)、`LazyForEach` 的真实滚动帧率都只在
-  编译与纯逻辑层面验证过;阈值本身有用例钉住,但"手感"未验。
+  编译与纯逻辑层面验证过;阈值本身有用例钉住(设备上也跑过),但"手感"未验。
 - **拖拽跟手靠行键变化**:`LazyForEach` 只在键变化时重建行,所以拖拽位移被折进了行指纹
   (`RowModel.applyDragHint`)。代价是拖动中被拖行会按帧重建,长列表下的帧率未实测;
   若真机上偏卡,兜底是只把「让位行」折进指纹、被拖行改用 `translate` 属性动画。
@@ -633,3 +723,5 @@ RESULT: ALL PASSED
 | 2026-10-09 | P0:新增**本机逻辑测试宿主**(§3.4.1),四组 Hypium 用例在本机真实执行 **55/55 通过**;据此修掉 3 个真 bug(`firstOccurrenceOnOrAfter` 边界、`下下周三` 周偏移双重计入、`upcoming` 重复待办被丢弃)与 1 处落后断言(§8.4);`_qa/build-harness.py` + `_qa/node-harness/` |
 | 2026-10-09 | 第三轮(鸿蒙端):① 列表渲染改 **`List + LazyForEach` + 行数据源**(§7.3),1000 条待办下"改一行 = 1 行重建、拖拽 = 0 重建";新增 `view/list/{RowModel,RowDataSource,TodoRow,SwipeActionBar}.ets`、`viewmodel/ReorderMath.ets`;② **左右滑手势**(右滑完成 / 左滑删除 + 排期,删除可撤销)与 **长按拖拽排序**(提交同容器完整可见序列,跨容器拒绝)(§7.4);③ 引擎补 `reorderTodos(ids)` / `restoreDeletedTodo(id)`;④ 新增 `_qa/row-perf-harness.mjs`(真实行模型在 Node 上评测,§7.3)+ `RowModel/ReorderMath` 两组 Hypium 用例(宿主内 **82/82 通过**) |
 | 2026-10-10 | **第五轮**:① 契约 §7.6 落地——新增 `core/session/OrdoSession.ets`(会话 / 游客 / `userDataDirName`)、`SyncApi.guest()/upgrade()`、`AuthUser.isGuest`;② §7.6.3 按 userId 隔离:应用级 `ordo-meta.db`(会话/设备/地址/外观)+ 账号级 `<databaseDir>/rdb/<userId>/ordo.db`,设置页显示账号与目录并提供退出登录;③ §5.1 登录门禁:重写 `view/LoginPage.ets`(卡片 400 / 浮动标签 / 口令显示隐藏 / 提交转圈 / 错误抖动 / 进入与淡出淡入 / 游客为同级次要按钮),`pages/Index.ets` 按 `authPhase` 门禁;④ §5.2 快加号:去掉多余元素、直径 56、长按 400ms 出菜单、旋转 45°、面板与菜单项错位动效;⑤ §5.3 刷新控件:新增 `view/Common/RefreshControl.ets` + `viewmodel/RefreshState.ets`(连转 / success 1.4s / danger 常驻);⑥ §5.4 长按拖拽:新增 `viewmodel/PressGesture.ets`,去掉系统通用拖拽,补插入指示线与取消路径(返回键);⑦ 宿主新增三组 31 条用例(**116/116 通过**),并修掉宿主里写死的旧工程路径(`WeChat\ordo` → 自推导) |
+| 2026-10-10 | **第六轮 · 邮箱验证码登录(契约 §7.6.5)**:① `SyncApi` 新增 `requestEmailCode(email)`(`POST /v1/auth/email/code`,202 `{sent,expiresIn,retryAfter,devCode}`)与 `emailLogin(email, code, deviceId, deviceName)`(`POST /v1/auth/email/login`,与 register/login/guest 同构,复用 `parseAuth`);② 错误细化:`SyncTypes` 新增 `reasonText / errorTextWithReason / parseErrorDetails`(`details.reason` + **错误体的 `details.retryAfterSec`**,不新增错误码),`OrdoApiError` 带上 `reason / retryAfterSec`;③ `AppStore` 新增 `requestEmailCode(email)`(按响应 `retryAfter` 起倒计时;429 时优先用 `details.retryAfterSec`,兜底 60s,夹取 1 小时)与 `emailCodeLogin(email, code, deviceId)`(校验 6 位 → `adoptSession`,未注册邮箱自动建号);④ 新增纯逻辑 `viewmodel/EmailCodeState.ets`(`EmailCodeMachine`:倒计时 / 置灰 / 满 6 位自动提交去重 / `devCode` 容错,不依赖 ArkUI);⑤ `view/LoginPage.ets` 新增「口令登录 / 验证码登录」同级页签与验证码框(沿用浮动标签 / 发丝描边 / 错误抖动基线,右侧「获取验证码」点击区 44,`devCode` 自动填入),并补 `ordo_login_tab_* / ordo_login_get_code` 测试 id;⑥ 宿主新增一组 18 条用例(**134/134 通过**),`assembleHap` 与 ohosTest 两个 HAP 均 BUILD SUCCESSFUL、ArkTS ERROR 0 |
+| 2026-10-10 | **第六轮 · 模拟器验证(首次真机跑测试)**:① 补齐 `ohosTest/ets/testrunner/OpenHarmonyTestRunner.ets` —— 此前 `aa test` 因缺该入口点直接 `App died`(ResultCode -1),DevEco 面板走 TestAbility 所以一直没暴露;② 模拟器(`emulator 7.0.0.107` / API 26)实测:`hdc install` unsigned HAP 成功(更正 §3.3 旧结论),`aa test -b com.ordo.app -m entry_test -s unittest OpenHarmonyTestRunner` → **`Tests run: 134, Failure: 0, Error: 0, Pass: 134`,`TestFinished-ResultCode: 0`**;③ 真机首跑抓到一条**写死日期的既有用例**(`SyncMerge.test.ets` 的 `invariants_reminder_moves_inbox_to_today_and_aligns_date` 期望 `2026-10-08T18:00`,而设备真实日期下引擎按契约把 reminder 平移到今天 = `2026-10-10T18:00`),改为用 `todayISO()` 现算期望;④ 用 `uitest dumpLayout` + `snapshot_display` 做了三张真机截图(口令模式 / 验证码模式 / 空邮箱点「获取验证码」的错误态,`_qa/ordo-login-*.jpeg`),并实测「获取验证码」点击区 = 268×132 px(3x 密度 = 44vp,满足 §8) |

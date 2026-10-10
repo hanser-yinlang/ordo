@@ -3,6 +3,8 @@
 //  Ordo
 //
 //  契约 §7.4 鉴权接口:`/v1/auth/register|login|refresh|logout`。
+//  契约 §7.6.2 游客登录与升级:`/v1/auth/guest|upgrade`。
+//  契约 §7.6.5 邮箱验证码登录:`/v1/auth/email/code|email/login`。
 //  同时实现 `OrdoTokenRefresher`,供 `OrdoHTTPClient` 做 401 自动重放。
 //
 
@@ -78,6 +80,29 @@ public actor URLSessionAuthApi: OrdoAuthAPI, OrdoTokenRefresher {
         return try await client.send(
             OrdoEndpoint(method: "POST", path: "/v1/auth/upgrade", body: body, authorized: true, bearerToken: accessToken),
             as: OrdoUpgradeResponse.self
+        )
+    }
+
+    // MARK: 邮箱验证码登录(契约 §7.6.5,v1.3 新增)
+
+    /// 请求 6 位验证码:`202 {sent, expiresIn, retryAfter}`。
+    /// 60s 内同一邮箱重复请求 → `429 RATE_LIMITED`,`details.reason = code_throttled`
+    /// (新秒数在 **`details.retryAfterSec`**,不是成功体的 `retryAfter`)。
+    public func requestEmailCode(_ request: OrdoEmailCodeRequest) async throws -> OrdoEmailCodeSent {
+        let body = try OrdoJSON.encode(request)
+        return try await client.send(
+            OrdoEndpoint(method: "POST", path: "/v1/auth/email/code", body: body, authorized: false),
+            as: OrdoEmailCodeSent.self
+        )
+    }
+
+    /// 验证码登录:响应与 register/login/guest **同构**;未注册邮箱由服务端自动建号。
+    /// 错码 / 过期 / 超次 → `401 AUTH_INVALID_CREDENTIALS`(`details.reason` 见契约 §7.6.5)。
+    public func emailLogin(_ request: OrdoEmailCodeLoginRequest) async throws -> OrdoAuthSession {
+        let body = try OrdoJSON.encode(request)
+        return try await client.send(
+            OrdoEndpoint(method: "POST", path: "/v1/auth/email/login", body: body, authorized: false),
+            as: OrdoAuthSession.self
         )
     }
 

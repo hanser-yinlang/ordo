@@ -177,6 +177,76 @@ public struct OrdoUpgradeResponse: Codable, Sendable {
     public var user: OrdoUser
 }
 
+// MARK: - 邮箱验证码登录(契约 §7.6.5,v1.3 新增)
+
+/// `POST /v1/auth/email/code` 的请求体(与核心 `sync.EmailCodeRequest` 一致)。
+public struct OrdoEmailCodeRequest: Codable, Sendable {
+    public var email: String
+
+    public init(email: String) {
+        self.email = email
+    }
+}
+
+/// `POST /v1/auth/email/code` 的响应(与核心 `sync.EmailCodeSent` 一致,202 受理)。
+///
+/// · `expiresIn`:验证码有效期(秒),契约默认 **300**;
+/// · `retryAfter`:同一邮箱再次请求的最小间隔(秒),契约默认 **60**,客户端据此跑倒计时;
+/// · `devCode`:**仅开发模式**(`ORDO_MAIL_TRANSPORT=console` 且 `ORDO_DEV_ECHO_CODE=1`)才回显,
+///   生产环境恒为 `nil`。它只用于本地联调时自动填入输入框,**任何生产路径都不得依赖**。
+///
+/// 字段全部按「缺省即契约默认值」解码,避免老服务端少回一个字段就整条响应解码失败。
+public struct OrdoEmailCodeSent: Codable, Sendable {
+    public var sent: Bool
+    public var expiresIn: Int64
+    public var retryAfter: Int64
+    public var devCode: String?
+
+    public init(sent: Bool = true, expiresIn: Int64 = 300, retryAfter: Int64 = 60, devCode: String? = nil) {
+        self.sent = sent
+        self.expiresIn = expiresIn
+        self.retryAfter = retryAfter
+        self.devCode = devCode
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case sent, expiresIn, retryAfter, devCode
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.sent = try container.decodeIfPresent(Bool.self, forKey: .sent) ?? true
+        self.expiresIn = try container.decodeIfPresent(Int64.self, forKey: .expiresIn) ?? 300
+        self.retryAfter = try container.decodeIfPresent(Int64.self, forKey: .retryAfter) ?? 60
+        self.devCode = try container.decodeIfPresent(String.self, forKey: .devCode)
+    }
+}
+
+/// `POST /v1/auth/email/login` 的请求体(与核心 `sync.EmailCodeLoginRequest` 一致)。
+///
+/// 响应与 register/login/guest **同构**(`OrdoAuthSession`);邮箱未注册时服务端**自动建号**。
+public struct OrdoEmailCodeLoginRequest: Codable, Sendable {
+    public var email: String
+    public var code: String
+    public var deviceId: String?
+    public var deviceName: String
+    public var platform: String
+
+    public init(
+        email: String,
+        code: String,
+        deviceId: String? = nil,
+        deviceName: String,
+        platform: String = "ios/1.0.0"
+    ) {
+        self.email = email
+        self.code = code
+        self.deviceId = deviceId
+        self.deviceName = deviceName
+        self.platform = platform
+    }
+}
+
 public struct OrdoDeviceRegistration: Codable, Sendable {
     public var deviceId: String
     public var deviceName: String
@@ -354,6 +424,10 @@ public protocol OrdoAuthAPI: Sendable {
     func guest(_ request: OrdoGuestAuthRequest) async throws -> OrdoAuthSession
     /// 契约 §7.6.2:把游客账号升级为正式账号(userId 与数据不变)。
     func upgrade(accessToken: String, _ request: OrdoUpgradeRequest) async throws -> OrdoUpgradeResponse
+    /// 契约 §7.6.5:请求邮箱验证码(`202`;60s 内重复 → `429 RATE_LIMITED` / `code_throttled`)。
+    func requestEmailCode(_ request: OrdoEmailCodeRequest) async throws -> OrdoEmailCodeSent
+    /// 契约 §7.6.5:验证码登录(邮箱未注册时服务端自动建号)。
+    func emailLogin(_ request: OrdoEmailCodeLoginRequest) async throws -> OrdoAuthSession
 }
 
 public extension OrdoAuthAPI {
@@ -368,6 +442,30 @@ public extension OrdoAuthAPI {
     /// 与核心 `AuthApi.guest(GuestAuthRequest)` 同名同参。
     func guest(deviceId: String? = nil, deviceName: String, platform: String = "ios/1.0.0") async throws -> OrdoAuthSession {
         try await guest(OrdoGuestAuthRequest(deviceId: deviceId, deviceName: deviceName, platform: platform))
+    }
+
+    /// 与核心 `AuthApi.requestEmailCode(EmailCodeRequest)` 同名同参。
+    func requestEmailCode(email: String) async throws -> OrdoEmailCodeSent {
+        try await requestEmailCode(OrdoEmailCodeRequest(email: email))
+    }
+
+    /// 与核心 `AuthApi.emailLogin(EmailCodeLoginRequest)` 同名同参(deviceId 缺省由请求头 `X-Ordo-Device` 携带)。
+    func emailLogin(
+        email: String,
+        code: String,
+        deviceId: String? = nil,
+        deviceName: String,
+        platform: String = "ios/1.0.0"
+    ) async throws -> OrdoAuthSession {
+        try await emailLogin(
+            OrdoEmailCodeLoginRequest(
+                email: email,
+                code: code,
+                deviceId: deviceId,
+                deviceName: deviceName,
+                platform: platform
+            )
+        )
     }
 }
 

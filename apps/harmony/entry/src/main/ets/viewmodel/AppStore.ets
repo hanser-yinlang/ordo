@@ -27,10 +27,10 @@ import { MemoryOrdoStore } from '../core/storage/MemoryStore.ets';
 import { KvKeys, OrdoStore } from '../core/storage/OrdoStore.ets';
 import { RdbOrdoStore } from '../core/storage/RelationalStore.ets';
 import { buildSeedState } from '../core/SeedData.ets';
-import { AuthResult, SyncApi } from '../core/sync/SyncApi.ets';
+import { AuthResult, EmailCodeSent, SyncApi } from '../core/sync/SyncApi.ets';
 import { NoopRealtimeCallbacks, RealtimeClient } from '../core/sync/RealtimeClient.ets';
 import { SyncEngine } from '../core/sync/SyncEngine.ets';
-import { AuthTokens, ERR_NETWORK, OrdoApiError, SyncPhase, SyncStatus, WsReminder, errorText, idleStatus, phaseLabel } from '../core/sync/SyncTypes.ets';
+import { AuthTokens, ERR_NETWORK, ERR_RATE_LIMITED, OrdoApiError, SyncPhase, SyncStatus, WsReminder, errorText, errorTextWithReason, idleStatus, phaseLabel } from '../core/sync/SyncTypes.ets';
 import { OrdoSession, OrdoSessionHelper, OrdoSessionStore, SessionAuthResponse, SessionAuthTokens, SessionAuthUser } from '../core/session/OrdoSession.ets';
 import { parseNaturalNow, ParsedInput } from '../core/nlp/NaturalDateParser.ets';
 import {
@@ -52,6 +52,7 @@ import { fmtShortDate, todayISO } from '../core/util/DateUtil.ets';
 import { newDeviceId, nowMillis } from '../core/util/Ids.ets';
 import { containerKeyOf, sameContainer } from './ReorderMath.ets';
 import { RefreshMachine, RefreshTone, REFRESH_HOLD_MS } from './RefreshState.ets';
+import { EmailCodeMachine, EMAIL_CODE_RESEND_SECONDS, EMAIL_CODE_TTL_SECONDS } from './EmailCodeState.ets';
 import { ReminderAgent } from '../core/notify/ReminderAgent.ets';
 import { DeepLinkTarget, parseDeepLink } from '../core/deeplink/DeepLink.ets';
 import { OrdoColorTokens, OrdoColors, OrdoTheme, ThemeMode } from '../theme/Tokens.ets';
@@ -162,6 +163,20 @@ export class AppStore {
   loginError: string = '';
   /** 登录页默认停在「注册」页签 */
   loginPrefersRegister: boolean = false;
+  /**
+   * 「验证码登录」的界面状态机(倒计时 + 满 6 位自动提交去重,契约 §7.6.5)。
+   * 纯逻辑、不碰网络,因此能被本机宿主测试(见 _qa/node-harness 的 EmailCodeState.test)。
+   */
+  emailCode: EmailCodeMachine = new EmailCodeMachine();
+  /** 「获取验证码」请求进行中(与主按钮的 loginBusy 分开:一个转圈不该打断另一个) */
+  codeRequestBusy: boolean = false;
+  /**
+   * 开发模式回显的验证码(服务端 `ORDO_DEV_ECHO_CODE=1` 时才有)。
+   * 生产环境恒为空串 —— 界面只在非空时自动填入,**不得依赖**它。
+   */
+  emailCodeDevCode: string = '';
+  /** 最近一次受理响应的验证码有效期(秒,默认 300,仅用于界面提示) */
+  emailCodeTtl: number = EMAIL_CODE_TTL_SECONDS;
   /** 登录成功后给登录页播放淡出用的时间戳(0 = 不播放) */
   enterAt: number = 0;
   /**
@@ -481,6 +496,7 @@ export class AppStore {
     this.syncStatus = idleStatus();
     this.refresh.reset();
     this.loginError = reason;
+    this.resetEmailCodeState();
     this.setAuthPhase('login');
     this.invalidateDerived();
     this.bump();
@@ -1721,15 +1737,201 @@ export class AppStore {
       return true;
     } catch (e) {
       this.loginBusy = false;
+      this.loginError = this.authErrorTextOf(e);
+      this.bump();
+      return false;
+    }
+  }
+
+  /**
+   * 认证类失败的统一文案:
+   *  - 有 `details.reason`(§7.6.5 的验证码四类错误)→ 用它更精确的中文提示;
+   *  - 否则按错误码(§7.4)取通用文案;
+   *  - 连错误码都没有(请求根本没送到服务端)→ 用登录场景的"连不上服务器"兜底。
+   */
+  private authErrorTextOf(e: Object): string {
+    const err: OrdoApiError = e as OrdoApiError;
+    if (err === null || err === undefined || err.code === undefined || err.code.length === 0) {
+      return LOGIN_NETWORK_HINT;
+    }
+    const reason: string = err.reason === undefined || err.reason === null ? '' : err.reason;
+    return errorTextWithReason(err.code, reason);
+  }
+
+  /** 清空验证码登录的临时状态(退出登录 / 会话失效 / 登录成功用,避免上一个账号的倒计时留在界面上) */
+  private resetEmailCodeState(): void {
+    this.emailCode.reset();
+    this.emailCodeDevCode = '';
+    this.emailCodeTtl = EMAIL_CODE_TTL_SECONDS;
+    this.codeRequestBusy = false;
+  }
+
+  /* --------------------------------------------- 邮箱验证码登录(契约 §7.6.5) */
+
+  /**
+   * 请求邮箱登录验证码(POST /v1/auth/email/code)。
+   *
+   * 成功:按响应 `retryAfter` 起倒计时(默认 60s,按钮置灰),有效期取 `expiresIn`(默认 300s);
+   * 被限流(429 + `code_throttled`)时优先用错误体里的 `details.retryAfterSec` 起倒计时,
+   * 没带该字段才回落到契约的 60s —— 用户看到的是"多久后能再取",而不是一个可以继续狂点的按钮。
+   * `devCode` 只在开发模式回来,这里原样收下交给界面自动填入;**生产为空串时界面照常手输**。
+   */
+  async requestEmailCode(email: string): Promise<boolean> {
+    const api: SyncApi | null = this.api;
+    if (api === null) {
+      this.loginError = '应用尚未初始化完成,请稍后重试';
+      this.bump();
+      return false;
+    }
+    const mail: string = email.trim();
+    if (!isLikelyEmail(mail)) {
+      this.loginError = '请输入有效的邮箱地址';
+      this.bump();
+      return false;
+    }
+    if (this.codeRequestBusy || !this.emailCode.canRequest(nowMillis())) {
+      return false;
+    }
+    this.codeRequestBusy = true;
+    this.emailCode.beginRequest();
+    this.loginError = '';
+    this.bump();
+    try {
+      const sent: EmailCodeSent = await api.requestEmailCode(mail);
+      this.codeRequestBusy = false;
+      this.emailCode.endRequest();
+      this.emailCodeDevCode = EmailCodeMachine.validDevCode(sent.devCode);
+      this.emailCodeTtl = sent.expiresIn > 0 ? sent.expiresIn : EMAIL_CODE_TTL_SECONDS;
+      this.emailCode.applySent(sent.expiresIn, sent.retryAfter, nowMillis());
+      this.showToast(this.emailCodeDevCode.length > 0
+        ? '验证码已发送(开发模式已回显)'
+        : '验证码已发送,5 分钟内有效');
+      this.bump();
+      return true;
+    } catch (e) {
+      this.codeRequestBusy = false;
+      this.emailCode.endRequest();
+      this.loginError = this.authErrorTextOf(e);
       const err: OrdoApiError = e as OrdoApiError;
-      if (err !== null && err.code !== undefined && err.code.length > 0) {
-        this.loginError = errorText(err.code);
-      } else {
-        this.loginError = LOGIN_NETWORK_HINT;
+      if (err !== null && err !== undefined && err.code === ERR_RATE_LIMITED) {
+        // 服务端限流:优先用错误体的 details.retryAfterSec(契约 §7.6.5;
+        // 成功响应顶层叫 retryAfter,错误体里叫 retryAfterSec),没带才回落到契约的 60s。
+        // 本地起倒计时是为了让"点了没反应还一直点"变成"多久后能再取"。
+        const seconds: number = err.retryAfterSec > 0 ? err.retryAfterSec : EMAIL_CODE_RESEND_SECONDS;
+        this.emailCode.applySent(0, seconds, nowMillis());
       }
       this.bump();
       return false;
     }
+  }
+
+  /**
+   * 邮箱验证码登录(POST /v1/auth/email/login)。
+   *
+   * 响应与 register / login / guest **同构**,因此成功后的落库流程与口令登录完全一致
+   * (同一 userId、同一份云端数据、同一套 refreshToken);邮箱未注册时由服务端自动建号,
+   * 客户端**不需要区分"登录 / 注册"**。
+   */
+  async emailCodeLogin(email: string, code: string, deviceId: string): Promise<boolean> {
+    const api: SyncApi | null = this.api;
+    if (api === null) {
+      this.loginError = '应用尚未初始化完成,请稍后重试';
+      this.bump();
+      return false;
+    }
+    const mail: string = email.trim();
+    const digits: string = EmailCodeMachine.normalizeCode(code);
+    if (!isLikelyEmail(mail)) {
+      this.loginError = '请输入有效的邮箱地址';
+      this.bump();
+      return false;
+    }
+    if (!EmailCodeMachine.isCompleteCode(digits)) {
+      this.loginError = '请输入 6 位数字验证码';
+      this.bump();
+      return false;
+    }
+    if (this.loginBusy) {
+      return false;
+    }
+    this.loginBusy = true;
+    this.emailCode.markSubmitted(digits);
+    this.loginError = '';
+    this.bump();
+    const device: string = deviceId.length > 0 ? deviceId : this.deviceId;
+    try {
+      const result: AuthResult = await api.emailLogin(mail, digits, device, device);
+      this.loginBusy = false;
+      this.emailCode.reset();
+      this.emailCodeDevCode = '';
+      await this.adoptSession(result);
+      const ok: boolean = this.authPhase === 'entering';
+      if (ok) {
+        this.showToast('已通过邮箱验证码登录');
+      }
+      this.bump();
+      return ok;
+    } catch (e) {
+      this.loginBusy = false;
+      // 失败后允许同一串验证码再次自动提交(错码除外:错码本来就会改成新码)
+      this.emailCode.markSubmitFailed();
+      this.loginError = this.authErrorTextOf(e);
+      this.bump();
+      return false;
+    }
+  }
+
+  /* ------------------------------------------------- 验证码界面的状态读取 */
+
+  /** 倒计时剩余秒数(登录页展示用) */
+  codeRemaining(): number {
+    return this.emailCode.remainingSeconds(nowMillis());
+  }
+
+  /** 是否正在倒计时(按钮置灰) */
+  codeCounting(): boolean {
+    return this.emailCode.isCountingDown(nowMillis());
+  }
+
+  /** 「获取验证码」是否可点:不在提交/请求中,且冷却已过 */
+  codeCanRequest(): boolean {
+    return !this.loginBusy && !this.codeRequestBusy && this.emailCode.canRequest(nowMillis());
+  }
+
+  /** 「获取验证码」按钮文案:获取验证码 / 60s 后重取 / 发送中… */
+  codeButtonLabel(): string {
+    return this.emailCode.resendLabel(nowMillis());
+  }
+
+  /** 「获取验证码」是否正在请求(按钮内转圈) */
+  codeRequesting(): boolean {
+    return this.codeRequestBusy;
+  }
+
+  /** 登录页每秒调用一次:倒计时文案变化才 bump(避免每秒无谓重绘整页) */
+  tickEmailCode(): void {
+    if (this.emailCode.tick(nowMillis())) {
+      this.bump();
+    }
+  }
+
+  /** 满 6 位是否应当自动提交(同一验证码只提交一次;失败后可重试) */
+  shouldAutoSubmitCode(code: string): boolean {
+    if (this.loginBusy || this.codeRequestBusy) {
+      return false;
+    }
+    return this.emailCode.shouldAutoSubmit(EmailCodeMachine.normalizeCode(code));
+  }
+
+  /** 开发模式回显的验证码(空串 = 没有回显,界面不得依赖) */
+  devEchoCode(): string {
+    return this.emailCodeDevCode;
+  }
+
+  /** 验证码有效期文案(「5 分钟内有效」) */
+  codeTtlText(): string {
+    const minutes: number = Math.round(this.emailCodeTtl / 60);
+    return (minutes > 0 ? minutes : 1).toString() + ' 分钟内有效';
   }
 
   /**
@@ -1816,10 +2018,7 @@ export class AppStore {
       return true;
     } catch (e) {
       this.loginBusy = false;
-      const err: OrdoApiError = e as OrdoApiError;
-      this.loginError = err !== null && err.code !== undefined && err.code.length > 0
-        ? errorText(err.code)
-        : LOGIN_NETWORK_HINT;
+      this.loginError = this.authErrorTextOf(e);
       this.bump();
       return false;
     }
@@ -1861,6 +2060,7 @@ export class AppStore {
     this.refresh.reset();
     this.loginError = '';
     this.loginPrefersRegister = false;
+    this.resetEmailCodeState();
     this.setAuthPhase('login');
     this.invalidateDerived();
     this.showToast('已退出登录,本地数据仍保留');

@@ -42,6 +42,17 @@ enum class AuthMode {
     val isRegister: Boolean get() = this == REGISTER
 }
 
+/**
+ * 登录方式（契约 §7.6.5 v1.3）：口令登录 / 邮箱验证码登录。
+ *
+ * 两者**同级**切换，共用同一份会话与数据；验证码登录对未注册邮箱自动建号，
+ * 因此它只对应「登录」语义（注册由服务端隐式完成）。
+ */
+enum class AuthMethod {
+    PASSWORD,
+    EMAIL_CODE,
+}
+
 /** 启动时读会话后的处置结果 */
 sealed interface SessionVerdict {
 

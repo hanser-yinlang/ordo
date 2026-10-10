@@ -7,6 +7,9 @@ import com.ordo.core.store.OrdoEngine
 import com.ordo.core.sync.AuthApi
 import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
+import com.ordo.core.sync.EmailCodeLoginRequest
+import com.ordo.core.sync.EmailCodeRequest
+import com.ordo.core.sync.EmailCodeSent
 import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.PullResponse
 import com.ordo.core.sync.PushRequest
@@ -52,6 +55,12 @@ class MultiWindowTest {
         override suspend fun guest(request: GuestAuthRequest): AuthResponse = error("测试不使用游客登录")
         override suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse =
             error("测试不使用游客升级")
+
+        override suspend fun requestEmailCode(request: EmailCodeRequest): EmailCodeSent =
+            error("测试不使用验证码")
+
+        override suspend fun emailLogin(request: EmailCodeLoginRequest): AuthResponse =
+            error("测试不使用验证码登录")
     }
 
     private fun setup(): Triple<InMemoryStorage, OrdoEngine, CoroutineScope> {

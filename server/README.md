@@ -1,7 +1,7 @@
 # Ordo 后端(ordo-server)
 
 Ordo(序)的 TypeScript 后端:同步协议、认证、实时通道与 Fastlane 提醒。
-**唯一事实来源**:`../docs/03-数据模型与同步协议.md`(FROZEN v1,schemaVersion = 1)。
+**唯一事实来源**:`../docs/03-数据模型与同步协议.md`(FROZEN v1.3,schemaVersion = 1)。
 
 ## 技术栈
 
@@ -12,7 +12,7 @@ TypeScript 5 + Node 20+ · Fastify 5 · PostgreSQL(`pg`,无库时自动降级内
 
 ```bash
 pnpm install
-pnpm test           # 129 个测试:内存仓储 + pg-mem 真实 SQL + 真实 HTTP/WS 端到端
+pnpm test           # 174 个测试:内存仓储 + pg-mem 真实 SQL + 真实 HTTP/WS 端到端
 pnpm run build      # tsc → dist/
 pnpm start          # node dist/index.js(未配 DATABASE_URL 时用内存仓储)
 
@@ -32,8 +32,8 @@ curl -s http://127.0.0.1:8080/metrics | head -20     # Prometheus 文本指标
 带 PostgreSQL:
 
 ```bash
-cp .env.example .env      # 填 DATABASE_URL / JWT_SECRET
-pnpm migrate              # 建表(001_init.sql)+ 列类型升级(002_device_id_text.sql)
+cp .env.example .env      # 填 DATABASE_URL / JWT_SECRET(生产还要 ORDO_CODE_PEPPER + ORDO_MAIL_TRANSPORT=http)
+pnpm migrate              # 建表(001_init.sql)+ 列类型升级(002)+ 游客列(003)+ 邮箱验证码表(004)
 pnpm start
 ```
 
@@ -57,8 +57,10 @@ src/
 │   ├── migrate.ts    SQL 迁移执行器
 │   └── migrations/   001_init.sql(契约 §8 表结构)· 002_device_id_text.sql(deviceId 列 uuid → text)
 │                     · 003_guest_accounts.sql(游客:users.is_guest + email 可空)
+│                     · 004_email_codes.sql(邮箱验证码:email_codes 表 +(email, created_at desc)索引)
 ├── services/
-│   ├── auth.ts       注册/登录/**游客**/**游客升级**/刷新轮换/登出/JWT 校验
+│   ├── auth.ts       注册/登录/**游客**/**游客升级**/**邮箱验证码**/刷新轮换/登出/JWT 校验
+│   ├── mail.ts       可插拔发信通道:console(写日志)/ http(POST 到通用邮件网关;契约 §7.6.5)
 │   ├── sync.ts       §7 同步核心(push/pull/snapshot + 6 条合并规则)
 │   ├── realtime.ts   WS 连接管理与广播
 │   ├── reminders.ts  Fastlane:每 1 秒扫描未来 60 秒到期
@@ -77,6 +79,7 @@ test/                 node:test 测试
 ├── pg-helpers.ts     pg-mem 夹具(真实执行迁移)
 ├── auth/sync/reminders/limits/domain.test.ts   既有单元与接口测试
 ├── guest.test.ts     契约 §7.6 游客登录 / 数据隔离 / 升级(12 用例)
+├── email-code.test.ts 契约 §7.6.5 邮箱验证码登录(26 用例,含 http 通道真发一次)
 ├── pg.test.ts        PgRepository × pg-mem(真实 SQL)
 ├── e2e.test.ts       协议级端到端(真实 HTTP + WS)
 └── observability.test.ts  /metrics、日志脱敏、墓碑清理任务
@@ -96,7 +99,9 @@ docs/DEPLOY.md        部署、环境变量、迁移、健康检查、备份
 | POST | `/v1/auth/register` | 注册 | `auth.test.ts` / `e2e.test.ts` |
 | POST | `/v1/auth/guest` | **游客登录**(建匿名账号,数据同样入库同步;契约 §7.6.2) | `guest.test.ts` / `e2e.test.ts` |
 | POST | `/v1/auth/upgrade` | **游客升级为正式账号**(userId 与数据不变;契约 §7.6.2) | `guest.test.ts` / `e2e.test.ts` |
-| POST | `/v1/auth/login` | 登录(游客调用一律 `AUTH_INVALID_CREDENTIALS`) | `auth.test.ts` / `e2e.test.ts` |
+| POST | `/v1/auth/login` | 登录(游客/无口令账号一律 `AUTH_INVALID_CREDENTIALS`) | `auth.test.ts` / `e2e.test.ts` |
+| POST | `/v1/auth/email/code` | **请求邮箱登录验证码**(202;60s/5 每小时/10 每天限流;契约 §7.6.5) | `email-code.test.ts` |
+| POST | `/v1/auth/email/login` | **邮箱验证码登录**(与 register 同构;未注册邮箱自动建号;契约 §7.6.5) | `email-code.test.ts` |
 | POST | `/v1/auth/refresh` | 刷新(轮换,响应带 `user.isGuest`) | `auth.test.ts` / `e2e.test.ts` |
 | POST | `/v1/auth/logout` | 登出 | `auth.test.ts` / `e2e.test.ts` |
 | POST | `/v1/devices/register` | 设备注册/更新在线 | `auth.test.ts` / `e2e.test.ts` |
@@ -114,7 +119,7 @@ docs/DEPLOY.md        部署、环境变量、迁移、健康检查、备份
 push/pull/snapshot/LWW/墓碑流程。
 
 ```bash
-node --import tsx --test test/pg.test.ts    # 30 个用例
+node --import tsx --test test/pg.test.ts    # 36 个用例
 ```
 
 测试夹具(`test/pg-helpers.ts`)把 pg-mem 的 `adapters.createPg().Pool` 通过
@@ -264,7 +269,7 @@ Remove-Item "$root\pw.txt"
 cd ordo/server
 export DATABASE_URL="postgres://ordo:ordo_secret@127.0.0.1:55432/ordo"
 node --import tsx scripts/pg-real-verify.mts
-# => 真实 PostgreSQL 验证:94 通过 / 0 失败
+# => 真实 PostgreSQL 验证:125 通过 / 0 失败
 ```
 
 脚本会从干净 schema 开始重跑迁移,覆盖:索引目录与部分索引谓词、列类型
@@ -272,6 +277,8 @@ node --import tsx scripts/pg-real-verify.mts
 `on conflict do nothing returning *` 的 0 行语义、完整 push/pull/snapshot/LWW/墓碑/提醒流程、
 级联删除、**迁移 003(游客:is_guest 列 + email 可空 + 多个 NULL 共存 + 幂等重放)**、
 **游客在真库上的端到端行为(建号、按 user_id 隔离、升级不改 userId)**、
+**迁移 004 与邮箱验证码(表/列/索引形状、只存 HMAC-SHA256 哈希、60s 限流、一次性消费、
+同码 5 次作废、自动建号语义、销号清码)**、
 **迁移 002 在"旧库形状"上的升级路径**,以及 `EXPLAIN` 走索引。
 结束时清空 `public` schema,不残留验证数据(设 `ORDO_KEEP_SCHEMA=1` 可保留)。
 
@@ -454,6 +461,20 @@ curl -s "http://127.0.0.1:8080/v1/health?token=SHOULD-NOT-APPEAR" >/dev/null
 - **Heading 是顶层实体**(契约 §2.2 修订版):Project payload 不含 `headings`;快照的 `headings` 只来自 heading 实体,按 `order` 排序。
 - **serverSeq**:`ops.server_seq`(bigserial)保证每用户单调递增;`entities.server_seq` 记录该实体最后一次变更的 seq。
 - **deviceId**:客户端生成的不透明短串(契约 §7.2 示例 `dev_7f3a...`),服务端按 `text` 存储;`devices.id` / `refresh_tokens.device_id` / `ops.device_id` 三处类型必须一致。
+- **邮箱验证码(契约 §7.6.5)**:验证码 6 位数字、300 秒有效、**一次性消费**、同码最多 **5** 次;
+  库里只存 `HMAC-SHA256(ORDO_CODE_PEPPER, email + ':' + code)`,**绝不存明文/裸 SHA-256**;
+  同邮箱 60s / 每小时 5 / 每天 10 限流,超限 `429 RATE_LIMITED` + `details.reason='code_throttled'` + `details.retryAfterSec`
+  (与 §7.4 全局限流同名字段),并回标准 `Retry-After` 头;错码/过期/超次都是 `401 AUTH_INVALID_CREDENTIALS`,
+  靠 `details.reason`(`code_invalid` / `code_expired` / `code_attempts_exceeded`)区分 —— **不新增错误码**;
+  发信失败 `500 INTERNAL` + `details.reason='mail_failed'`。
+- **验证码账号语义**:未注册邮箱登录时**自动建号**(`is_guest=false`、`email` 已验证、`password_algo='none'`
+  + 占位哈希 `otp$<random>`);已注册则直接登录、**不改其口令**;`login` 对 `password_algo='none'` 的账号
+  与游客同一处理(401,不泄漏账号类型)。
+- **验证码回显**:只有 `ORDO_MAIL_TRANSPORT=console` + `ORDO_DEV_ECHO_CODE=1` + **非生产**才额外返回 `devCode`;
+  `NODE_ENV=production` 且开启回显 → **拒绝启动**;生产日志里不会出现验证码。
+- **销号级联**:`DELETE /v1/account` 除 `devices/refresh_tokens/entities/ops/reminders` 外,
+  还会清掉该邮箱的 `email_codes`(该表按 email 关联、没有 `user_id` 外键,数据库不会自动级联),
+  否则销号后旧验证码能把刚删掉的邮箱重新建成新账号。
 
 ## 测试
 
@@ -461,26 +482,27 @@ curl -s "http://127.0.0.1:8080/v1/health?token=SHOULD-NOT-APPEAR" >/dev/null
 pnpm test        # node --import tsx --test test/*.test.ts
 ```
 
-当前:**129 个用例 / 20 个套件,全部通过**(`pnpm test` 末尾会打印 `tests 129 / pass 129 / fail 0`)。
+当前:**174 个用例 / 27 个套件,全部通过**(`pnpm test` 末尾会打印 `tests 174 / pass 174 / fail 0`)。
 
 | 文件 | 用例数 | 覆盖 |
 |---|---|---|
 | `test/auth.test.ts` | 12 | 注册 / 重复邮箱 / 弱口令 / 登录失败 / 刷新轮换与重放 / 401 / 过期令牌 / schema 版本 / 登出 / 删号 |
-| `test/guest.test.ts` | **12**(新增文件) | 契约 §7.6:游客注册与落库 / 响应同构 / push·pull·snapshot 入库 / **两游客互相看不到对方数据** / 升级后 userId 与数据不变 / 升级后旧 refreshToken 仍有效 / 重复升级 409 与 400 `not_guest` / 游客调 login 被拒 / 正式账号 `isGuest=false` / 边界(无令牌、弱口令、坏邮箱)/ 升级后删号级联 |
+| `test/guest.test.ts` | 12 | 契约 §7.6:游客注册与落库 / 响应同构 / push·pull·snapshot 入库 / **两游客互相看不到对方数据** / 升级后 userId 与数据不变 / 升级后旧 refreshToken 仍有效 / 重复升级 409 与 400 `not_guest` / 游客调 login 被拒 / 正式账号 `isGuest=false` / 边界(无令牌、弱口令、坏邮箱)/ 升级后删号级联 |
+| `test/email-code.test.ts` | **26**(新增文件) | 契约 §7.6.5:请求验证码 202 与 `devCode` 回显开关 / **库里只存 HMAC-SHA256(负向断言:非明文、非裸 SHA-256、非无 pepper 拼接)** / 60s 与每小时 5、每天 10 限流(`details.retryAfterSec` + `Retry-After`)/ 错码·过期·5 次超限·一次性消费 / **未注册邮箱自动建号且与 register 完全同构** / 既有账号口令不被改且仍可口令登录 / 无口令账号口令登录被拒且与"邮箱不存在"不可区分 / 设备字段缺省兜底 / refresh 共用令牌体系 / 销号清码 / **http 通道真发一次(POST {to,subject,text} + Bearer,用报文里的码登录;网关 503 → 500 `mail_failed` 且不落库)** / 生产环境启动硬约束(回显、pepper、transport) |
 | `test/sync.test.ts` | 16 | 幂等 / LWW / stale / 完成不可回滚 / 标签并集 / checklist 合并 / 墓碑 / 捎带拉取 / 分页 / SEQ_GAP / §3 不变量 / 项目完成硬约束 / heading 顶层实体 |
 | `test/reminders.test.ts` | 4 | WS 鉴权与 hello / 提醒到点下发且只发一次 / ops 广播 / 完成即移除索引 |
 | `test/limits.test.ts` | 7 | 501 ops / 500 ops 边界 / 256 KB op / 请求体超限 / pull limit / 10 req/s 限流 |
 | `test/domain.test.ts` | 22 | §3 不变量 / §4 派生清单 / §5 NLP / §6 重复规则 |
-| `test/pg.test.ts` | **31**(30+1) | PgRepository × pg-mem:建表 / 索引重放 / **deviceId 列类型回归** / 迁移版本 `[1,2,3]` / **003 游客迁移的静态核对** / op_id 唯一约束 / serverSeq 单调 / pull 分页 / 墓碑不复活与清理 / 级联删除 / 提醒只投一次 / jsonb 中文往返 |
-| `test/e2e.test.ts` | **21**(20+1) | 真实 HTTP + WS:注册→登录→push→捎带拉取→pull 分页→WS hello/ops→Fastlane 只投一次→401 刷新重放→限流 429→500 ops 与 256 KB 上限→SYNC_SEQ_GAP→**游客全流程(含真实 WS 与按用户隔离)**→运维端点 |
+| `test/pg.test.ts` | **36**(31+5) | PgRepository × pg-mem:建表 / 索引重放 / **deviceId 列类型回归** / 迁移版本 `[1,2,3,4]` / **003 游客迁移的静态核对** / **004 邮箱验证码迁移的静态核对 + email_codes 仓储语义(最近一条、原子消费、attempts 自增、窗口计数、销号清码)** / op_id 唯一约束 / serverSeq 单调 / pull 分页 / 墓碑不复活与清理 / 级联删除 / 提醒只投一次 / jsonb 中文往返 |
+| `test/e2e.test.ts` | 21 | 真实 HTTP + WS:注册→登录→push→捎带拉取→pull 分页→WS hello/ops→Fastlane 只投一次→401 刷新重放→限流 429→500 ops 与 256 KB 上限→SYNC_SEQ_GAP→**游客全流程(含真实 WS 与按用户隔离)**→运维端点 |
 | `test/observability.test.ts` | 18 | /metrics 内容与取值 / Prometheus 文本格式与解析 / 日志 JSON 行与脱敏断言 / 墓碑清理任务(周期、日志、指标、错误处理) |
-| `scripts/verify-*.ps1` | 5 个脚本 | 起真实服务跑冒烟 / 断言 stdout 纯 JSON / 断言清理任务按周期触发 / **游客全流程冒烟(新增)**(非 node:test) |
-| `scripts/pg-real-verify.mts` | **94 项断言**(66+28) | **对真实 PostgreSQL 16 复跑**:索引目录 / 列类型 / 事务回滚 / RETURNING 语义 / 全流程 / **迁移 003(游客列 + email 可空 + 多个 NULL 共存 + 幂等重放)** / **真库游客端到端(建号、隔离、升级)** / 迁移 002 旧库升级 / EXPLAIN |
+| `scripts/verify-*.ps1` | 5 个脚本 | 起真实服务跑冒烟 / 断言 stdout 纯 JSON / 断言清理任务按周期触发 / **游客全流程冒烟**(非 node:test) |
+| `scripts/pg-real-verify.mts` | **125 项断言**(94+31) | **对真实 PostgreSQL 16 复跑**:索引目录 / 列类型 / 事务回滚 / RETURNING 语义 / 全流程 / **迁移 003(游客列 + email 可空 + 多个 NULL 共存 + 幂等重放)** / **真库游客端到端(建号、隔离、升级)** / **迁移 004 与 email_codes(列形状、`(email, created_at DESC)` 索引、只存 HMAC 哈希、60s 限流、一次性消费、5 次作废、自动建号、销号清码)** / 迁移 002 旧库升级 / EXPLAIN |
 
-> 12 + 12 + 16 + 4 + 7 + 22 + 31 + 21 + 18 = **143 个 `it()`**,与 `pnpm test` 打印的 `tests 143` 完全一致
-> (本机实测 `pass 143 / fail 0`)。本轮:新增 `test/guest.test.ts` **12** 个用例,`test/pg.test.ts`
-> 与 `test/e2e.test.ts` 各 **+1**,基线 129 → **143**;`scripts/pg-real-verify.mts` 新增 **28** 项
-> 真实 PostgreSQL 断言(66 → **94**)。
+> 12 + 12 + 26 + 16 + 4 + 7 + 22 + 36 + 21 + 18 = **174 个 `it()`**,与 `pnpm test` 打印的 `tests 174` 完全一致
+> (本机实测 `pass 174 / fail 0`)。本轮:新增 `test/email-code.test.ts` **26** 个用例,`test/pg.test.ts`
+> **+5**(迁移版本断言改为 `[1,2,3,4]` 并新增 email_codes 表语义),基线 143 → **174**;
+> `scripts/pg-real-verify.mts` 新增 **31** 项真实 PostgreSQL 断言(94 → **125**)。
 
 ### 一键复现证据(三个 PowerShell 脚本)
 

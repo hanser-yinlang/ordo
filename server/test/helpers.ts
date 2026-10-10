@@ -4,11 +4,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { buildApp, BuiltApp } from '../src/app';
+import { buildApp, BuiltApp, BuildAppOptions } from '../src/app';
 import { AppConfig, loadConfig } from '../src/config';
 import { Todo } from '../src/domain/model';
 import { MemoryRepository } from '../src/repo/memory';
 import type { Repository } from '../src/repo/types';
+import type { MailSender } from '../src/services/mail';
 
 export interface TestContext {
   app: FastifyInstance;
@@ -24,16 +25,31 @@ export function baseConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     JWT_SECRET: 'ordo-unit-test-secret',
     TZ_OFFSET_MINUTES: '0',
     RATE_LIMIT_ENABLED: 'false',
-    LOG_LEVEL: 'silent'
+    LOG_LEVEL: 'silent',
+    // 邮箱验证码(契约 §7.6.5):测试环境固定 pepper,并打开开发回显以便用例拿到明文码。
+    // 生产环境这两项都会被 loadConfig 拒绝(见 config 的启动校验)。
+    ORDO_CODE_PEPPER: 'ordo-test-code-pepper',
+    ORDO_DEV_ECHO_CODE: '1'
   });
   return { ...config, ...overrides };
 }
 
-export async function makeApp(overrides: Partial<AppConfig> = {}): Promise<TestContext> {
+export interface MakeAppOptions {
+  /** 覆盖发信通道(测试可注入捕获实现;不传则按 config.mail 构造) */
+  mail?: MailSender;
+  /** 其它 buildApp 选项(例如注入 metrics) */
+  build?: Omit<BuildAppOptions, 'mail'>;
+}
+
+export async function makeApp(overrides: Partial<AppConfig> = {}, options: MakeAppOptions = {}): Promise<TestContext> {
   const config = baseConfig(overrides);
   const repo = new MemoryRepository();
   await repo.init();
-  const built = await buildApp(config, repo, 'memory', { logger: false });
+  const built = await buildApp(config, repo, 'memory', {
+    logger: false,
+    ...options.build,
+    ...(options.mail ? { mail: options.mail } : {})
+  });
   await built.app.ready();
   return {
     app: built.app,

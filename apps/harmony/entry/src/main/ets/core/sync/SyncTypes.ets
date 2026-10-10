@@ -193,17 +193,124 @@ export const ERR_NETWORK: string = 'NETWORK_UNREACHABLE';
 export class OrdoApiError extends Error {
   code: string;
   details: string;
+  /**
+   * 服务端 `error.details.reason`(契约 §7.6.5)。
+   * 错误码表(§7.4)是**冻结枚举**,不再新增 `code`;更精确的场景靠 reason 区分,
+   * 例如 `AUTH_INVALID_CREDENTIALS` + `code_invalid` / `code_expired` / `code_attempts_exceeded`。
+   * 没有 reason 的错误一律为空串,由调用方回落到 `errorText(code)`。
+   */
+  reason: string;
+  /**
+   * 服务端 `error.details.retryAfterSec`(整数秒,契约 §7.6.5)。
+   *
+   * **注意字段名**:成功响应体顶层是 `retryAfter`,而**错误体里**统一是 `retryAfterSec`
+   * (`{"error":{"code":"RATE_LIMITED","details":{"reason":"code_throttled","retryAfterSec":42}}}`),
+   * 两者不要混用。缺失或非正数一律为 0,由调用方回落到契约的 60s 兜底。
+   */
+  retryAfterSec: number;
 
-  constructor(code: string, message: string, details: string) {
+  constructor(code: string, message: string, details: string, reason: string, retryAfterSec: number) {
     super(message);
     this.name = 'OrdoApiError';
     this.code = code;
     this.details = details;
+    this.reason = reason;
+    this.retryAfterSec = retryAfterSec;
   }
 }
 
 export function apiError(code: string, message: string, details: string): OrdoApiError {
-  return new OrdoApiError(code, message, details);
+  return new OrdoApiError(code, message, details, '', 0);
+}
+
+/** 带 details.reason / details.retryAfterSec 的错误(§7.6.5:验证码类错误) */
+export function apiErrorWithReason(
+  code: string,
+  message: string,
+  details: string,
+  reason: string,
+  retryAfterSec: number
+): OrdoApiError {
+  return new OrdoApiError(code, message, details, reason, retryAfterSec);
+}
+
+/* ------------------------------------------------------------- 错误原因(§7.6.5) */
+
+/** 验证码错误 / 过期 / 尝试超限(均为 401 AUTH_INVALID_CREDENTIALS + reason) */
+export const REASON_CODE_INVALID: string = 'code_invalid';
+export const REASON_CODE_EXPIRED: string = 'code_expired';
+export const REASON_CODE_ATTEMPTS_EXCEEDED: string = 'code_attempts_exceeded';
+/** 请求过频(429 RATE_LIMITED + reason) */
+export const REASON_CODE_THROTTLED: string = 'code_throttled';
+
+/**
+ * `details.reason` → 更精确的中文提示(契约 §7.6.5)。
+ * 未命中的 reason 返回空串,由调用方回落到 `errorText(code)` 的通用文案。
+ */
+export function reasonText(reason: string): string {
+  if (reason === REASON_CODE_INVALID) {
+    return '验证码不正确,请重新输入';
+  }
+  if (reason === REASON_CODE_EXPIRED) {
+    return '验证码已过期,请重新获取';
+  }
+  if (reason === REASON_CODE_ATTEMPTS_EXCEEDED) {
+    return '验证码错误次数过多已作废,请重新获取';
+  }
+  if (reason === REASON_CODE_THROTTLED) {
+    return '请求过于频繁,请稍后再试';
+  }
+  return '';
+}
+
+/** 错误码 + reason → 中文提示:reason 命中时优先于错误码的通用文案(§7.6.5 的 not_guest 同一手法) */
+export function errorTextWithReason(code: string, reason: string): string {
+  const detail: string = reasonText(reason);
+  return detail.length > 0 ? detail : errorText(code);
+}
+
+/**
+ * `error.details` 里我们关心的字段(契约 §7.6.5):`reason` + `retryAfterSec`。
+ * 两者都可能缺(不同错误只带其中一个),解析结果一律归一化:没有 → 空串 / 0。
+ */
+export interface OrdoErrorDetails {
+  reason: string;
+  retryAfterSec: number;
+}
+
+/**
+ * details 的"原始形状":字段在运行期可能是 undefined / null / 别的类型,
+ * 因此按 `Object` 收下再用 `typeof` 判型 —— 不做 `=== undefined` 这种与静态类型冲突的比较。
+ */
+interface RawErrorDetails {
+  reason: Object;
+  retryAfterSec: Object;
+}
+
+/**
+ * 解析 `error.details`(契约 §7.6.5)。
+ *
+ * 字段名务必区分:**成功响应顶层**是 `retryAfter`,**错误体里**是 `retryAfterSec`。
+ * 传进来的若不是对象 / 字段名不对 / 类型不对,一律返回 `{reason:'', retryAfterSec:0}`,
+ * 由调用方回落到契约的 60s 兜底与通用错误文案。
+ */
+export function parseErrorDetails(details: Object): OrdoErrorDetails {
+  const out: OrdoErrorDetails = { reason: '', retryAfterSec: 0 };
+  if (details === null || details === undefined) {
+    return out;
+  }
+  const raw: RawErrorDetails = details as RawErrorDetails;
+  const reason: Object = raw.reason;
+  if (typeof reason === 'string') {
+    out.reason = reason as string;
+  }
+  const seconds: Object = raw.retryAfterSec;
+  if (typeof seconds === 'number') {
+    const value: number = seconds as number;
+    const whole: number = Math.floor(value);
+    out.retryAfterSec = whole > 0 ? whole : 0;
+  }
+  return out;
 }
 
 /** 错误码 → 中文提示 */

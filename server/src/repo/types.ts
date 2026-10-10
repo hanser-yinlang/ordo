@@ -86,6 +86,25 @@ export interface ReminderRow {
   updatedAt: number;
 }
 
+/**
+ * 邮箱登录验证码(契约 §7.6.5 / §8,迁移 004)。
+ *
+ * `codeHash` **只存哈希**:`HMAC-SHA256(pepper, email + ':' + code)`。
+ * 6 位数字只有 1e6 种可能,明文或裸 SHA-256 都可被离线爆破(契约 §9 硬约束)。
+ */
+export interface EmailCodeRow {
+  id: string;
+  /** 已归一为小写 */
+  email: string;
+  codeHash: string;
+  /** 同码已尝试次数(每次校验失败 +1,达到上限即作废) */
+  attempts: number;
+  /** null = 未消费;非 null = 被成功消费的时刻(epoch millis,一次性) */
+  consumedAt: number | null;
+  createdAt: number;
+  expiresAt: number;
+}
+
 export interface ReminderUpsert {
   userId: string;
   todoId: string;
@@ -146,4 +165,24 @@ export interface Repository {
   /** 原子地把 fired 由 false 置为 true;返回 true 表示本次调用抢到了投递权(只投一次) */
   claimReminder(id: string): Promise<boolean>;
   listReminders(userId: string): Promise<ReminderRow[]>;
+
+  /* ---- email login codes(契约 §7.6.5,迁移 004) ---- */
+  /** 落一条验证码(只存 code_hash) */
+  createEmailCode(row: EmailCodeRow): Promise<EmailCodeRow>;
+  /**
+   * 取该邮箱**最近一条**验证码(`order by created_at desc limit 1`),不区分是否已消费/过期 ——
+   * 「是否还有效」由服务层判定:消费、过期、尝试次数超限各自对应不同的 details.reason。
+   * 返回最近一条同时满足两个用途:① 60s 限流按它的 created_at 计算;② 校验时只认最新一条
+   * (旧验证码被新验证码顶替,符合主流免密体验)。
+   */
+  latestEmailCode(email: string): Promise<EmailCodeRow | null>;
+  /**
+   * **原子地**一次性消费:仅当 `consumed_at is null` 时置位。
+   * 返回 true = 本次调用抢到了消费权(并发下只有一个请求能得到 true)。
+   */
+  consumeEmailCode(id: string, nowMs: number): Promise<boolean>;
+  /** 原子自增尝试次数,返回自增后的值 */
+  incrementEmailCodeAttempts(id: string): Promise<number>;
+  /** 统计该邮箱在 `created_at >= sinceMs` 窗口内发出的验证码条数(每小时/每天限流用) */
+  countEmailCodesSince(email: string, sinceMs: number): Promise<number>;
 }

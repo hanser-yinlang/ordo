@@ -33,9 +33,19 @@
  *  5. **服务器设置移到卡片外**,做成一行极轻的脚注(右侧只显示 host,不显示完整 URL),
  *     展开后才出现输入框与「保存 / 恢复默认」。登录卡片只保留 §5.1 规定的三段结构。
  *  6. 主按钮在可提交时带一层很淡的 accent 投影;卡片投影放宽到 32/16,减少"贴纸感"。
+ *
+ * 本轮新增「验证码登录」(契约 §7.6.5,免密登录):
+ *  - 与口令登录**同级切换**:卡片里品牌区下方是两个并列页签(口令登录 / 验证码登录),
+ *    不是藏在角落的小字入口;§5.1 的三个入口(登录 / 注册 / 游客)在两种模式下都够得着。
+ *  - 验证码模式 = 邮箱 + 6 位验证码 + 「获取验证码」(按响应 `retryAfter` 跑 60s 倒计时置灰),
+ *    **满 6 位自动提交**;错误沿用同一个错误区与抖动。
+ *  - 倒计时与"同一验证码只提交一次"全部在 `viewmodel/EmailCodeState.ets`(纯逻辑,本机宿主可测),
+ *    组件只负责画与转发。
+ *  - `devCode`(仅开发模式回显)返回就自动填入;**生产恒为空,界面不依赖它**。
  */
 
 import { AppStore, DEFAULT_BASE_URL } from '../viewmodel/AppStore.ets';
+import { EmailCodeMachine, EMAIL_CODE_LENGTH } from '../viewmodel/EmailCodeState.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoIcons, OrdoMotion, OrdoRadius, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 
 /** 登录卡片圆角:§5.1 明确写 16(令牌 OrdoRadius.sheet 是 14,登录卡片按 §5.1 取 16) */
@@ -48,6 +58,10 @@ const LABEL_FLOAT_Y: number = 9;
 const LABEL_REST_Y: number = 19;
 /** 口令显隐按钮的点击区(§8 触控目标 ≥44) */
 const EYE_HIT: number = 44;
+/** 验证码输入框右侧「获取验证码」按钮的点击区(§8 触控目标 ≥44) */
+const CODE_ACTION_HIT: number = 44;
+/** 登录方式页签的高度(§8:触控目标 ≥44) */
+const MODE_TAB_HEIGHT: number = 44;
 
 @Component
 export struct LoginGate {
@@ -57,17 +71,26 @@ export struct LoginGate {
 
   /** 主按钮语义:false = 登录,true = 注册(两模式切换,§5.1) */
   @State private registerMode: boolean = false;
+  /**
+   * 登录方式:false = 邮箱 + 口令(含注册),true = 邮箱验证码(免密,契约 §7.6.5)。
+   * 两者**同级**,由卡片顶部页签切换。
+   */
+  @State private codeMode: boolean = false;
   @State private email: string = '';
   @State private password: string = '';
+  @State private code: string = '';
   @State private showPassword: boolean = false;
   @State private emailFocus: boolean = false;
   @State private passwordFocus: boolean = false;
+  @State private codeFocus: boolean = false;
   /** 进入动效的终态(aboutToAppear 后一帧置位,产生 fade + 上移 12px) */
   @State private entered: boolean = false;
   /** 错误抖动位移 */
   @State private shakeX: number = 0;
   @State private serverOpen: boolean = false;
   @State private serverDraft: string = '';
+  /** 验证码倒计时的秒表(每秒 tick 一次,由状态机决定要不要重绘) */
+  private tickTimer: number = -1;
 
   private c(): OrdoColorTokens {
     return OrdoColors.of(this.store.isDark());
@@ -81,6 +104,17 @@ export struct LoginGate {
     setTimeout((): void => {
       this.entered = true;
     }, 0);
+    // 验证码倒计时:每秒推一次(状态机只在"秒数真的变了"时要求重绘)
+    this.tickTimer = setInterval((): void => {
+      this.store.tickEmailCode();
+    }, 1000);
+  }
+
+  aboutToDisappear(): void {
+    if (this.tickTimer >= 0) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = -1;
+    }
   }
 
   private busy(): boolean {
@@ -92,7 +126,16 @@ export struct LoginGate {
   }
 
   private canSubmit(): boolean {
-    return !this.busy() && this.email.trim().length > 0 && this.password.length > 0;
+    if (this.busy()) {
+      return false;
+    }
+    if (this.email.trim().length === 0) {
+      return false;
+    }
+    if (this.codeMode) {
+      return this.code.length === EMAIL_CODE_LENGTH;
+    }
+    return this.password.length > 0;
   }
 
   private emailFloating(): boolean {
@@ -101,6 +144,10 @@ export struct LoginGate {
 
   private passwordFloating(): boolean {
     return this.passwordFocus || this.password.length > 0;
+  }
+
+  private codeFloating(): boolean {
+    return this.codeFocus || this.code.length > 0;
   }
 
   /** 主按钮色调:可提交 accent,否则 chipBg(禁用态) */
@@ -175,9 +222,129 @@ export struct LoginGate {
     }
   }
 
+  /**
+   * 验证码模式提交(§7.6.5)。
+   * 满 6 位时由 onChange 自动调用;**同一验证码只自动提交一次**(状态机去重),
+   * 因此主按钮也走同一条路径:自动提交被去重挡住时,用户可以手动再点。
+   */
+  private async submitCode(): Promise<void> {
+    if (this.busy()) {
+      return;
+    }
+    if (this.email.trim().length === 0 || this.code.length !== EMAIL_CODE_LENGTH) {
+      this.store.loginError = '请先填写邮箱与 6 位验证码';
+      this.store.bump();
+      this.shake();
+      return;
+    }
+    const mail: string = this.email;
+    const digits: string = this.code;
+    const ok: boolean = await this.store.emailCodeLogin(mail, digits, this.store.deviceId);
+    if (ok) {
+      this.code = '';
+      return;
+    }
+    this.shake();
+  }
+
+  /** 满 6 位自动提交(§5.1 的免密体验;判定与去重都在 EmailCodeMachine 里) */
+  private maybeAutoSubmitCode(): void {
+    if (this.store.shouldAutoSubmitCode(this.code)) {
+      this.submitCode();
+    }
+  }
+
+  /**
+   * 「获取验证码」(§7.6.5)。
+   * 成功后按响应 `retryAfter` 起倒计时(按钮置灰);开发模式回显 `devCode` 时自动填入并尝试自动提交
+   * —— 生产环境没有回显,照常由用户手输。
+   */
+  private async requestCode(): Promise<void> {
+    if (!this.store.codeCanRequest()) {
+      return;
+    }
+    const ok: boolean = await this.store.requestEmailCode(this.email);
+    if (!ok) {
+      this.shake();
+      return;
+    }
+    const dev: string = this.store.devEchoCode();
+    if (dev.length === EMAIL_CODE_LENGTH) {
+      this.code = dev;
+      this.maybeAutoSubmitCode();
+    }
+  }
+
+  /** 登录方式页签切换(两个页签同级;§5.1 的三个入口在两种模式下都还在) */
+  private switchMode(codeMode: boolean): void {
+    if (this.codeMode === codeMode) {
+      return;
+    }
+    this.codeMode = codeMode;
+    this.codeFocus = false;
+    this.store.loginError = '';
+    this.store.bump();
+  }
+
   private toggleMode(): void {
+    if (this.codeMode) {
+      // 验证码模式下底部链接是「还没有账号?注册」:切回口令模式并停在注册页签
+      this.registerMode = true;
+      this.store.setLoginPrefersRegister(true);
+      this.switchMode(false);
+      return;
+    }
     this.registerMode = !this.registerMode;
     this.store.setLoginPrefersRegister(this.registerMode);
+  }
+
+  /* ------------------------------------------------------------ 方式页签 */
+
+  /**
+   * 登录方式页签。与口令登录**同级**:等宽、等高的两段,选中项 accent 文字 + 2px 指示条,
+   * 未选中项 textTertiary(文字本身就区分了状态,不靠颜色单独表达)。
+   * `tabId` 供 `uitest dumpLayout` / 自动化点击定位(与 `ordo_login_email` 同一约定)。
+   */
+  @Builder
+  modeTab(label: string, forCode: boolean, tabId: string) {
+    Column() {
+      Text(label)
+        .fontSize(OrdoFont.body.size)
+        .fontWeight(this.codeMode === forCode ? 600 : 400)
+        .fontColor(this.codeMode === forCode ? this.c().accentPrimary : this.c().textTertiary)
+        .animation({ duration: OrdoMotion.loginFieldFocus, curve: Curve.FastOutSlowIn })
+      Row()
+        .width(this.codeMode === forCode ? 28 : 0)
+        .height(2)
+        .borderRadius(1)
+        .backgroundColor(this.c().accentPrimary)
+        .margin({ top: 6 })
+    }
+    .layoutWeight(1)
+    .height(MODE_TAB_HEIGHT)
+    .justifyContent(FlexAlign.Center)
+    .id(tabId)
+    .onClick((): void => {
+      this.switchMode(forCode);
+    })
+  }
+
+  @Builder
+  modeTabs() {
+    Column() {
+      Row() {
+        this.modeTab('口令登录', false, 'ordo_login_tab_password')
+        this.modeTab('验证码登录', true, 'ordo_login_tab_code')
+      }
+      .width('100%')
+      .height(MODE_TAB_HEIGHT)
+
+      Row()
+        .width('100%')
+        .height(1)
+        .backgroundColor(this.c().lineHairline)
+    }
+    .width('100%')
   }
 
   /* ------------------------------------------------------------ 品牌区 */
@@ -248,7 +415,12 @@ export struct LoginGate {
           this.store.bump();
         })
         .onSubmit((): void => {
-          this.submit();
+          // 邮箱框回车:口令模式提交口令,验证码模式交给"满 6 位自动提交"的同一判据
+          if (this.codeMode) {
+            this.maybeAutoSubmitCode();
+          } else {
+            this.submit();
+          }
         })
       this.floatLabel('邮箱', this.emailFloating(), this.emailFocus)
     }
@@ -348,6 +520,91 @@ export struct LoginGate {
     .animation({ duration: OrdoMotion.loginFieldFocus, curve: Curve.FastOutSlowIn })
   }
 
+  /**
+   * 验证码输入(§7.6.5):6 位数字 + 右侧「获取验证码」。
+   * 沿用口令框的基线:Stack(`Alignment.TopStart`)+ 固定基线浮动标签 + 画布底 + 发丝描边;
+   * 只把右侧的眼睛换成文本按钮(点击区同样 ≥44,§8)。
+   */
+  @Builder
+  codeField() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Row() {
+        TextInput({ text: this.code })
+          .type(InputType.Number)
+          .maxLength(EMAIL_CODE_LENGTH)
+          .id('ordo_login_code')
+          .layoutWeight(1)
+          .height(FIELD_HEIGHT)
+          .padding({ left: LABEL_INSET, right: OrdoSpace.xs, top: 20, bottom: 2 })
+          .fontSize(OrdoFont.body.size)
+          .fontColor(this.c().textPrimary)
+          .caretColor(this.c().accentPrimary)
+          .backgroundColor(Color.Transparent)
+          .enabled(!this.busy())
+          .onFocus((): void => {
+            this.codeFocus = true;
+          })
+          .onBlur((): void => {
+            this.codeFocus = false;
+          })
+          .onChange((value: string): void => {
+            // 只留数字并截到 6 位(粘贴带空格/连字符的验证码也能用);满 6 位立刻自动提交
+            this.code = EmailCodeMachine.normalizeCode(value);
+            this.store.loginError = '';
+            this.store.bump();
+            this.maybeAutoSubmitCode();
+          })
+          .onSubmit((): void => {
+            this.submitCode();
+          })
+        this.codeRequestButton()
+      }
+      .width('100%')
+      .height(FIELD_HEIGHT)
+      .alignItems(VerticalAlign.Center)
+
+      this.floatLabel('验证码', this.codeFloating(), this.codeFocus)
+    }
+    .width('100%')
+    .height(FIELD_HEIGHT)
+    .backgroundColor(this.c().bgCanvas)
+    .borderRadius(OrdoRadius.row)
+    .border({
+      width: this.codeFocus ? 1.5 : 1,
+      color: this.codeFocus ? this.c().accentPrimary : this.c().lineHairline
+    })
+    .animation({ duration: OrdoMotion.loginFieldFocus, curve: Curve.FastOutSlowIn })
+  }
+
+  /**
+   * 「获取验证码」。倒计时期间文字转 `textTertiary` 且不可点(§7.6.5:按 retryAfter 置灰),
+   * 请求中显示 14 转圈。点击区高 44 满足 §8。
+   */
+  @Builder
+  codeRequestButton() {
+    Row() {
+      if (this.store.codeRequesting()) {
+        LoadingProgress()
+          .width(14)
+          .height(14)
+          .color(this.c().textTertiary)
+      } else {
+        Text(this.store.codeButtonLabel())
+          .fontSize(OrdoFont.caption.size)
+          .fontColor(this.store.codeCanRequest() ? this.c().accentPrimary : this.c().textTertiary)
+          .maxLines(1)
+      }
+    }
+    .height(CODE_ACTION_HIT)
+    .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+    .margin({ right: OrdoSpace.xs })
+    .id('ordo_login_get_code')
+    .enabled(this.store.codeCanRequest())
+    .onClick((): void => {
+      this.requestCode();
+    })
+  }
+
   /* ------------------------------------------------------------ 按钮 */
 
   @Builder
@@ -359,7 +616,7 @@ export struct LoginGate {
           .height(OrdoMotion.loginSpinner)
           .color(this.submitFg())
       }
-      Text(this.registerMode ? '注册' : '登录')
+      Text(this.codeMode ? '登录' : (this.registerMode ? '注册' : '登录'))
         .fontSize(OrdoFont.body.size)
         .fontWeight(500)
         .fontColor(this.submitFg())
@@ -376,8 +633,14 @@ export struct LoginGate {
     })
     .animation({ duration: OrdoMotion.loginPress, curve: Curve.FastOutSlowIn })
     .enabled(!this.busy())
+    .id('ordo_login_submit')
     .onClick((): void => {
-      this.submit();
+      if (this.codeMode) {
+        // 验证码模式:满 6 位本该已经自动提交,这里是"去重挡住后用户手动再点"的入口
+        this.submitCode();
+      } else {
+        this.submit();
+      }
     })
   }
 
@@ -406,6 +669,7 @@ export struct LoginGate {
     })
     .animation({ duration: OrdoMotion.loginPress, curve: Curve.FastOutSlowIn })
     .enabled(!this.busy())
+    .id('ordo_login_guest')
     .onClick((): void => {
       this.guest();
     })
@@ -427,6 +691,7 @@ export struct LoginGate {
           .fontColor(this.c().stateDanger)
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .id('ordo_login_error')
       }
     }
     .width('100%')
@@ -454,10 +719,12 @@ export struct LoginGate {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .constraintSize({ maxWidth: 190 })
+          .id('ordo_login_server_host')
       }
       .width('100%')
       .height(32)
       .padding({ left: OrdoSpace.s, right: OrdoSpace.s })
+      .id('ordo_login_server_toggle')
       .onClick((): void => {
         this.serverOpen = !this.serverOpen;
       })
@@ -474,6 +741,7 @@ export struct LoginGate {
             .borderRadius(OrdoRadius.row)
             .border({ width: 1, color: this.c().lineHairline })
             .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+            .id('ordo_login_server_input')
             .onChange((value: string): void => {
               this.serverDraft = value;
             })
@@ -487,6 +755,7 @@ export struct LoginGate {
               .padding({ left: OrdoSpace.l, right: OrdoSpace.l })
               .borderRadius(OrdoRadius.pill)
               .textAlign(TextAlign.Center)
+              .id('ordo_login_server_save')
               .onClick((): void => {
                 this.store.setBaseUrl(this.serverDraft);
               })
@@ -525,9 +794,24 @@ export struct LoginGate {
     Column({ space: OrdoSpace.l }) {
       this.brand()
 
+      // 登录方式与口令登录同级(§7.6.5 的免密入口,不做成角落小字)
+      this.modeTabs()
+
       Column({ space: OrdoSpace.m }) {
         this.emailField()
-        this.passwordField()
+        if (this.codeMode) {
+          Column({ space: OrdoSpace.s }) {
+            this.codeField()
+            Text('验证码 ' + this.store.codeTtlText() + ',未注册的邮箱将自动创建账号')
+              .fontSize(OrdoFont.micro.size)
+              .fontColor(this.c().textTertiary)
+              .width('100%')
+              .padding({ left: LABEL_INSET, right: LABEL_INSET })
+          }
+          .width('100%')
+        } else {
+          this.passwordField()
+        }
       }
       .width('100%')
 
@@ -538,8 +822,9 @@ export struct LoginGate {
       }
       .width('100%')
 
-      // 底部一行居中文本链接:登录态 → 还没有账号?注册;注册态 → 已有账号?登录
-      Text(this.registerMode ? '已有账号?登录' : '还没有账号?注册')
+      // 底部一行居中文本链接:验证码模式 → 还没有账号?注册(切回口令注册);
+      // 口令模式:登录态 → 还没有账号?注册,注册态 → 已有账号?登录
+      Text(this.codeMode ? '还没有账号?注册' : (this.registerMode ? '已有账号?登录' : '还没有账号?注册'))
         .fontSize(OrdoFont.caption.size)
         .fontColor(this.c().accentPrimary)
         .height(OrdoSize.minTouchTarget)

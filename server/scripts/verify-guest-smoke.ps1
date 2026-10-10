@@ -62,6 +62,9 @@ $env:PORT = "$port"
 $env:HOST = '127.0.0.1'
 $env:NODE_ENV = 'production'
 $env:JWT_SECRET = 'guest-smoke-secret-please-rotate-0123456789'
+# Required in production (contract 7.6.5 / 9): HMAC pepper for email login codes.
+# Missing -> the server refuses to start.
+$env:ORDO_CODE_PEPPER = 'guest-smoke-code-pepper-please-rotate-0123456789'
 $env:LOG_LEVEL = 'info'
 $env:TZ_OFFSET_MINUTES = '480'
 if ($DatabaseUrl -ne '') {

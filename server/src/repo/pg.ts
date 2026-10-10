@@ -7,6 +7,7 @@ import { AnyEntity, EntityKind, OpType } from '../domain/model';
 import { resolveMigrationsDir, runMigrations } from './migrate';
 import {
   DeviceRow,
+  EmailCodeRow,
   EntityRow,
   NewOpRow,
   OpRow,
@@ -77,6 +78,16 @@ interface ReminderDbRow {
   title: string;
   fired: boolean;
   updated_at: string | number;
+}
+
+interface EmailCodeDbRow {
+  id: string;
+  email: string;
+  code_hash: string;
+  attempts: string | number;
+  consumed_at: string | number | null;
+  created_at: string | number;
+  expires_at: string | number;
 }
 
 const n = (v: string | number | null): number => (v == null ? 0 : typeof v === 'number' ? v : Number(v));
@@ -210,6 +221,15 @@ export class PgRepository implements Repository {
   }
 
   async deleteUser(userId: string): Promise<void> {
+    // 账号删除要连验证码一起清掉(契约 §9「删除账号与全部数据」)。
+    // email_codes 按 email 关联、没有 user_id 外键,数据库不会级联,必须显式清 ——
+    // 否则销号后旧验证码仍能登录,并自动把刚删掉的邮箱重新建成新账号。
+    // 先查 email 再删(而不是子查询):两种 pg 实现的语义都最直白,也便于 pg-mem 覆盖。
+    const { rows } = await this.pool.query<{ email: string | null }>(`select email from users where id = $1`, [userId]);
+    const email = rows[0]?.email ?? null;
+    if (email !== null && email !== '') {
+      await this.pool.query(`delete from email_codes where email = $1`, [email]);
+    }
     await this.pool.query(`delete from users where id = $1`, [userId]);
   }
 
@@ -464,6 +484,63 @@ export class PgRepository implements Repository {
     );
     return rows.map(mapReminder);
   }
+
+  /* ---------------- email login codes(契约 §7.6.5,迁移 004) ---------------- */
+
+  async createEmailCode(row: EmailCodeRow): Promise<EmailCodeRow> {
+    const { rows } = await this.pool.query<EmailCodeDbRow>(
+      `insert into email_codes (id, email, code_hash, attempts, consumed_at, created_at, expires_at)
+       values ($1,$2,$3,$4,$5,$6,$7) returning *`,
+      [
+        row.id,
+        row.email.toLowerCase(),
+        row.codeHash,
+        row.attempts ?? 0,
+        row.consumedAt ?? null,
+        row.createdAt,
+        row.expiresAt
+      ]
+    );
+    return mapEmailCode(rows[0]);
+  }
+
+  /**
+   * 最近一条验证码。`order by created_at desc, id desc`:
+   * created_at 相同(同一毫秒内落两条)时用 id 兜底,保证结果确定 ——
+   * 内存仓储用"后插入优先"对齐同一语义。
+   */
+  async latestEmailCode(email: string): Promise<EmailCodeRow | null> {
+    const { rows } = await this.pool.query<EmailCodeDbRow>(
+      `select * from email_codes where email = $1 order by created_at desc, id desc limit 1`,
+      [email.toLowerCase()]
+    );
+    return rows[0] ? mapEmailCode(rows[0]) : null;
+  }
+
+  /** 一次性消费:仅当 consumed_at is null 时置位,rowCount 即"是否抢到消费权" */
+  async consumeEmailCode(id: string, nowMs: number): Promise<boolean> {
+    const res = await this.pool.query(
+      `update email_codes set consumed_at = $2 where id = $1 and consumed_at is null`,
+      [id, nowMs]
+    );
+    return (res.rowCount ?? 0) === 1;
+  }
+
+  async incrementEmailCodeAttempts(id: string): Promise<number> {
+    const { rows } = await this.pool.query<{ attempts: string | number }>(
+      `update email_codes set attempts = attempts + 1 where id = $1 returning attempts`,
+      [id]
+    );
+    return n(rows[0]?.attempts ?? 0);
+  }
+
+  async countEmailCodesSince(email: string, sinceMs: number): Promise<number> {
+    const { rows } = await this.pool.query<{ c: string | number }>(
+      `select count(*) as c from email_codes where email = $1 and created_at >= $2`,
+      [email.toLowerCase(), sinceMs]
+    );
+    return n(rows[0]?.c ?? 0);
+  }
 }
 
 function mapUser(row: UserDbRow): UserRow {
@@ -538,5 +615,17 @@ function mapReminder(row: ReminderDbRow): ReminderRow {
     title: row.title,
     fired: row.fired,
     updatedAt: n(row.updated_at)
+  };
+}
+
+function mapEmailCode(row: EmailCodeDbRow): EmailCodeRow {
+  return {
+    id: row.id,
+    email: row.email,
+    codeHash: row.code_hash,
+    attempts: n(row.attempts),
+    consumedAt: row.consumed_at == null ? null : n(row.consumed_at),
+    createdAt: n(row.created_at),
+    expiresAt: n(row.expires_at)
   };
 }

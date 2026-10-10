@@ -1,17 +1,21 @@
 /**
  * 认证路由 —— 契约 §7.4 / §7.6
- *   POST /v1/auth/register  → 201 {user, device, accessToken, refreshToken, expiresIn}
- *   POST /v1/auth/guest     → 201 同构(user.email = null, user.isGuest = true,契约 §7.6.2)
- *   POST /v1/auth/login     → 200 同上(游客账号一律 AUTH_INVALID_CREDENTIALS)
- *   POST /v1/auth/upgrade   → 200 {user}(需 Access Token;游客 → 正式账号,userId 不变)
- *   POST /v1/auth/refresh   → 200 {user, device, accessToken, refreshToken, expiresIn}
- *   POST /v1/auth/logout    → 204
+ *   POST /v1/auth/register   → 201 {user, device, accessToken, refreshToken, expiresIn}
+ *   POST /v1/auth/guest      → 201 同构(user.email = null, user.isGuest = true,契约 §7.6.2)
+ *   POST /v1/auth/login      → 200 同上(游客/无口令账号一律 AUTH_INVALID_CREDENTIALS)
+ *   POST /v1/auth/upgrade    → 200 {user}(需 Access Token;游客 → 正式账号,userId 不变)
+ *   POST /v1/auth/email/code → 202 {sent, expiresIn, retryAfter[, devCode]}(契约 §7.6.5)
+ *   POST /v1/auth/email/login→ 200 与 register **完全同构**(未注册邮箱自动建号)
+ *   POST /v1/auth/refresh    → 200 {user, device, accessToken, refreshToken, expiresIn}
+ *   POST /v1/auth/logout     → 204
  */
 import type { FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
-import { errors } from '../domain/errors';
+import { AppError, errors } from '../domain/errors';
 import {
   DeviceRegisterInputSchema,
+  EmailCodeLoginSchema,
+  EmailCodeRequestSchema,
   GuestInputSchema,
   LoginInputSchema,
   LogoutInputSchema,
@@ -61,6 +65,40 @@ export function registerAuthRoutes(app: FastifyInstance, deps: RouteDeps): void 
     const parsed = UpgradeGuestInputSchema.safeParse(req.body);
     if (!parsed.success) toValidationError(parsed.error);
     return deps.auth.upgrade(req.auth!.userId, parsed.data);
+  });
+
+  /**
+   * 请求邮箱登录验证码(契约 §7.6.5,v1.3)—— 202。
+   *
+   * 限流命中时除了 429 的 `details.retryAfterSec`,还回一个标准的 `Retry-After` 头
+   * (与 app.ts 里全局令牌桶的处理一致,便于通用 HTTP 客户端直接读)。
+   */
+  app.post('/v1/auth/email/code', async (req, reply) => {
+    const parsed = EmailCodeRequestSchema.safeParse(req.body);
+    if (!parsed.success) toValidationError(parsed.error);
+    try {
+      const result = await deps.auth.requestEmailCode(parsed.data);
+      return await reply.code(202).send(result);
+    } catch (err) {
+      if (
+        err instanceof AppError &&
+        err.code === 'RATE_LIMITED' &&
+        err.details.reason === 'code_throttled'
+      ) {
+        reply.header('Retry-After', String(err.details.retryAfterSec));
+      }
+      throw err;
+    }
+  });
+
+  /**
+   * 邮箱验证码登录(契约 §7.6.5)—— 200,响应与 register/login **完全同构**。
+   * 邮箱未注册时自动建号(`is_guest=false`、无口令);已注册时直接登录、不改其口令。
+   */
+  app.post('/v1/auth/email/login', async (req) => {
+    const parsed = EmailCodeLoginSchema.safeParse(req.body);
+    if (!parsed.success) toValidationError(parsed.error);
+    return deps.auth.emailCodeLogin(parsed.data);
   });
 
   app.post('/v1/auth/refresh', async (req) => {

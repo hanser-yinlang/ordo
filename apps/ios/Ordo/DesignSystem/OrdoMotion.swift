@@ -98,6 +98,19 @@ public enum OrdoMotion {
         public static let cardWidth: CGFloat = 400
         /// 提交中转圈尺寸(规范 §5.1:16dp 转圈)。
         public static let spinnerSize: CGFloat = 16
+
+        // MARK: 邮箱验证码登录(规范 §5.1.1)
+
+        /// 第二行(口令行 ↔ 验证码行)固定行高:切换时卡片高度不跳变(规范 §5.1.1)。
+        public static let secondRowHeight: CGFloat = 56
+        /// 「口令登录 | 验证码登录」同级切换控件高度(触控目标 ≥44 由 `contentShape` 兜住)。
+        public static let methodSwitchHeight: CGFloat = 32
+        /// 验证码输入字距(规范 §5.1.1:数字等宽,字距 +1.5)。
+        public static let codeTracking: CGFloat = 1.5
+        /// 「获取验证码」次级按钮最小宽度(要容得下「60s 后重发」)。
+        public static let codeButtonMinWidth: CGFloat = 108
+        /// 重发倒计时的步长(秒)。
+        public static let countdownTick: Double = 1
     }
 
     // MARK: 快加号集群(规范 §5.2)

@@ -45,14 +45,14 @@ ordo/
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
 | 共享核心 `shared/core` | ✅ **已编译 + 69 个单元测试全绿**(含 v1.2 会话层 8 条) | JDK 21 + Gradle 8.14 实跑 |
-| **登录体系(五端一致)** | ✅ **启动登录门禁 + 游客登录 + 数据按 userId 隔离**(契约 §7.6) | 后端 143 用例含 12 条游客/升级用例;真库 94 项断言;四端各有登录页/手势/刷新用例与离屏渲染 |
-| Windows 桌面端 | ✅ **已编译 + 198 个测试全绿 + MSI/EXE 打包成功** | `gradlew :apps:windows:test`(24 类,含 14 张离屏截图:登录页 / 快加号菜单 / 刷新中);`packageDistributionForCurrentOS` → MSI 99.3 MB |
-| 后端 `server` | ✅ **构建 + 143 个测试 + 10 项冒烟 + 24 项游客冒烟全绿 + 真实 PostgreSQL 94 项断言全过** | `pnpm test`;`scripts/verify-guest-smoke.ps1`;真库 `127.0.0.1:55432` |
-| Android 端 | ✅ **已编译 + APK(debug 15.1 MB / **已签名** release 2.17 MB)+ 110 个测试全绿** | `gradlew :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest` |
-| 鸿蒙端 | ✅ **已编译 + HAP 产出 + ArkTS 告警清零 + 宿主 116 用例全绿** | `hvigorw assembleHap` → `entry-default-unsigned.hap` 1.34 MB;`python apps/harmony/_qa/build-harness.py` |
+| **登录体系(五端一致)** | ✅ **启动登录门禁 + 游客登录 + 邮箱验证码登录 + 数据按 userId 隔离**(契约 §7.6 / §7.6.5) | 后端 174 用例(含游客/升级/验证码);真库 125 项断言;主管黑盒端到端 25 项 |
+| Windows 桌面端 | ✅ **已编译 + 234 个测试全绿 + MSI/EXE 打包成功** | `gradlew :apps:windows:test`(27 类,含登录页 / 快加号菜单 / 刷新中 / **验证码登录** 离屏截图);`packageDistributionForCurrentOS` → MSI 99.3 MB |
+| 后端 `server` | ✅ **构建 + 174 个测试 + 10 项冒烟 + 24 项游客冒烟全绿 + 真实 PostgreSQL 125 项断言全过** | `pnpm test`;`scripts/verify-guest-smoke.ps1`;真库 `127.0.0.1:55432` |
+| Android 端 | ✅ **已编译 + APK(debug 15.15 MB / **已签名** release 2.17 MB)+ 135 个测试全绿** | `gradlew :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest`(本机无设备,未做真机) |
+| 鸿蒙端 | ✅ **已编译 + HAP 产出 + ArkTS 0 错误 + 宿主 134 用例全绿 + 模拟器 `aa test` 134/134** | `hvigorw assembleHap` → `entry-default-unsigned.hap` 1.4 MB;`python apps/harmony/_qa/build-harness.py`;`hdc shell aa test …` |
 | iOS 端 | 📦 源码就绪 + 契约交叉核对 0 缺失 + 预检 34 项通过 | **本机无 macOS,未编译**;`bash apps/ios/tools/verify_ios.sh` 在 macOS/CI 上一条命令跑通 |
 
-**合计**:约 480 个文件 / 8.3 万行源码与文档;**520 个应用用例(核心 69 + Windows 198 + Android 110 + 后端 143)全部通过**,另有**鸿蒙本机宿主 116 用例**与**真实 PostgreSQL 94 项断言**;契约一致性检查 35 项 × 6 个代码库全部通过;编码扫描 492 个文件零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
+**合计**:约 520 个文件 / 9 万行源码与文档;**612 个应用用例(核心 69 + Windows 234 + Android 135 + 后端 174)全部通过**,另有**鸿蒙宿主 134 用例 + 模拟器设备端 `aa test` 134 用例**、**真实 PostgreSQL 125 项断言**与**主管黑盒端到端 25 项**;契约一致性检查 39 项 × 6 个代码库全部通过;编码扫描 511 个文件零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
 
 > 环境实情:本仓库的开发机为 Windows(仅有 JDK 21 + Gradle 8.14 + Node/pnpm)。凡标注"未编译"的端,均已在对应 README 给出目标环境的完整构建步骤,并用自动检查器逐条核对了契约字段/规则。
 
@@ -116,9 +116,12 @@ open apps/ios/Ordo.xcodeproj                  # 详见 apps/ios/README.md
 
 ## 6. 已知限制
 
-- **iOS 无法在本机编译**(无 macOS/Xcode):本轮改动经契约交叉核对(59 个公开方法 0 缺失)与预检 34 项通过,新增 XCTest 未执行,需在 macOS 上 `bash apps/ios/tools/verify_ios.sh`。
-- Android/HarmonyOS 产物为 debug 或 unsigned 包,装真机需自备签名证书;两端**均未做真机点击与手感走查**(只有编译级 + 离屏渲染 + 纯逻辑用例)。
-- 多设备真实同步联调未做(单机真实 PostgreSQL 94 项断言已过);鸿蒙 `_qa` 宿主为 Hypium 垫片,不替代设备上的权威测试。
+- **iOS 无法在本机编译**(无 macOS/Xcode):改动经契约交叉核对(0 缺失)与预检 34 项通过,新增 XCTest 未执行,需在 macOS 上 `bash apps/ios/tools/verify_ios.sh`(本轮已修掉"测试目标模块名写错导致必然失败"的既有阻塞)。
+- **Android 本机没有可用设备/模拟器**:验证码链路只到编译 + 135 个单元测试;且清单未允许明文 HTTP(targetSdk 36),连本机 `http://` 后端需先加 debug-only 明文放行或让后端上 HTTPS。
+- **鸿蒙已在模拟器上做设备端验证**(`aa test` 134/134、unsigned HAP 可直接装模拟器),但**真机**(需华为证书)与手感/帧率仍未走查;`_qa` 宿主是 Hypium 垫片。
+- **真实邮件通道未接入**:验证码默认走 `console` 开发通道(可选 `http` 通用网关),拿到 SMTP/网关凭据后配置 `ORDO_MAIL_TRANSPORT=http` + `ORDO_MAIL_HTTP_URL/TOKEN` 即可,无需改代码。
+- 多设备真实同步联调未做(单机真实 PostgreSQL 125 项断言与黑盒端到端 25 项已过)。
+- 生产环境必须设置 `ORDO_CODE_PEPPER`(缺省拒绝启动),否则验证码哈希强度不足。
 - 日历集成为只读演示数据,系统日历接入在二期。
 - 提醒在 MVP 为本地通知;后台被杀时的可靠投递依赖各平台机制,已列入风险 R-06。
 - 团队协作、Web 端、端到端加密为明确非目标(见章程 §1.2)。

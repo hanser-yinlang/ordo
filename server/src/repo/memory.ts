@@ -5,6 +5,7 @@
 import { AnyEntity, EntityKind } from '../domain/model';
 import {
   DeviceRow,
+  EmailCodeRow,
   EntityRow,
   NewOpRow,
   OpRow,
@@ -31,6 +32,8 @@ export class MemoryRepository implements Repository {
   private ops = new Map<string, OpRow[]>();
   private opsByKey = new Map<string, OpRow>();
   private reminders = new Map<string, ReminderRow>();
+  /** 邮箱验证码(契约 §7.6.5);按 id 存,查询时按 email 过滤 */
+  private emailCodes = new Map<string, EmailCodeRow>();
   private seq = 0;
 
   async init(): Promise<void> {
@@ -46,6 +49,7 @@ export class MemoryRepository implements Repository {
     this.ops.clear();
     this.opsByKey.clear();
     this.reminders.clear();
+    this.emailCodes.clear();
   }
 
   async ping(): Promise<boolean> {
@@ -119,6 +123,14 @@ export class MemoryRepository implements Repository {
   async deleteUser(userId: string): Promise<void> {
     const user = this.users.get(userId);
     if (user && user.email !== null) this.usersByEmail.delete(user.email);
+    // 账号删除要连验证码一起清掉(契约 §9「删除账号与全部数据」):
+    // email_codes 按 email 关联,没有 user_id 外键,因此必须显式清 ——
+    // 否则销号后旧验证码仍能登录,并自动把刚删掉的邮箱重新建成新账号。
+    if (user && user.email !== null) {
+      for (const [id, code] of [...this.emailCodes.entries()]) {
+        if (code.email === user.email) this.emailCodes.delete(id);
+      }
+    }
     this.users.delete(userId);
     for (const key of [...this.devices.keys()]) if (key.startsWith(`${userId}|`)) this.devices.delete(key);
     for (const [hash, token] of [...this.refreshTokens.entries()]) if (token.userId === userId) this.refreshTokens.delete(hash);
@@ -281,6 +293,57 @@ export class MemoryRepository implements Repository {
 
   async listReminders(userId: string): Promise<ReminderRow[]> {
     return [...this.reminders.values()].filter((r) => r.userId === userId).map((r) => ({ ...r }));
+  }
+
+  /* ---------------- email login codes(契约 §7.6.5) ---------------- */
+
+  async createEmailCode(row: EmailCodeRow): Promise<EmailCodeRow> {
+    const stored: EmailCodeRow = {
+      ...row,
+      email: row.email.toLowerCase(),
+      attempts: row.attempts ?? 0,
+      consumedAt: row.consumedAt ?? null
+    };
+    this.emailCodes.set(stored.id, stored);
+    return { ...stored };
+  }
+
+  /**
+   * 最近一条(created_at 最大)。`>=` 而不是 `>`:同一毫秒内插入的多条取**后插入**的那条
+   * (Map 保持插入顺序),与 PgRepository 的 `order by created_at desc, id desc` 语义对齐 ——
+   * 二者都保证"最新一条"是确定性的,不依赖随机 uuid 的大小。
+   */
+  async latestEmailCode(email: string): Promise<EmailCodeRow | null> {
+    const target = email.toLowerCase();
+    let latest: EmailCodeRow | null = null;
+    for (const row of this.emailCodes.values()) {
+      if (row.email !== target) continue;
+      if (!latest || row.createdAt >= latest.createdAt) latest = row;
+    }
+    return latest ? { ...latest } : null;
+  }
+
+  async consumeEmailCode(id: string, nowMs: number): Promise<boolean> {
+    const row = this.emailCodes.get(id);
+    if (!row || row.consumedAt != null) return false;
+    row.consumedAt = nowMs;
+    return true;
+  }
+
+  async incrementEmailCodeAttempts(id: string): Promise<number> {
+    const row = this.emailCodes.get(id);
+    if (!row) return 0;
+    row.attempts += 1;
+    return row.attempts;
+  }
+
+  async countEmailCodesSince(email: string, sinceMs: number): Promise<number> {
+    const target = email.toLowerCase();
+    let count = 0;
+    for (const row of this.emailCodes.values()) {
+      if (row.email === target && row.createdAt >= sinceMs) count += 1;
+    }
+    return count;
   }
 }
 

@@ -4,6 +4,9 @@ import com.ordo.core.model.Op
 import com.ordo.core.sync.AuthApi
 import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
+import com.ordo.core.sync.EmailCodeLoginRequest
+import com.ordo.core.sync.EmailCodeRequest
+import com.ordo.core.sync.EmailCodeSent
 import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoApiException
 import com.ordo.core.sync.OrdoSession
@@ -47,6 +50,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.atomic.AtomicBoolean
 
 /* ============================================================================
@@ -59,6 +64,65 @@ data class ErrorEnvelope(val error: ErrorBody)
 
 @Serializable
 data class ErrorBody(val code: String, val message: String, val details: JsonElement? = null)
+
+/**
+ * 带 `details` 的服务端错误(契约 §7.4 / §7.6.2 / §7.6.5)。
+ *
+ * 共享核心的 [OrdoApiException] 只冻结了 `code` / `message`(而且是 final,不能继承),但契约
+ * §7.6.2、§7.6.5 明确规定**不新增错误码**,而是用 `details.reason` 区分同一 code 下的细分场景
+ * (`not_guest` / `code_throttled` / `code_invalid` / `code_expired` / `code_attempts_exceeded`),
+ * 429 还带一个等待秒数。共享核心冻结、本轮不得修改,所以这里在 Windows 网络层并列一个更完整的
+ * 错误类型把 reason 与 retryAfterSec 透出来 —— 界面据此给中文文案与倒计时秒数。
+ *
+ * 老代码判断 `error is OrdoApiException` 依然成立:改用 [errorCodeOf] 取码,语义完全一致。
+ */
+class OrdoHttpException(
+    /** 契约 §7.4 的冻结错误码,例如 `AUTH_INVALID_CREDENTIALS` / `RATE_LIMITED` */
+    val code: String,
+    override val message: String,
+    /** `details.reason`,例如 `code_invalid`;缺失为 null */
+    val reason: String? = null,
+    /** 限流时的等待秒数:来自 `details.retryAfterSec`(或顶层 `retryAfter`) */
+    val retryAfterSec: Long? = null
+) : Exception(message) {
+
+    /** HTTP 层没给出业务错误码时的兜底(如 `HTTP_500`) */
+    val httpCode: String? get() = code.takeIf { it.startsWith("HTTP_") }
+}
+
+/** 从任意异常里取业务错误码:两类异常都兼容,其余为 null(网络不可达等) */
+fun errorCodeOf(error: Throwable): String? = when (error) {
+    is OrdoHttpException -> error.code
+    is OrdoApiException -> error.code
+    else -> null
+}
+
+/** 从任意异常里取 `details.reason`(只有 [OrdoHttpException] 带得动) */
+fun errorReasonOf(error: Throwable): String? = (error as? OrdoHttpException)?.reason
+
+/**
+ * 限流错误里的等待秒数(契约 §7.6.5:`error.details.retryAfterSec`)。
+ *
+ * 缺失 / 非正数时回落到 [DEFAULT_RETRY_AFTER_SECONDS](与成功体顶层 `retryAfter` 的默认值一致),
+ * 并且夹在 (0, [MAX_RETRY_AFTER_SECONDS]] 内 —— 服务端给出离谱值时也不至于把按钮永久锁死。
+ */
+fun retryAfterSecondsOf(error: Throwable): Long {
+    val raw = (error as? OrdoHttpException)?.retryAfterSec ?: return DEFAULT_RETRY_AFTER_SECONDS
+    return raw.coerceIn(1L, MAX_RETRY_AFTER_SECONDS)
+}
+
+/** 契约 §7.6.5:同一邮箱再次请求的最小间隔默认 60 秒 */
+const val DEFAULT_RETRY_AFTER_SECONDS = 60L
+
+/** 上限只是防御离谱响应,不是契约值 */
+const val MAX_RETRY_AFTER_SECONDS = 3_600L
+
+/** `details` 里的字段(全部可选:服务端只保证是对象) */
+private fun JsonElement?.detailString(key: String): String? =
+    runCatching { this?.jsonObject?.get(key)?.jsonPrimitive?.content }.getOrNull()
+
+private fun JsonElement?.detailLong(key: String): Long? =
+    runCatching { this?.jsonObject?.get(key)?.jsonPrimitive?.content?.toLongOrNull() }.getOrNull()
 
 object OrdoHttp {
 
@@ -77,14 +141,20 @@ object OrdoHttp {
     }
 }
 
-/** 解析响应体;非 2xx 抛出结构化的 [OrdoApiException] */
+/** 解析响应体;非 2xx 抛出结构化的 [OrdoHttpException](带 `details.reason` 与 `retryAfterSec`) */
 suspend fun <T> HttpResponse.bodyOrThrow(deserializer: (String) -> T): T {
     val text = bodyAsText()
     if (status.isSuccess()) return deserializer(text)
     val envelope = runCatching { OrdoJson.instance.decodeFromString(ErrorEnvelope.serializer(), text) }.getOrNull()
-    throw OrdoApiException(
-        envelope?.error?.code ?: "HTTP_${status.value}",
-        envelope?.error?.message ?: text.take(300).ifBlank { "请求失败" }
+    val details = envelope?.error?.details
+    throw OrdoHttpException(
+        code = envelope?.error?.code ?: "HTTP_${status.value}",
+        message = envelope?.error?.message ?: text.take(300).ifBlank { "请求失败" },
+        // 契约 §7.6.5:`details.reason` 用来区分同一错误码下的细分场景
+        reason = details.detailString("reason"),
+        // 契约 §7.6.5 的 429:`{error:{code:RATE_LIMITED,details:{reason:code_throttled,retryAfterSec:42}}}`
+        // —— 错误体里是 **details.retryAfterSec**(与成功体顶层的 retryAfter 位置不同、含义相同)
+        retryAfterSec = details.detailLong("retryAfterSec")
     )
 }
 
@@ -249,6 +319,32 @@ class KtorAuthApi(
             contentType(ContentType.Application.Json)
             setBody(request)
         }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(UpgradeResponse.serializer(), text) }
+
+    /**
+     * 请求邮箱登录验证码(契约 §7.6.5):`POST /v1/auth/email/code` → 202
+     * `{sent,expiresIn,retryAfter}`。**响应绝不回显验证码**,唯一例外是开发模式(`console` 通道 +
+     * 显式开关)会带 `devCode` —— 界面只把它当作联调便利自动填入,绝不依赖它。
+     *
+     * 同一邮箱 60s 内重复请求 → 429 `RATE_LIMITED`(details.reason = `code_throttled`,带等待秒数),
+     * 这个 `retryAfterSec` 由 [OrdoHttpException] 透出,交给登录页跑倒计时。
+     */
+    override suspend fun requestEmailCode(request: EmailCodeRequest): EmailCodeSent =
+        client.post("${tokens.serverUrl}/v1/auth/email/code") {
+            baseHeaders()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(EmailCodeSent.serializer(), text) }
+
+    /**
+     * 邮箱验证码登录(契约 §7.6.5):`POST /v1/auth/email/login` → 200,响应与 register / login / guest
+     * **同构**(同一 userId、同一份云端数据、同一套 refreshToken 体系);未注册邮箱由服务端自动建号。
+     */
+    override suspend fun emailLogin(request: EmailCodeLoginRequest): AuthResponse =
+        client.post("${tokens.serverUrl}/v1/auth/email/login") {
+            baseHeaders()
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
 
     /**
      * 退出登录(204 无响应体)。

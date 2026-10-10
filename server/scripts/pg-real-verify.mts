@@ -11,6 +11,9 @@ import { Pool } from 'pg';
 import { PgRepository, type SqlPool } from '../src/repo/pg';
 import { runMigrations } from '../src/repo/migrate';
 import { baseConfig } from '../test/helpers';
+import { AuthService, emailCodeHash } from '../src/services/auth';
+import { createPasswordHasher, sha256Hex } from '../src/services/password';
+import type { MailSender } from '../src/services/mail';
 import { SyncService } from '../src/services/sync';
 import type { AnyEntity, Todo } from '../src/domain/model';
 
@@ -757,6 +760,219 @@ console.log('\n=== 11) 游客账号:真库建号 / email=null / 数据隔离 / �
   // ④ 升级后旧的 refreshToken 仍然有效(令牌绑定 userId,升级不改 userId)
   const guestBUser = await repo.findUserById(guestB);
   check('另一个游客未受影响(仍是 is_guest=true、email=null)', guestBUser?.isGuest === true && guestBUser?.email === null);
+}
+
+/* ---------------- 12) 邮箱验证码(契约 §7.6.5,迁移 004,真库)---------------- */
+console.log('\n=== 12) 邮箱验证码:表/列/索引 + 只存 HMAC 哈希 + 一次性消费(真库)===');
+{
+  /* ① 迁移 004 建出的列形状(契约 §8) */
+  const { rows: codeCols } = await adminPool.query<{
+    column_name: string;
+    data_type: string;
+    is_nullable: string;
+    column_default: string | null;
+  }>(
+    `select column_name, data_type, is_nullable, column_default
+       from information_schema.columns
+      where table_schema = 'public' and table_name = 'email_codes'
+      order by ordinal_position`
+  );
+  check(
+    'email_codes 表存在且恰好 7 列',
+    codeCols.length === 7,
+    `实际列:${codeCols.map((c) => c.column_name).join(', ') || '(表不存在)'}`
+  );
+  const colMap = new Map(codeCols.map((c) => [c.column_name, c]));
+  check('email_codes.id 是 uuid', colMap.get('id')?.data_type === 'uuid', `实际=${colMap.get('id')?.data_type}`);
+  check(
+    'email_codes.email / code_hash 是非空 text',
+    colMap.get('email')?.data_type === 'text' && colMap.get('email')?.is_nullable === 'NO' &&
+      colMap.get('code_hash')?.data_type === 'text' && colMap.get('code_hash')?.is_nullable === 'NO',
+    `email=${colMap.get('email')?.data_type}/${colMap.get('email')?.is_nullable} code_hash=${colMap.get('code_hash')?.data_type}/${colMap.get('code_hash')?.is_nullable}`
+  );
+  check(
+    'email_codes.attempts 是 int、非空、默认 0',
+    colMap.get('attempts')?.data_type === 'integer' &&
+      colMap.get('attempts')?.is_nullable === 'NO' &&
+      /0/.test(colMap.get('attempts')?.column_default ?? ''),
+    `type=${colMap.get('attempts')?.data_type} nullable=${colMap.get('attempts')?.is_nullable} default=${colMap.get('attempts')?.column_default}`
+  );
+  check(
+    'email_codes.consumed_at 可空(= 未消费)且是 bigint',
+    colMap.get('consumed_at')?.data_type === 'bigint' && colMap.get('consumed_at')?.is_nullable === 'YES',
+    `type=${colMap.get('consumed_at')?.data_type} nullable=${colMap.get('consumed_at')?.is_nullable}`
+  );
+  check(
+    'email_codes.created_at / expires_at 是非空 bigint(epoch millis)',
+    ['created_at', 'expires_at'].every(
+      (c) => colMap.get(c)?.data_type === 'bigint' && colMap.get(c)?.is_nullable === 'NO'
+    ),
+    JSON.stringify(['created_at', 'expires_at'].map((c) => `${c}=${colMap.get(c)?.data_type}/${colMap.get(c)?.is_nullable}`))
+  );
+  const { rows: codePk } = await adminPool.query<{ def: string }>(
+    `select pg_get_constraintdef(oid) as def from pg_constraint
+      where conrelid = 'email_codes'::regclass and contype = 'p'`
+  );
+  check('email_codes 主键是 (id)', /primary key \(id\)/i.test(codePk[0]?.def ?? ''), codePk[0]?.def ?? '缺失');
+
+  /* ② 索引目录:契约 §8 的 email_codes(email, created_at desc) */
+  const { rows: codeIdx } = await adminPool.query<{ indexdef: string; indisunique: boolean }>(
+    `select i.indexdef, ix.indisunique
+       from pg_indexes i
+       join pg_class c on c.relname = i.indexname
+       join pg_index ix on ix.indexrelid = c.oid
+      where i.schemaname = 'public' and i.tablename = 'email_codes'
+        and i.indexname = 'email_codes_email_created_idx'`
+  );
+  check('索引 email_codes_email_created_idx 存在', codeIdx.length === 1, codeIdx[0]?.indexdef ?? '缺失');
+  check(
+    '索引列序是 (email, created_at DESC)',
+    /\(email, created_at DESC\)/i.test(codeIdx[0]?.indexdef ?? ''),
+    codeIdx[0]?.indexdef ?? '缺失'
+  );
+  check('该索引不是唯一索引(同一邮箱可以有多条历史验证码)', codeIdx[0]?.indisunique === false);
+
+  /* ③ 服务层跑真库:请求验证码 → 只存 HMAC-SHA256(pepper, email:code) */
+  let clock = NOW + 2_000_000;
+  const sentMails: Array<{ to: string; subject: string; text: string }> = [];
+  const mail: MailSender = {
+    kind: 'console',
+    async send(message) {
+      sentMails.push(message);
+    }
+  };
+  const auth = new AuthService(repo, config, createPasswordHasher({ force: 'scrypt' }), () => clock, mail);
+  const codeEmail = `pg-code-${Date.now()}@example.com`;
+
+  const sentRes = await auth.requestEmailCode({ email: codeEmail });
+  check(
+    'requestEmailCode 返回 sent=true / expiresIn=300 / retryAfter=60',
+    sentRes.sent === true && sentRes.expiresIn === 300 && sentRes.retryAfter === 60,
+    JSON.stringify(sentRes)
+  );
+  const code = /(\d{6})/.exec(sentMails[0]?.text ?? '')?.[1] ?? '';
+  check('验证码真的通过发信通道发出且正文含 6 位数字', /^\d{6}$/.test(code), `code=${code || '(未取到)'}`);
+
+  const { rows: hashRows } = await adminPool.query<{ id: string; code_hash: string; attempts: number; consumed_at: string | null }>(
+    `select id, code_hash, attempts, consumed_at from email_codes where email = $1 order by created_at desc limit 1`,
+    [codeEmail]
+  );
+  const storedHash = hashRows[0]?.code_hash ?? '';
+  const codeId = hashRows[0]?.id ?? '';
+  check(
+    '库里存的是 HMAC-SHA256(pepper, email:code)',
+    storedHash === emailCodeHash(config.emailCode.pepper, codeEmail, code),
+    `${storedHash.slice(0, 16)}…`
+  );
+  check('库里不是明文验证码', storedHash !== code && !storedHash.includes(code));
+  check(
+    '库里不是裸 SHA-256(必须带 pepper)',
+    storedHash !== sha256Hex(code) && storedHash !== sha256Hex(`${codeEmail}:${code}`)
+  );
+  check('新验证码 attempts=0 且 consumed_at 为 NULL', Number(hashRows[0]?.attempts) === 0 && hashRows[0]?.consumed_at === null);
+  const { rows: lowerRows } = await adminPool.query(
+    `select 1 from email_codes where email = $1`,
+    [codeEmail.toLowerCase()]
+  );
+  check('email 以小写入库', lowerRows.length === 1);
+
+  /* ④ 60s 限流在真库上同样生效 */
+  const throttled = await auth.requestEmailCode({ email: codeEmail }).then(
+    () => null,
+    (err: { code?: string; details?: { reason?: string; retryAfterSec?: number } }) => err
+  );
+  check(
+    '60s 内重复请求被限流(RATE_LIMITED / code_throttled + retryAfterSec)',
+    throttled?.code === 'RATE_LIMITED' &&
+      throttled?.details?.reason === 'code_throttled' &&
+      typeof throttled?.details?.retryAfterSec === 'number',
+    JSON.stringify(throttled?.details)
+  );
+
+  /* ⑤ 登录:自动建号 + 一次性消费 */
+  const login = await auth.emailCodeLogin({ email: codeEmail, code, deviceName: '真库设备', platform: 'windows' });
+  check(
+    '验证码登录成功且响应完整(与 register 同构)',
+    typeof login.user.id === 'string' &&
+      login.user.isGuest === false &&
+      typeof login.accessToken === 'string' &&
+      typeof login.refreshToken === 'string' &&
+      login.expiresIn > 0,
+    JSON.stringify({ userId: login.user.id, isGuest: login.user.isGuest, expiresIn: login.expiresIn })
+  );
+  const { rows: codeUserRows } = await adminPool.query<{
+    email: string;
+    is_guest: boolean;
+    password_algo: string;
+    password_hash: string;
+  }>(`select email, is_guest, password_algo, password_hash from users where id = $1`, [login.user.id]);
+  check(
+    "自动建号:is_guest=false、password_algo='none'、占位哈希 otp$<random>",
+    codeUserRows[0]?.is_guest === false &&
+      codeUserRows[0]?.password_algo === 'none' &&
+      /^otp\$[0-9a-f]{64}$/.test(codeUserRows[0]?.password_hash ?? ''),
+    JSON.stringify({ ...codeUserRows[0], password_hash: (codeUserRows[0]?.password_hash ?? '').slice(0, 12) + '…' })
+  );
+  check('自动建号的 email 就是已验证邮箱', codeUserRows[0]?.email === codeEmail);
+  check('自动建号的占位哈希不含验证码明文', !(codeUserRows[0]?.password_hash ?? '').includes(code));
+
+  const consumedAfterLogin = await adminPool.query<{ consumed_at: string | null }>(
+    `select consumed_at from email_codes where id = $1`,
+    [codeId]
+  );
+  check('登录成功后 consumed_at 已置位', consumedAfterLogin.rows[0]?.consumed_at != null, String(consumedAfterLogin.rows[0]?.consumed_at));
+
+  const reuse = await auth.emailCodeLogin({ email: codeEmail, code, deviceName: 'x', platform: 'cli' }).then(
+    () => null,
+    (err: { code?: string; details?: { reason?: string } }) => err
+  );
+  check(
+    '同一验证码复用被拒(401 AUTH_INVALID_CREDENTIALS / code_invalid)',
+    reuse?.code === 'AUTH_INVALID_CREDENTIALS' && reuse?.details?.reason === 'code_invalid',
+    JSON.stringify(reuse?.details)
+  );
+  check(
+    '仓储层 consumeEmailCode 第二次返回 false(真库 update ... where consumed_at is null)',
+    (await repo.consumeEmailCode(codeId, clock)) === false
+  );
+
+  /* ⑥ 同码最多 5 次:真库上的 attempts 原子自增与作废 */
+  clock += 61_000;
+  await auth.requestEmailCode({ email: codeEmail });
+  const code2 = /(\d{6})/.exec(sentMails[1]?.text ?? '')?.[1] ?? '';
+  const wrong = code2 === '000000' ? '111111' : '000000';
+  const reasons: string[] = [];
+  for (let i = 0; i < 5; i += 1) {
+    const err = await auth.emailCodeLogin({ email: codeEmail, code: wrong, deviceName: 'x', platform: 'cli' }).then(
+      () => null,
+      (e: { details?: { reason?: string } }) => e
+    );
+    reasons.push(err?.details?.reason ?? 'no-error');
+  }
+  check(
+    '前 4 次错码是 code_invalid,第 5 次变成 code_attempts_exceeded',
+    reasons.slice(0, 4).every((r) => r === 'code_invalid') && reasons[4] === 'code_attempts_exceeded',
+    JSON.stringify(reasons)
+  );
+  const { rows: attemptsRows } = await adminPool.query<{ attempts: number }>(
+    `select attempts from email_codes where email = $1 order by created_at desc limit 1`,
+    [codeEmail]
+  );
+  check('真库 attempts 恰好累加到 5', Number(attemptsRows[0]?.attempts) === 5, `attempts=${attemptsRows[0]?.attempts}`);
+  const afterVoid = await auth.emailCodeLogin({ email: codeEmail, code: code2, deviceName: 'x', platform: 'cli' }).then(
+    () => null,
+    (err: { details?: { reason?: string } }) => err
+  );
+  check('作废后连正确的码也不再放行', afterVoid?.details?.reason === 'code_attempts_exceeded', JSON.stringify(afterVoid?.details));
+
+  /* ⑦ 销号级联:deleteUser 必须连该邮箱的验证码一起清掉 */
+  check(
+    '销号前该邮箱还有验证码',
+    (await repo.countEmailCodesSince(codeEmail, 0)) > 0
+  );
+  await repo.deleteUser(login.user.id);
+  check('deleteUser 后该邮箱的验证码被清空(旧码不能把刚删的邮箱重新建号)', (await repo.countEmailCodesSince(codeEmail, 0)) === 0);
+  check('deleteUser 后邮箱查不到账号', (await repo.findUserByEmail(codeEmail)) === null);
 }
 
 /* ---------------- 收尾 ---------------- */

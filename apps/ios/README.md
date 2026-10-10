@@ -183,8 +183,15 @@ xcodebuild test -project Ordo.xcodeproj -scheme Ordo \
 
 测试覆盖契约 §4 / §5 / §6 / §7.3 / §7.6 与 UI 规范 §5.2~§5.4 的状态机,业务规则部分全部
 **通过 `OrdoCoreBridge` 驱动 KMP 核心**(见 §6);会话/门禁/交互状态机部分用纯 Swift 状态机与桩实现驱动。
-新增的两个文件:`OrdoTests/SessionAndGateTests.swift`(会话读写与游客标记 / §7.6.4 门禁 / 目录名隔离 /
-登录表单)/ `OrdoTests/InteractionStateTests.swift`(长按 400ms 与 6pt 阈值 / 刷新状态机 / §5.1~§5.4 令牌)。
+新增的三个文件:`OrdoTests/SessionAndGateTests.swift`(会话读写与游客标记 / §7.6.4 门禁 / 目录名隔离 /
+登录表单)/ `OrdoTests/InteractionStateTests.swift`(长按 400ms 与 6pt 阈值 / 刷新状态机 / §5.1~§5.4 令牌)/
+`OrdoTests/EmailCodeLoginTests.swift`(§7.6.5 免密登录:DTO 线格式 / 6 位码校验 / 重发倒计时 /
+`details.reason` 与 `details.retryAfterSec` 映射,纯 Swift,**不依赖 `OrdoCore`**)。
+
+> ⚠️ 模块名有两条构建路径:SwiftPM 下 App 层模块是 `OrdoKit`,而 Xcode 工程
+> (`PRODUCT_NAME=Ordo`)是 `Ordo`。测试文件统一用
+> `#if canImport(OrdoKit) @testable import OrdoKit #else @testable import Ordo #endif`,
+> 否则 `xcodebuild test`(verify_ios.sh 的第 3 步)会因「找不到模块 OrdoKit」而整体编译失败。
 
 > 模拟器上的「日历」默认是空的,因此 `OrdoEnvironmentAgendaProvider` 会回退示例日程 ——
 > 这是**预期行为**(见 §5 已知偏差 4);要看到真实日历,在模拟器里往「日历」App 添加一条今天的日程,
@@ -405,6 +412,7 @@ EventKit(EKEventStore,只读)──▶ OrdoCalendarEvent ──▶ AppEnvironmen
 | 目录命名 | `OrdoCoreSessionStore.userDataDirName(_:)` | **直接调核心**(`OrdoSessionStore.companion.userDataDirName`),Swift 侧不复制清洗规则 |
 | 令牌宿主 | `OrdoSessionTokenStore` | 令牌只存在会话里(refresh 轮换 = 会话内换令牌);`X-Ordo-Device` 用**设备级** deviceId(根 kv `ordo.deviceId`,与核心 `OrdoEngine.KEY_DEVICE_ID` 同名) |
 | 三个入口 | `Auth/OrdoAuthService.swift` + `Auth/LoginView.swift` | 登录 / 注册 / 游客;`AuthApi` 新增 `guest(...)` 与 `upgrade(accessToken:_:)`;游客升级后 **userId 与数据不变**,只补邮箱口令 |
+| 邮箱验证码登录(§7.6.5) | `Net/AuthApi.swift` + `Core/OrdoAPIProtocols.swift` + `Auth/LoginModel.swift` + `Auth/LoginView.swift` | `requestEmailCode` / `emailLogin` 两个接口 + `OrdoEmailCodeRequest` / `OrdoEmailCodeSent` / `OrdoEmailCodeLoginRequest` DTO;卡片内「口令登录 \| 验证码登录」同级切换、6 位数字等宽输入、满 6 位自动提交、「获取验证码」按 `retryAfter` 倒计时置灰;失败按 `details.reason`(code_invalid / code_expired / code_attempts_exceeded / code_throttled)给中文;限流新秒数读 `details.retryAfterSec`(60s 兜底 + 3600s 夹取);`devCode` 只在开发模式回显时自动填入,生产路径不依赖 |
 | UI(§5.1) | `Auth/LoginView.swift` + `Auth/LoginModel.swift` | 卡片宽 400 · radius 16 · 浮动标签(聚焦上移 12px 转 accent)· 口令显隐 · 提交中 16dp 转圈并禁用全部入口 · 错误区固定 20 高 + 6px/320ms 衰减抖动 · 进入 fade + 上移 12px 220ms |
 | 退出登录 | `AppEnvironment.signOut()` | 只清会话(契约 §7.6.3),**不删**该 userId 的目录;设置页显示当前账号、账号类型、userId 与数据目录名,便于核对「两个账号是否共用目录」 |
 | 令牌失效 | `SyncCoordinator.onAuthExpired` → `AppEnvironment.handleAuthExpired()` | 401 且 refresh 失败 → 清会话回登录页(登录页给出「登录已过期,请重新登录」),目录同样保留 |
@@ -422,6 +430,7 @@ EventKit(EKEventStore,只读)──▶ OrdoCalendarEvent ──▶ AppEnvironmen
 |---|---|---|
 | **登录门禁:启动必须先登录(登录 / 注册 / 游客三入口)** | `Auth/OrdoAuthService.swift` + `Auth/LoginView.swift` + `Core/OrdoSession.swift` | ✅(契约 §7.6.4,未编译验证) |
 | **登录页 §5.1(400 宽卡片 / 浮动标签 / 口令显隐 / 转圈 / 抖动 / 进入动效)** | `Auth/LoginView.swift` + `Auth/LoginModel.swift` | ✅(未编译验证) |
+| **登录页 §5.1.1(邮箱验证码登录:同级切换 / 6 位数字等宽 / 满 6 位自动提交 / 60s 倒计时置灰 / 4 条 reason 中文)** | `Auth/LoginView.swift` + `Auth/LoginModel.swift` + `Net/AuthApi.swift` | ✅(契约 §7.6.5,未编译验证) |
 | **本地数据按 userId 隔离(`Application Support/<userId>/`)** | `Core/OrdoSessionBridge.swift`(`OrdoAppDirectories`)+ `Data/SwiftDataStorage.makeUserContainer(userId:)` | ✅(契约 §7.6.3 硬约束) |
 | **设置页:当前账号 + 退出登录(只清会话)+ 游客升级** | `Settings/SettingsView.swift` + `AppEnvironment.signOut()` | ✅ |
 | 三栏骨架(侧栏 248 + 列表 + 内联详情) | `Shell/OrdoShellView.swift` | ✅ |
@@ -617,3 +626,4 @@ bash apps/ios/tools/verify_ios.sh          # 探测任务名 → XCFramework →
 | 1.0.2 | 2026-10-09 | ① 自检脚本改为**动态**提取 Kotlin 的构造参数/方法/属性(不再依赖手写清单),并复核 `OrdoEngine` 59 方法 0 缺失;② 契约 §7.3.6(空标题视为删除)已在核心补全,新增 4 条断言;③ 接入 EventKit 只读日历(`Data/EventKitAgenda.swift`,含权限键与静默回退、注入点);④ 通知被拒/前台时降级为应用内横幅 + 角标,并用 `ordo.reminder.fired` 记录去重;⑤ 列表拖拽排序接入核心 `reorderTodos(ids:)`(限同容器,含持久化说明);⑥ README 补齐 macOS 5 步命令、XCFramework 任务名探测、iOS 17 理由与 iOS 16 回退、SwiftData `repeat` 反引号与 `[Codable]` 数组风险清单 |
 | 1.0.3 | 2026-10-09 | ① 新增 `tools/verify_ios.sh`:macOS 上一条命令跑通(自动探测 XCFramework 任务名 → 生成 → build → test → 三个自检脚本),带平台守卫与失败汇总;② 新增 `tools/preflight.py`:编译前预检 34 项(配置解析 / entitlements / project.yml 与 pbxproj 一致 / 49+5 个 Swift 文件全部入工程 / 协议 59 方法全实现 / 39 个 engine 调用点在协议内 / `repeat` 反引号 / 第三方 URL),任意平台可跑;③ README 记录**实测**的环境阻塞证据(`gradlew :shared:core:tasks` 中 `*XCFramework` 0 命中、9 个 Apple 专属模块不可用)、共享核心真编译 + 55 单测通过、契约矩阵六端通过,并补充 CI 开启 macOS 编译的步骤 |
 | 1.1.0 | 2026-10-10 | 客户试用后的四项要求(契约 v1.2 §7.6 + UI 规范 v1.1 §5.1~§5.4):① **登录门禁 + 游客登录**——`Auth/OrdoAuthService`、`Auth/LoginView`(§5.1 全量:400 宽卡片/浮动标签/口令显隐/提交转圈/错误抖动/进入动效)、`Core/OrdoSession`(会话模型 + §7.6.4 启动路由)、`AuthApi` 新增 `guest`/`upgrade` 与 `UserDto.isGuest`(Swift 侧 `OrdoUser.email` 改可选,匹配服务端游客 `email: null`);② **本地数据按 userId 隔离**(§7.6.3 硬约束)——`Core/OrdoSessionBridge`(`OrdoAppDirectories` + 根目录 `session.json` + `OrdoSessionTokenStore`),SwiftData 容器改 `<userId>/Ordo.store`,设置页显示当前账号/类型/userId/目录并可退出登录(只清会话)+ 游客升级,删除旧的 `Data/TokenStore.swift`;App Intents 也按当前会话目录落库;③ **快加号集群**(§5.2)只留一个 56pt 按钮、长按 400ms 菜单、展开旋转 45°、逐项错位 40ms,删除系统 contextMenu;④ **刷新控件**(§5.3)图标连续旋转 900ms/圈 + 已同步/同步失败(点击重试)+ 1.4s 防抖,`⌘R` 同源;⑤ **长按拖拽**(§5.4)统一为长按 400ms 后拖动(移动 <6pt 视为点击)、行抬起 1.02+12dp 投影+背景 surface、插入线 2dp+4dp 圆点、被拖行 alpha 0.55、取消路径(Esc/拖出可视区/无目标行)明确,删除 `.onDrag`/`.onDrop` 与 `OrdoReorderDropDelegate`;新增 `OrdoTests/SessionAndGateTests`(会话/门禁/目录名/升级)与 `OrdoTests/InteractionStateTests`(长按阈值/刷新状态机/§5.1~§5.4 令牌断言)。**全部为静态核对,未经编译**。 |
+| 1.2.0 | 2026-10-10 | **邮箱验证码登录(免密登录,契约 v1.3 §7.6.5 + UI 规范 v1.3 §5.1.1)**:① `OrdoAuthAPI` 协议、`URLSessionAuthApi` 与 `OrdoAuthService` 补 `requestEmailCode(_:)` / `emailLogin(_:)`(与核心 Kotlin `AuthApi` 的 `EmailCodeRequest` / `EmailCodeSent` / `EmailCodeLoginRequest` 逐字段对齐,`expiresIn`/`retryAfter` 用 `Int64` 且缺省回落 300/60);② `Auth/LoginModel` 新增 `OrdoLoginMethod`(口令 / 验证码同级切换,切换保留邮箱与两种凭据)、`OrdoEmailCodePolicy`(60s 兜底 / 3600s 上限)、验证码清洗(只收 ASCII 数字、截断 6 位)、重发倒计时(`tickCountdown` / `applyRetryAfter`);③ `Auth/LoginView` 新增分段切换、验证码行(等宽数字 + 字距 1.5 + `获取验证码` 次级按钮)、满 6 位自动提交、`.task(id:)` 逐秒倒计时、错误沿用 §5.1 抖动区;④ 错误映射优先读 `error.details.reason`(code_invalid / code_expired / code_attempts_exceeded / code_throttled / mail_failed),限流新秒数读 **`error.details.retryAfterSec`**(不是成功体的 `retryAfter`);⑤ 新增 `OrdoTests/EmailCodeLoginTests.swift`(DTO 线格式 / 码格式 / canSubmit / 倒计时 / reason 与 retryAfterSec 映射 / 服务层落会话);⑥ **修复既有构建阻塞**:测试文件的 `@testable import OrdoKit` 在 Xcode 工程下模块名应为 `Ordo`,改为 `#if canImport(OrdoKit)` 条件导入。**全部为静态核对,未经编译**(本机无 macOS)。 |

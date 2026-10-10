@@ -36,6 +36,9 @@ $env:PORT = "$port"
 $env:HOST = '127.0.0.1'
 $env:NODE_ENV = 'production'
 $env:JWT_SECRET = 'smoke-verify-secret-please-rotate-0123456789'
+# Required in production (contract 7.6.5 / 9): HMAC pepper for email login codes.
+# Missing -> the server refuses to start.
+$env:ORDO_CODE_PEPPER = 'smoke-verify-code-pepper-please-rotate-0123456789'
 $env:LOG_LEVEL = 'info'
 $env:REMINDER_SCAN_MS = '200'
 $env:TZ_OFFSET_MINUTES = '480'

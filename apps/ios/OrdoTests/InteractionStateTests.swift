@@ -13,7 +13,12 @@
 
 import CoreGraphics
 import XCTest
+// 模块名两条构建路径不同:Xcode 工程(PRODUCT_NAME=Ordo)是 `Ordo`,SwiftPM 是 `OrdoKit`。
+#if canImport(OrdoKit)
 @testable import OrdoKit
+#else
+@testable import Ordo
+#endif
 
 // MARK: - 长按拖拽(UI 规范 §5.4)
 

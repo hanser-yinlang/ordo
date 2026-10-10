@@ -8,6 +8,7 @@ import { Heading, Op, Project, Todo } from '../../../main/ets/core/model/Entitie
 import { OrdoEngine } from '../../../main/ets/core/store/OrdoEngine.ets';
 import { MemoryOrdoStore } from '../../../main/ets/core/storage/MemoryStore.ets';
 import { ApplyResult } from '../../../main/ets/core/sync/SyncTypes.ets';
+import { todayISO } from '../../../main/ets/core/util/DateUtil.ets';
 import { makeTodo, TodoOverrides } from './Fixtures.ets';
 
 const DEVICE: string = 'dev_test';
@@ -110,10 +111,14 @@ export default function syncMergeTest() {
       const todo: Todo = t as Todo;
       expect(todo.when).assertEqual('inbox');
 
-      engine.setReminder(todo.id, '2026-10-08T18:00');
+      // 契约 §3:when 变成 today 时,reminder 的**日期部分跟着今天走**(时间部分保留)。
+      // 期望值必须用 todayISO() 现算:写死 `2026-10-08T18:00` 只在"今天恰好是宿主冻结日"时成立,
+      // 在设备上跑(真实日期)会假失败 —— 第六轮(2026-10-10)真机首跑即命中该缺陷。
+      const at: string = todayISO() + 'T18:00';
+      engine.setReminder(todo.id, at);
       const after: Todo = engine.findTodo(todo.id) as Todo;
       expect(after.when).assertEqual('today'); // 契约 §3:设置提醒且 when ∈ {inbox,…} → today
-      expect(after.reminder).assertEqual('2026-10-08T18:00');
+      expect(after.reminder).assertEqual(at);
       done();
     });
 

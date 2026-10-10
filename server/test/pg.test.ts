@@ -81,7 +81,16 @@ describe('PgRepository × pg-mem(真实执行 001_init.sql)', () => {
         `select table_name from information_schema.tables where table_schema = 'public' order by table_name`
       );
       const tables = rows.map((r) => r.table_name);
-      for (const expected of ['users', 'devices', 'refresh_tokens', 'entities', 'ops', 'reminders', 'schema_migrations']) {
+      for (const expected of [
+        'users',
+        'devices',
+        'refresh_tokens',
+        'entities',
+        'ops',
+        'reminders',
+        'email_codes',
+        'schema_migrations'
+      ]) {
         assert.ok(tables.includes(expected), `应建出表 ${expected},实际:${tables.join(', ')}`);
       }
     });
@@ -92,8 +101,8 @@ describe('PgRepository × pg-mem(真实执行 001_init.sql)', () => {
       );
       assert.deepEqual(
         before.map((r) => Number(r.version)),
-        [1, 2, 3],
-        '001_init.sql、002_device_id_text.sql 与 003_guest_accounts.sql 都应被记录'
+        [1, 2, 3, 4],
+        '001_init.sql、002_device_id_text.sql、003_guest_accounts.sql 与 004_email_codes.sql 都应被记录'
       );
 
       // PgRepository.init() 再来一次:已应用的版本会被跳过
@@ -108,7 +117,7 @@ describe('PgRepository × pg-mem(真实执行 001_init.sql)', () => {
         [...files.map((f) => f.version)].sort((a, b) => a - b),
         '迁移必须按版本号升序执行'
       );
-      assert.ok(files.length >= 3, `应发现至少 3 个迁移文件,实际 ${files.length}`);
+      assert.ok(files.length >= 4, `应发现至少 4 个迁移文件,实际 ${files.length}`);
     });
 
     it('003_guest_accounts.sql:users.is_guest 列已建出且默认 false', async () => {
@@ -975,6 +984,159 @@ describe('PgRepository × pg-mem(真实执行 001_init.sql)', () => {
       const loaded = await h.repo.getEntity(userId, 'todo', 'jsonb-roundtrip');
       assert.deepEqual(loaded!.payload, payload, 'jsonb 必须整体无损往返');
       assert.ok(JSON.stringify(loaded!.payload).includes('季度报告 · 📊'));
+    });
+  });
+
+  /* ==================== 邮箱验证码(契约 §7.6.5,迁移 004)==================== */
+
+  describe('email_codes 表语义(迁移 004)', () => {
+    const codeEmail = 'code.semantics@example.com';
+
+    it('004_email_codes.sql 建出契约 §8 的列与 (email, created_at desc) 索引,且幂等', async () => {
+      const migration = loadMigrations(MIGRATIONS_DIR).find((m) => m.version === 4);
+      assert.ok(migration, '应发现 004_email_codes.sql');
+      assert.equal(migration!.name, '004_email_codes.sql');
+      // 纯标准 DDL:不得包含 DO 块 / plpgsql(pg-mem 的 plpgsql 是 no-op,DO 块不会真的执行)。
+      // 先剥掉 `--` 注释再判断 —— 否则文件头解释"为什么不用 DO 块"的那几行会误伤。
+      const executableSql = migration!.sql.replace(/--[^\n]*/g, '');
+      assert.ok(!/do\s+\$\$/i.test(executableSql), '004 不允许用 DO 块(必须 pg-mem 与真库都真的执行)');
+      assert.ok(!/plpgsql/i.test(executableSql), '004 不允许依赖 plpgsql');
+
+      // 表与列形状(同样只看可执行语句:注释里出现的 `create table if not exists` 字样不应干扰解析)
+      const tables = parseTableNames(executableSql);
+      assert.deepEqual(tables, ['email_codes']);
+      const cols = await h.sql<{ column_name: string; data_type: string; is_nullable: string }>(
+        `select column_name, data_type, is_nullable from information_schema.columns
+         where table_schema = 'public' and table_name = 'email_codes' order by ordinal_position`
+      );
+      assert.deepEqual(
+        cols.map((c) => c.column_name),
+        ['id', 'email', 'code_hash', 'attempts', 'consumed_at', 'created_at', 'expires_at'],
+        '列顺序与契约 §8 一致'
+      );
+      // ⚠️ pg-mem 的 information_schema 把列一律报告成 NOT NULL(已知差异 #2/#6),
+      // 因此这里只断言**列名与列序**;`consumed_at` 的可空性用**行为**断言
+      // (下一个用例:省略 consumed_at 插入 → 读回 null),真实的 is_nullable
+      // 由 scripts/pg-real-verify.mts 在真库上断言。
+
+      // 索引声明:名字 / 表 / 列序(含 desc)
+      const decls = parseIndexDeclarations(executableSql);
+      assert.deepEqual(decls.map((d) => d.name), ['email_codes_email_created_idx']);
+      assert.equal(decls[0].table, 'email_codes');
+      assert.deepEqual(decls[0].columns, ['email', 'created_at desc'], '契约 §8:email_codes(email, created_at desc)');
+
+      // 逐条真实重放(换名,证明 DDL 可执行),再整文件重跑一次证明幂等
+      for (const idx of decls) {
+        const replay = renameIndex(idx.ddl, idx.name, `${idx.name}_replay`);
+        await h.sql(replay);
+      }
+      await h.sql(migration!.sql);
+      await h.sql(migration!.sql);
+      // 幂等重跑后再按全部 7 列查一次:列还在、表还能用
+      // (pg-mem 对 information_schema 的 count(*) 会抛内部错误,所以用真实列查询代替列数统计)
+      const afterRerun = await h.sql(
+        `select id, email, code_hash, attempts, consumed_at, created_at, expires_at from email_codes`
+      );
+      assert.deepEqual(afterRerun, [], '幂等重跑不改变列形状,此刻表里还没有数据');
+    });
+
+    it('createEmailCode / latestEmailCode:按 created_at 取最近一条,邮箱大小写归一', async () => {
+      const now = NOW;
+      await h.repo.createEmailCode({
+        id: uuid(900),
+        email: 'Code.Semantics@Example.com',
+        codeHash: 'hash-old',
+        attempts: 0,
+        consumedAt: null,
+        createdAt: now,
+        expiresAt: now + 300_000
+      });
+      await h.repo.createEmailCode({
+        id: uuid(901),
+        email: codeEmail,
+        codeHash: 'hash-new',
+        attempts: 0,
+        consumedAt: null,
+        createdAt: now + 1000,
+        expiresAt: now + 301_000
+      });
+
+      const latest = await h.repo.latestEmailCode('CODE.SEMANTICS@example.COM');
+      assert.equal(latest?.codeHash, 'hash-new', '必须取 created_at 最大的那条');
+      assert.equal(latest?.email, codeEmail, 'email 以小写入库');
+      assert.equal(latest?.attempts, 0);
+      assert.equal(latest?.consumedAt, null);
+      assert.equal(latest?.createdAt, now + 1000, 'bigint 时间戳无损往返');
+      assert.equal(await h.repo.latestEmailCode('nobody@example.com'), null);
+    });
+
+    it('consumeEmailCode 是一次性原子消费:第二次返回 false,consumed_at 保留首次时间', async () => {
+      const id = uuid(902);
+      await h.repo.createEmailCode({
+        id,
+        email: codeEmail,
+        codeHash: 'hash-consume',
+        attempts: 0,
+        consumedAt: null,
+        createdAt: NOW + 2000,
+        expiresAt: NOW + 302_000
+      });
+
+      assert.equal(await h.repo.consumeEmailCode(id, NOW + 3000), true, '第一次消费必须成功');
+      assert.equal(await h.repo.consumeEmailCode(id, NOW + 9000), false, '同一验证码不可复用');
+      assert.equal(await h.repo.consumeEmailCode(uuid(999), NOW), false, '不存在的 id 返回 false(影响 0 行)');
+
+      const row = await h.repo.latestEmailCode(codeEmail);
+      assert.equal(row?.consumedAt, NOW + 3000, 'consumed_at 必须保留第一次消费的时刻');
+    });
+
+    it('incrementEmailCodeAttempts 原子自增并返回新值;countEmailCodesSince 按窗口计数', async () => {
+      const id = uuid(903);
+      await h.repo.createEmailCode({
+        id,
+        email: 'attempts@example.com',
+        codeHash: 'hash-attempts',
+        attempts: 0,
+        consumedAt: null,
+        createdAt: NOW,
+        expiresAt: NOW + 300_000
+      });
+
+      assert.equal(await h.repo.incrementEmailCodeAttempts(id), 1);
+      assert.equal(await h.repo.incrementEmailCodeAttempts(id), 2);
+      assert.equal(await h.repo.incrementEmailCodeAttempts(id), 3);
+      assert.equal((await h.repo.latestEmailCode('attempts@example.com'))?.attempts, 3);
+
+      assert.equal(await h.repo.countEmailCodesSince('attempts@example.com', NOW - 1), 1);
+      assert.equal(await h.repo.countEmailCodesSince('attempts@example.com', NOW + 1), 0, '窗口外不计入');
+      assert.equal(await h.repo.countEmailCodesSince('attempts@example.com', 0), 1);
+      assert.equal(await h.repo.countEmailCodesSince('other@example.com', 0), 0);
+    });
+
+    it('deleteUser 会清掉该邮箱的验证码(销号后旧码不能把邮箱重新建号)', async () => {
+      const doomed = uuid(904);
+      const doomedEmail = 'doomed@example.com';
+      await h.repo.createUser({
+        id: doomed,
+        email: doomedEmail,
+        passwordHash: 'otp$' + 'f'.repeat(64),
+        passwordAlgo: 'none',
+        createdAt: NOW
+      });
+      await h.repo.createEmailCode({
+        id: uuid(905),
+        email: doomedEmail,
+        codeHash: 'hash-doomed',
+        attempts: 0,
+        consumedAt: null,
+        createdAt: NOW,
+        expiresAt: NOW + 300_000
+      });
+      assert.equal(await h.repo.countEmailCodesSince(doomedEmail, 0), 1);
+
+      await h.repo.deleteUser(doomed);
+      assert.equal(await h.repo.findUserById(doomed), null);
+      assert.equal(await h.repo.countEmailCodesSince(doomedEmail, 0), 0, '验证码必须随账号一起删掉');
     });
   });
 });

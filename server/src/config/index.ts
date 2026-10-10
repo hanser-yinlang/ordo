@@ -16,6 +16,37 @@ export interface RateLimitConfig {
   refillPerSec: number;
 }
 
+/** 发信通道(契约 §7.6.5):console = 写日志(开发),http = POST 到通用邮件网关 */
+export type MailTransport = 'console' | 'http';
+
+export interface MailConfig {
+  transport: MailTransport;
+  /** http 通道的网关地址(transport=http 时必填,否则拒绝启动) */
+  httpUrl: string | null;
+  /** http 通道的 Bearer token(可选) */
+  httpToken: string | null;
+  httpTimeoutMs: number;
+}
+
+/** 邮箱验证码参数(契约 §7.6.5:5 分钟有效、60s 间隔、每小时 5 / 每天 10、同码最多 5 次) */
+export interface EmailCodeConfig {
+  ttlSec: number;
+  retryAfterSec: number;
+  maxPerHour: number;
+  maxPerDay: number;
+  maxAttempts: number;
+  /**
+   * `HMAC-SHA256(pepper, email:code)` 的 pepper(契约 §9)。
+   * 生产必填(`ORDO_CODE_PEPPER`),开发/测试回退到 `JWT_SECRET`。
+   */
+  pepper: string;
+  /**
+   * 是否在响应里额外返回 `devCode`(仅在 `transport=console` 且**非生产**环境生效)。
+   * `NODE_ENV=production` 时若开启,`loadConfig` 直接抛错(拒绝启动)。
+   */
+  devEchoCode: boolean;
+}
+
 export interface AppConfig {
   env: string;
   host: string;
@@ -49,6 +80,10 @@ export interface AppConfig {
   /** 墓碑保留时长(毫秒),默认 30 天 */
   tombstoneTtlMs: number;
   rateLimit: RateLimitConfig;
+  /** 邮箱验证码登录(契约 §7.6.5) */
+  emailCode: EmailCodeConfig;
+  /** 发信通道(契约 §7.6.5) */
+  mail: MailConfig;
   logLevel: string;
   /**
    * 是否由服务端代生成重复待办的下一次实例(契约 §6)。
@@ -85,6 +120,32 @@ export function loadConfig(env: EnvLike = process.env): AppConfig {
     jwtSecret = randomBytes(32).toString('hex');
   }
 
+  /* ---- 发信通道(契约 §7.6.5) ---- */
+  const mailTransportRaw = (env.ORDO_MAIL_TRANSPORT ?? '').trim().toLowerCase() || 'console';
+  if (mailTransportRaw !== 'console' && mailTransportRaw !== 'http') {
+    throw new Error(`ORDO_MAIL_TRANSPORT 只能是 console 或 http,当前为 "${mailTransportRaw}"`);
+  }
+  const mailTransport = mailTransportRaw as MailTransport;
+  const mailHttpUrl = env.ORDO_MAIL_HTTP_URL && env.ORDO_MAIL_HTTP_URL.trim() !== '' ? env.ORDO_MAIL_HTTP_URL.trim() : null;
+  if (mailTransport === 'http' && !mailHttpUrl) {
+    // 没有任何可投递的地址 → 每次发码都必然失败,属于配置错误,直接拒绝启动
+    throw new Error('ORDO_MAIL_TRANSPORT=http 时必须设置 ORDO_MAIL_HTTP_URL(通用邮件网关地址)');
+  }
+
+  /* ---- 邮箱验证码(契约 §7.6.5) ---- */
+  const devEchoCode = bool(env, 'ORDO_DEV_ECHO_CODE', false);
+  if (isProd && devEchoCode) {
+    // 契约 §7.6.5 明文要求:生产环境开启回显直接拒绝启动
+    throw new Error('生产环境禁止 ORDO_DEV_ECHO_CODE=1(契约 §7.6.5:响应绝不回显验证码)');
+  }
+  const pepperRaw = env.ORDO_CODE_PEPPER && env.ORDO_CODE_PEPPER.trim() !== '' ? env.ORDO_CODE_PEPPER.trim() : '';
+  let codePepper = pepperRaw;
+  if (!codePepper) {
+    if (isProd) throw new Error('生产环境必须设置 ORDO_CODE_PEPPER(契约 §9:验证码只存 HMAC-SHA256 哈希)');
+    // 开发/测试:回退到 JWT_SECRET(契约 §7.6.5 允许)
+    codePepper = jwtSecret;
+  }
+
   return {
     env: nodeEnv,
     host: env.HOST ?? '0.0.0.0',
@@ -108,6 +169,21 @@ export function loadConfig(env: EnvLike = process.env): AppConfig {
       enabled: bool(env, 'RATE_LIMIT_ENABLED', true),
       capacity: num(env, 'RATE_LIMIT_CAPACITY', 10),
       refillPerSec: num(env, 'RATE_LIMIT_REFILL_PER_SEC', 10)
+    },
+    emailCode: {
+      ttlSec: num(env, 'ORDO_EMAIL_CODE_TTL_SEC', 300),
+      retryAfterSec: num(env, 'ORDO_EMAIL_CODE_RETRY_AFTER_SEC', 60),
+      maxPerHour: num(env, 'ORDO_EMAIL_CODE_MAX_PER_HOUR', 5),
+      maxPerDay: num(env, 'ORDO_EMAIL_CODE_MAX_PER_DAY', 10),
+      maxAttempts: num(env, 'ORDO_EMAIL_CODE_MAX_ATTEMPTS', 5),
+      pepper: codePepper,
+      devEchoCode
+    },
+    mail: {
+      transport: mailTransport,
+      httpUrl: mailHttpUrl,
+      httpToken: env.ORDO_MAIL_HTTP_TOKEN && env.ORDO_MAIL_HTTP_TOKEN.trim() !== '' ? env.ORDO_MAIL_HTTP_TOKEN.trim() : null,
+      httpTimeoutMs: num(env, 'ORDO_MAIL_HTTP_TIMEOUT_MS', 5000)
     },
     logLevel: env.LOG_LEVEL ?? (isProd ? 'info' : 'warn'),
     serverSideRepeat: bool(env, 'SERVER_SIDE_REPEAT', false)

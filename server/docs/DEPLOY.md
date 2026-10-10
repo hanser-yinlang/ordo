@@ -32,7 +32,17 @@
 | `TOMBSTONE_PURGE_INTERVAL_MS` | `300000` | 墓碑清理定时任务周期;`<=0` 关闭 |
 | `TOMBSTONE_TTL_MS` | `2592000000` | 墓碑保留时长(30 天) |
 | `SERVER_SIDE_REPEAT` | `false` | 是否由服务端代生成重复待办(默认关闭,避免与客户端双写) |
-| `LOG_LEVEL` | `info`(生产) | 日志级别;日志**不打印** token / 口令 / 备注正文 |
+| `ORDO_CODE_PEPPER` | 空(开发回退 `JWT_SECRET`) | 邮箱验证码的 HMAC pepper;**生产必须显式设置**(否则启动即报错,契约 §7.6.5 / §9) |
+| `ORDO_EMAIL_CODE_TTL_SEC` / `ORDO_EMAIL_CODE_RETRY_AFTER_SEC` | `300` / `60` | 验证码有效期 / 同邮箱最小请求间隔(秒) |
+| `ORDO_EMAIL_CODE_MAX_PER_HOUR` / `ORDO_EMAIL_CODE_MAX_PER_DAY` / `ORDO_EMAIL_CODE_MAX_ATTEMPTS` | `5` / `10` / `5` | 同邮箱每小时 / 每天发码上限;同码最多尝试次数 |
+| `ORDO_MAIL_TRANSPORT` | `console` | 发信通道:`console`(写日志,仅适合本地)/ `http`(POST 到通用邮件网关) |
+| `ORDO_MAIL_HTTP_URL` / `ORDO_MAIL_HTTP_TOKEN` / `ORDO_MAIL_HTTP_TIMEOUT_MS` | 空 / 空 / `5000` | `transport=http` 时 URL **必填**(否则启动即报错);token 作为 `Authorization: Bearer`;超时按发信失败(500 `mail_failed`) |
+| `ORDO_DEV_ECHO_CODE` | `0` | 开发回显验证码(仅非生产 + console);`NODE_ENV=production` 时设为 `1` **拒绝启动** |
+| `LOG_LEVEL` | `info`(生产) | 日志级别;日志**不打印** token / 口令 / 备注正文(验证码也只在非生产 console 通道打印) |
+
+> **上线邮箱验证码登录前必做**:把 `ORDO_MAIL_TRANSPORT` 设为 `http` 并配置 `ORDO_MAIL_HTTP_URL`
+> (`console` 通道在生产**不会真的投递邮件**),同时设置 `ORDO_CODE_PEPPER`(独立于 `JWT_SECRET` 的随机串,
+> 轮换 pepper 会让**在途验证码全部失效**)。
 
 > 多实例部署注意:限流是**单实例内存**令牌桶。多副本时请按 `userId` 做一致性哈希,或替换为 Redis 实现(`src/services/rate-limit.ts` 的 `TokenBucketLimiter` 已是可替换的单一入口)。
 

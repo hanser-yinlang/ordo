@@ -2,13 +2,15 @@
  * 认证服务 —— 契约 §7.4 / §9。
  *  - access token:JWT HS256,有效期 30 分钟(config.accessTtlSec)
  *  - refresh token:256-bit 随机串,服务端**仅存 SHA-256 哈希**,30 天,刷新即轮换失效
+ *  - 邮箱验证码登录(§7.6.5,v1.3):验证码只存 HMAC-SHA256,一次性消费、同码最多 5 次
  */
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import { AppConfig } from '../config';
 import { AppError, errors } from '../domain/errors';
-import { DeviceRow, RefreshTokenRow, Repository, UserRow } from '../repo/types';
+import { DeviceRow, EmailCodeRow, RefreshTokenRow, Repository, UserRow } from '../repo/types';
+import { createMailSender, MailSender } from './mail';
 import { PasswordHasher, sha256Hex, validatePasswordStrength } from './password';
 
 export const RegisterInputSchema = z.object({
@@ -49,10 +51,58 @@ export const DeviceRegisterInputSchema = z.object({
   platform: z.string().trim().max(50).optional()
 });
 
+/* ---- 邮箱验证码登录(契约 §7.6.5,v1.3 新增)---- */
+
+/** `POST /v1/auth/email/code` 的 body:`{email}` */
+export const EmailCodeRequestSchema = z.object({
+  email: z.string().trim().min(3).max(200).email('邮箱格式不正确')
+});
+
+/**
+ * `POST /v1/auth/email/login` 的 body。
+ *
+ * 契约 §7.6.5 的表格把 `deviceId` / `deviceName` / `platform` 都写成**可选**,
+ * 共享核心的 `EmailCodeLoginRequest` 里 `deviceName` / `platform` 是无默认值的必填字段。
+ * 服务端取二者的**并集**:全部可选 —— 满足契约表格,也不会拒绝按共享核心 DTO 发来的请求
+ * (它与 register/login 一样,缺省时由服务端补 '未命名设备' / 'unknown')。
+ */
+export const EmailCodeLoginSchema = z.object({
+  email: z.string().trim().min(3).max(200).email('邮箱格式不正确'),
+  // 契约 §7.6.5:验证码是 6 位数字;格式不对属于 400 VALIDATION_FAILED(不是 401)
+  code: z.string().trim().regex(/^\d{6}$/, '验证码必须是 6 位数字'),
+  deviceId: z.string().trim().max(100).optional(),
+  deviceName: z.string().trim().max(100).optional(),
+  platform: z.string().trim().max(50).optional()
+});
+
 export type RegisterInput = z.infer<typeof RegisterInputSchema>;
 export type LoginInput = z.infer<typeof LoginInputSchema>;
 export type GuestInput = z.infer<typeof GuestInputSchema>;
 export type UpgradeGuestInput = z.infer<typeof UpgradeGuestInputSchema>;
+export type EmailCodeRequestInput = z.infer<typeof EmailCodeRequestSchema>;
+export type EmailCodeLoginInput = z.infer<typeof EmailCodeLoginSchema>;
+
+/** `POST /v1/auth/email/code` 的响应(契约 §7.6.5,对应共享核心 `EmailCodeSent`) */
+export interface EmailCodeSentResult {
+  sent: true;
+  /** 验证码有效期(秒),默认 300 */
+  expiresIn: number;
+  /** 同一邮箱再次请求的最小间隔(秒),默认 60 */
+  retryAfter: number;
+  /** **仅开发模式**回显(console 通道 + ORDO_DEV_ECHO_CODE=1 + 非生产);生产恒不出现 */
+  devCode?: string;
+}
+
+/**
+ * 验证码哈希:契约 §7.6.5 / §9 硬约束 —— `HMAC-SHA256(pepper, email + ':' + code)`。
+ *
+ * 为什么必须是 HMAC 而不是裸 SHA-256:6 位数字只有 1e6 种可能,拿到裸哈希就能离线爆破;
+ * 加上只有服务端知道的 pepper,库被拖走也无法反推验证码。
+ * email 参与哈希,保证同一个 6 位码对不同邮箱得到不同哈希(与限流按邮箱一一对应)。
+ */
+export function emailCodeHash(pepper: string, email: string, code: string): string {
+  return createHmac('sha256', pepper).update(`${email.toLowerCase()}:${code}`, 'utf8').digest('hex');
+}
 
 /** 契约 §7.6.2 的 `user` 投影:register / login / guest / refresh **同构** */
 export interface PublicUser {
@@ -87,7 +137,8 @@ export class AuthService {
     private repo: Repository,
     private config: AppConfig,
     private hasher: PasswordHasher,
-    private now: () => number = Date.now
+    private now: () => number = Date.now,
+    private mail: MailSender = createMailSender(config)
   ) {}
 
   get passwordAlgo(): string {
@@ -131,10 +182,14 @@ export class AuthService {
       await this.burnPasswordCheck(input.password);
       throw errors.invalidCredentials();
     }
-    if (user.isGuest === true) {
-      // 契约 §7.6.2:游客账号没有口令可校验,login 一律按凭据不正确处理。
-      // 不要单独返回"这是游客账号"的错误码 —— 邮箱是调用方自己提供的,
-      // 这里回 AUTH_INVALID_CREDENTIALS 与"邮箱不存在/口令错误"不可区分,不泄漏账号类型。
+    if (user.isGuest === true || user.passwordAlgo === 'none') {
+      // 契约 §7.6.2 / §7.6.5:
+      //  · 游客账号没有口令可校验;
+      //  · 由**邮箱验证码**自动创建的账号同样没有口令(`password_algo = 'none'`,
+      //    占位哈希 `otp$<random>`)。
+      // 两者都一律按"凭据不正确"处理,不单独返回"这是游客/无口令账号"的错误码 ——
+      // 邮箱是调用方自己提供的,回 AUTH_INVALID_CREDENTIALS 与"邮箱不存在/口令错误"
+      // 不可区分,不泄漏账号是否存在、是否无口令。
       // 同时照常做一次哈希校验,保持与其它失败分支相同的耗时特征。
       await this.burnPasswordCheck(input.password);
       throw errors.invalidCredentials();
@@ -211,6 +266,133 @@ export class AuthService {
     if (!upgraded) throw errors.authRequired('访问令牌对应的账号不存在');
 
     return { user: publicUser(upgraded) };
+  }
+
+  /* ==================== 邮箱验证码登录(契约 §7.6.5,v1.3)==================== */
+
+  /**
+   * 请求邮箱验证码:`POST /v1/auth/email/code` → 202 `{sent,expiresIn,retryAfter[,devCode]}`。
+   *
+   * 三步硬约束:
+   *   ① **限流**(按邮箱):60s 内重复请求、每小时 > 5、每天 > 10 → 429 `RATE_LIMITED`
+   *      + `details.reason='code_throttled'` + `retryAfterSec`;
+   *   ② **发信**:走可插拔 `MailSender`;失败 → 500 `INTERNAL` + `details.reason='mail_failed'`;
+   *   ③ **只存哈希**:库里落 `HMAC-SHA256(pepper, email:code)`,明文只存在于这封邮件里。
+   *
+   * 顺序上"先发信、后落库":发信失败时既不占用限流额度(用户可立刻重试),
+   * 也不会在库里留下一条永远发不出去的验证码。
+   * 邮件正文与"该邮箱是否已注册"**无关**(契约 §7.6.5),避免账号枚举。
+   */
+  async requestEmailCode(input: EmailCodeRequestInput): Promise<EmailCodeSentResult> {
+    const email = input.email.toLowerCase();
+    const cfg = this.config.emailCode;
+    const now = this.now();
+
+    // ①-a 60s 间隔:按最近一条验证码的 created_at 计算,并回一个精确的 retryAfter
+    const latest = await this.repo.latestEmailCode(email);
+    if (latest) {
+      const windowMs = cfg.retryAfterSec * 1000;
+      const elapsedMs = now - latest.createdAt;
+      if (elapsedMs < windowMs) {
+        throw errors.codeThrottled(Math.max(1, Math.ceil((windowMs - elapsedMs) / 1000)));
+      }
+    }
+    // ①-b 每小时 / 每天上限。retryAfterSec 返回**整个窗口长度**(保守上界:
+    // 等这么久之后,窗口内一定不再有历史请求,必然放行;契约只要求带 retryAfter 秒)。
+    const hourly = await this.repo.countEmailCodesSince(email, now - 3_600_000);
+    if (hourly >= cfg.maxPerHour) {
+      throw errors.codeThrottled(3600, `同一邮箱每小时最多请求 ${cfg.maxPerHour} 次验证码`);
+    }
+    const daily = await this.repo.countEmailCodesSince(email, now - 86_400_000);
+    if (daily >= cfg.maxPerDay) {
+      throw errors.codeThrottled(86_400, `同一邮箱每天最多请求 ${cfg.maxPerDay} 次验证码`);
+    }
+
+    const code = generateEmailCode();
+    try {
+      // ② 发信。注意:失败时**不要**把通道错误原样抛给客户端(可能带网关细节),
+      // 统一收敛成 INTERNAL + mail_failed;细节留给日志(不含验证码)。
+      await this.mail.send({
+        to: email,
+        subject: 'Ordo 登录验证码',
+        text: buildEmailCodeText(code, cfg.ttlSec)
+      });
+    } catch {
+      throw errors.mailFailed();
+    }
+
+    // ③ 只存哈希:绝不明文、绝不裸 SHA-256(契约 §9)
+    const row: EmailCodeRow = {
+      id: randomUUID(),
+      email,
+      codeHash: emailCodeHash(cfg.pepper, email, code),
+      attempts: 0,
+      consumedAt: null,
+      createdAt: now,
+      expiresAt: now + cfg.ttlSec * 1000
+    };
+    await this.repo.createEmailCode(row);
+
+    const result: EmailCodeSentResult = {
+      sent: true,
+      expiresIn: cfg.ttlSec,
+      retryAfter: cfg.retryAfterSec
+    };
+    if (this.shouldEchoDevCode()) result.devCode = code;
+    return result;
+  }
+
+  /**
+   * 验证码登录:`POST /v1/auth/email/login` → 200,响应与 register/login **完全同构**。
+   *
+   * 账号语义(契约 §7.6.5 硬约束):
+   *   · 邮箱未注册 → **自动建号**:`is_guest=false`、`email=<已验证邮箱>`、
+   *     `password_algo='none'`、占位哈希 `otp$<random>`;
+   *   · 邮箱已注册 → 直接登录该账号,**绝不修改其口令**(原本是游客升级来的账号行为不变)。
+   *
+   * 失败原因(全部 401 `AUTH_INVALID_CREDENTIALS`,靠 `details.reason` 区分):
+   *   · 没有验证码 / 已消费 / 已作废 → `code_invalid`
+   *   · 过期                          → `code_expired`
+   *   · 尝试次数达到上限(≥5)        → `code_attempts_exceeded`
+   */
+  async emailCodeLogin(input: EmailCodeLoginInput): Promise<AuthResult> {
+    const email = input.email.toLowerCase();
+    const cfg = this.config.emailCode;
+    const now = this.now();
+
+    const row = await this.repo.latestEmailCode(email);
+    if (!row || row.consumedAt != null) {
+      // 没有验证码,或这条验证码已经被成功用掉了(一次性消费,契约 §7.6.5)
+      throw errors.invalidEmailCode('code_invalid', '验证码不正确或已失效,请重新获取');
+    }
+    if (row.attempts >= cfg.maxAttempts) {
+      // 达到/超过上限即作废:即使这次填对了也不再放行,必须重新获取
+      throw errors.invalidEmailCode('code_attempts_exceeded', '验证码尝试次数过多,请重新获取');
+    }
+    if (row.expiresAt <= now) {
+      throw errors.invalidEmailCode('code_expired', '验证码已过期,请重新获取');
+    }
+
+    const expected = emailCodeHash(cfg.pepper, email, input.code);
+    if (!timingSafeEqualHex(expected, row.codeHash)) {
+      const attempts = await this.repo.incrementEmailCodeAttempts(row.id);
+      if (attempts >= cfg.maxAttempts) {
+        // 第 5 次错误直接回报"次数超限",客户端据此提示用户重新获取
+        throw errors.invalidEmailCode('code_attempts_exceeded', '验证码尝试次数过多,请重新获取');
+      }
+      throw errors.invalidEmailCode('code_invalid', '验证码不正确');
+    }
+
+    // 一次性消费:只有抢到消费权的那个请求能继续拿令牌(并发下也只有一个)
+    const consumed = await this.repo.consumeEmailCode(row.id, now);
+    if (!consumed) {
+      throw errors.invalidEmailCode('code_invalid', '验证码已被使用,请重新获取');
+    }
+
+    const user = await this.ensureEmailUser(email);
+    const device = await this.upsertDevice(user.id, input);
+    const tokens = await this.issueTokens(user.id, device.id);
+    return { user: publicUser(user), device, ...tokens };
   }
 
   /**
@@ -377,6 +559,52 @@ export class AuthService {
     if (!this.dummyHash) this.dummyHash = await this.hasher.hash('ordo-timing-equalizer');
     await this.hasher.verify(this.dummyHash, password);
   }
+
+  /**
+   * 是否回显验证码(契约 §7.6.5 的唯一例外)。
+   * 三个条件**同时**成立才回显:显式开关 + console 通道 + 非生产。
+   * 生产环境即使 ORDO_DEV_ECHO_CODE=1 也到不了这里 —— loadConfig 已经在启动时拒绝。
+   */
+  private shouldEchoDevCode(): boolean {
+    return (
+      this.config.emailCode.devEchoCode &&
+      this.config.mail.transport === 'console' &&
+      this.config.env !== 'production'
+    );
+  }
+
+  /**
+   * 邮箱验证码登录时的账号解析(契约 §7.6.5 硬约束 1 / 2):
+   *   · 已注册 → 原样返回,**不动它的口令**(也可能是游客升级来的正式账号);
+   *   · 未注册 → 自动建号:`is_guest=false`、无口令(`password_algo='none'` + 占位哈希)。
+   *
+   * 为什么占位哈希不是空串:与游客账号同一手法 —— 哈希列永不留空,
+   * 且 `otp$<256-bit 随机>` 与任何口令都不可能匹配(login 还会按 algo='none' 直接短路)。
+   * 并发下两个请求可能同时走到 createUser,由 `users_email_key` 唯一索引兜底:
+   * 输的那个拿到 23505,再查一次即可拿到赢家建好的账号(不重复建号)。
+   */
+  private async ensureEmailUser(email: string): Promise<UserRow> {
+    const existing = await this.repo.findUserByEmail(email);
+    if (existing) return existing;
+
+    const user: UserRow = {
+      id: randomUUID(),
+      email,
+      passwordHash: `otp$${randomBytes(32).toString('hex')}`,
+      passwordAlgo: 'none',
+      isGuest: false,
+      createdAt: this.now()
+    };
+    try {
+      return await this.repo.createUser(user);
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        const raced = await this.repo.findUserByEmail(email);
+        if (raced) return raced;
+      }
+      throw err;
+    }
+  }
 }
 
 function publicUser(user: UserRow): PublicUser {
@@ -391,4 +619,28 @@ function publicUser(user: UserRow): PublicUser {
 
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
+}
+
+/** 6 位数字验证码。用 CSPRNG(`randomInt`)而不是 `Math.random` —— 后者可预测(契约 §9)。 */
+function generateEmailCode(): string {
+  return randomInt(0, 1_000_000)
+    .toString()
+    .padStart(6, '0');
+}
+
+/**
+ * 邮件正文。**不含**任何"该邮箱是否已注册"的差异信息(契约 §7.6.5 / §9),
+ * 注册与未注册收到的邮件逐字相同。
+ */
+function buildEmailCodeText(code: string, ttlSec: number): string {
+  const minutes = Math.max(1, Math.round(ttlSec / 60));
+  return `您的 Ordo 登录验证码是 ${code},${minutes} 分钟内有效。\n若非本人操作,请忽略本邮件。`;
+}
+
+/** 定长十六进制哈希的常量时间比较(避免用 === 泄漏前缀匹配长度) */
+function timingSafeEqualHex(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }

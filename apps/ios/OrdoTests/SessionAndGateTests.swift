@@ -14,7 +14,12 @@
 //
 
 import XCTest
+// 模块名两条构建路径不同:Xcode 工程(PRODUCT_NAME=Ordo)是 `Ordo`,SwiftPM 是 `OrdoKit`。
+#if canImport(OrdoKit)
 @testable import OrdoKit
+#else
+@testable import Ordo
+#endif
 
 // MARK: - 内存会话存储(测试桩)
 
@@ -361,6 +366,14 @@ final class OrdoStubAuthAPI: OrdoAuthAPI, @unchecked Sendable {
     var refreshCalls = 0
     var logoutCalls = 0
     var upgradeCalls = 0
+    /// 契约 §7.6.5:请求验证码时记录的邮箱。
+    var emailCodeRequests: [String] = []
+    /// 契约 §7.6.5:验证码登录时记录的(邮箱, 码)。
+    var emailLoginCalls: [(email: String, code: String)] = []
+    /// 契约 §7.6.5:响应里的 `retryAfter`(测试可改成 0 以跳过倒计时)。
+    var codeRetryAfter: Int64 = 60
+    /// 契约 §7.6.5:仅开发模式回显的验证码。
+    var devCode: String?
     var nextError: Error?
     var expiresIn = 1800
     var isGuestResponse = false
@@ -409,6 +422,20 @@ final class OrdoStubAuthAPI: OrdoAuthAPI, @unchecked Sendable {
         if let nextError { throw nextError }
         isGuestResponse = false
         return OrdoUpgradeResponse(user: OrdoUser(id: "guest-1", email: request.email, isGuest: false))
+    }
+
+    // MARK: 邮箱验证码登录(契约 §7.6.5)
+
+    func requestEmailCode(_ request: OrdoEmailCodeRequest) async throws -> OrdoEmailCodeSent {
+        emailCodeRequests.append(request.email)
+        if let nextError { throw nextError }
+        return OrdoEmailCodeSent(sent: true, expiresIn: 300, retryAfter: codeRetryAfter, devCode: devCode)
+    }
+
+    func emailLogin(_ request: OrdoEmailCodeLoginRequest) async throws -> OrdoAuthSession {
+        emailLoginCalls.append((request.email, request.code))
+        if let nextError { throw nextError }
+        return response(userId: "code-login", email: request.email)
     }
 }
 

@@ -22,6 +22,9 @@ $env:PORT = "$port"
 $env:HOST = '127.0.0.1'
 $env:NODE_ENV = 'production'
 $env:JWT_SECRET = 'purge-check-secret-0123456789abcdef'
+# Required in production (contract 7.6.5 / 9): HMAC pepper for email login codes.
+# Missing -> the server refuses to start.
+$env:ORDO_CODE_PEPPER = 'purge-check-code-pepper-0123456789abcdef'
 $env:LOG_LEVEL = 'info'
 # 200ms period, 1ms TTL -> every run purges (so runs counter must climb)
 $env:TOMBSTONE_PURGE_INTERVAL_MS = '200'

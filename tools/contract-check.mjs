@@ -52,7 +52,13 @@ const ONLY = {
   'api:errors': ['server', 'android', 'ios', 'harmony', 'windows'],
   'sec:deeplink': ['android', 'ios', 'harmony', 'windows'],
   // §7.6:会话键名是客户端概念(服务端不存它);guest/upgrade 的 URL 路径在客户端,核心只有接口名
-  'session:key': ['core', 'android', 'ios', 'harmony', 'windows']
+  'session:key': ['core', 'android', 'ios', 'harmony', 'windows'],
+  // §7.6.5 邮箱验证码:URL 路径在服务端与各端 HTTP 客户端(核心只定义接口名)
+  'session:emailcode': ['server', 'android', 'ios', 'harmony', 'windows'],
+  'session:emaillogin': ['server', 'android', 'ios', 'harmony', 'windows'],
+  // 只有服务端持有验证码表与 HMAC 逻辑(§7.6.5 安全条款)
+  'session:codehash': ['server'],
+  'session:retryafter': ['core', 'server', 'android', 'ios', 'harmony', 'windows']
 };
 
 const SKIP_DIRS = new Set(['node_modules', 'build', '.gradle', '.git', 'dist', 'oh_modules', 'Pods', '.idea', 'schemas']);
@@ -125,6 +131,12 @@ const CHECKS = [
   { id: 'session:upgrade', desc: '§7.6.2 游客升级(upgrade)', needles: ['upgrade'], anyOf: true },
   { id: 'session:isguest', desc: '§7.6.1 游客标记 isGuest', needles: ['isGuest', 'is_guest'], anyOf: true },
   { id: 'session:userdir', desc: '§7.6.3 本地数据按 userId 分目录', needles: ['userId'], anyOf: true },
+
+  // —— 契约 §7.6.5 邮箱验证码登录(v1.3)——
+  { id: 'session:emailcode', desc: '§7.6.5 请求验证码 /v1/auth/email/code', needles: ['/v1/auth/email/code'] },
+  { id: 'session:emaillogin', desc: '§7.6.5 验证码登录 /v1/auth/email/login', needles: ['/v1/auth/email/login'] },
+  { id: 'session:codehash', desc: '§7.6.5 验证码只存哈希(HMAC + email_codes)', needles: ['email_codes', 'createHmac'] },
+  { id: 'session:retryafter', desc: '§7.6.5 retryAfter(60s 倒计时依据)', needles: ['retryAfter', 'retry_after'], anyOf: true },
 
   // 颜色只比对 6 位十六进制,兼容 Web 的 #5B5BD6 与 Kotlin 的 0xFF5B5BD6、ArkTS 的 '#5B5BD6'
   { id: 'ui:accent', desc: '强调色 #5B5BD6 / #7C7CF0', needles: ['5B5BD6', '7C7CF0'] },

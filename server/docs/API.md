@@ -1,6 +1,6 @@
 # Ordo 后端 API(v1)
 
-> 契约依据:`docs/03-数据模型与同步协议.md`(FROZEN v1)· schemaVersion = `1`
+> 契约依据:`docs/03-数据模型与同步协议.md`(FROZEN v1.3)· schemaVersion = `1`
 > 基础路径 `/v1`;除 `/v1/health`、`/v1/auth/*` 外均需 `Authorization: Bearer <accessToken>`。
 
 ## 0. 通用约定
@@ -25,16 +25,20 @@
 
 | code | HTTP | 触发场景 |
 |---|---|---|
-| `VALIDATION_FAILED` | 400 | 参数/schema 校验失败、`ops.length > 500`、`pull limit > 1000`、`X-Ordo-Schema` 不兼容;**非游客账号调用 `POST /v1/auth/upgrade`**(`details.reason = "not_guest"`) |
+| `VALIDATION_FAILED` | 400 | 参数/schema 校验失败、`ops.length > 500`、`pull limit > 1000`、`X-Ordo-Schema` 不兼容;**非游客账号调用 `POST /v1/auth/upgrade`**(`details.reason = "not_guest"`);**邮箱格式非法或验证码不是 6 位数字**(§7.6.5) |
 | `AUTH_REQUIRED` | 401 | 缺少/伪造 Authorization 头;`upgrade` 的令牌对应账号已不存在 |
-| `AUTH_INVALID_CREDENTIALS` | 401 | 登录时邮箱或口令错误;**游客账号调用 `login`**(无口令可校验,契约 §7.6.2) |
+| `AUTH_INVALID_CREDENTIALS` | 401 | 登录时邮箱或口令错误;**游客 / 无口令账号调用 `login`**(契约 §7.6.2 / §7.6.5);**邮箱验证码错误 / 过期 / 尝试次数超限**(§7.6.5,`details.reason` = `code_invalid` / `code_expired` / `code_attempts_exceeded`) |
 | `AUTH_TOKEN_EXPIRED` | 401 | access/refresh 过期;refresh 被重放(同时撤销全部会话) |
 | `AUTH_EMAIL_TAKEN` | 409 | 注册邮箱已存在;**`upgrade` 的目标邮箱已被其它账号占用** |
 | `SYNC_SEQ_GAP` | 409 | 客户端 `sinceSeq` 超前于服务端(`push` 与 `pull` 都会返回),客户端应重新拉快照 |
 | `SYNC_OP_TOO_LARGE` | 413 | 单个 op 的 payload > 256 KB,或请求体超过服务端上限 |
 | `NOT_FOUND` | 404 | 路由不存在 |
-| `RATE_LIMITED` | 429 | 写接口超过 10 req/s(带 `Retry-After` 头) |
-| `INTERNAL` | 500 | 未预期异常(细节只进日志,不外泄) |
+| `RATE_LIMITED` | 429 | 写接口超过 10 req/s(带 `Retry-After` 头);**同邮箱 60s 内重复请求验证码 / 超每小时 5 条 / 超每天 10 条**(§7.6.5,`details.reason = "code_throttled"` + `details.retryAfterSec`) |
+| `INTERNAL` | 500 | 未预期异常(细节只进日志,不外泄);**验证码发信通道失败**(§7.6.5,`details.reason = "mail_failed"`) |
+
+> **错误码表是冻结枚举**(契约 §7.4):邮箱验证码的三个失败原因不再新增错误码,
+> 而是复用 `AUTH_INVALID_CREDENTIALS` + `details.reason`(与 §7.6.2 的 `not_guest` 同一手法),
+> 客户端按 `code` 分支即可,`details.reason` 只用来给出更精确的中文提示。
 
 ### 限制(契约 §7.4)
 
@@ -44,6 +48,7 @@
 | 单个 op 的 payload | ≤ 256 KB | 413 `SYNC_OP_TOO_LARGE` |
 | `pull` 的 `limit` | ≤ 1000(默认 200) | 400 `VALIDATION_FAILED` |
 | 写接口速率 | 10 req/s(令牌桶,按 userId 或 IP) | 429 `RATE_LIMITED` |
+| 邮箱验证码(§7.6.5) | 有效期 300s;同邮箱 60s 间隔、每小时 ≤ 5、每天 ≤ 10;同码最多试 5 次 | 429 `RATE_LIMITED`(`details.reason = "code_throttled"` + `details.retryAfterSec` + `Retry-After` 头)/ 401 `AUTH_INVALID_CREDENTIALS` |
 
 ---
 
@@ -98,7 +103,7 @@ ordo_rate_limited_total 2
 
 ## 2. 认证
 
-> **`user` 投影(契约 §7.6.2)**:`register` / `login` / `guest` / `refresh` 的响应结构**完全同构**,
+> **`user` 投影(契约 §7.6.2)**:`register` / `login` / `guest` / `email/login` / `refresh` 的响应结构**完全同构**,
 > `user` 恒为 `{ "id", "email", "isGuest", "createdAt" }`。
 > 正式账号 `isGuest = false`;游客 `isGuest = true` 且 `email = null`。
 
@@ -181,8 +186,83 @@ ordo_rate_limited_total 2
 因此升级不会打断四端现有会话(`refresh` 的响应会带上最新的 `isGuest`/`email`)。
 升级后即可用新邮箱走 `login`。
 
-### `POST /v1/auth/refresh` → `200`
+### `POST /v1/auth/email/code` → `202`(契约 §7.6.5)
 
+请求邮箱登录验证码(免密登录第一步)。
+
+```json
+// 请求
+{ "email": "a@b.com" }
+// 响应
+{ "sent": true, "expiresIn": 300, "retryAfter": 60 }
+```
+
+| 字段 | 含义 |
+|---|---|
+| `sent` | 恒为 `true`(被限流时返回 429,不会返回 `sent:false`) |
+| `expiresIn` | 验证码有效期(秒),默认 **300**(5 分钟) |
+| `retryAfter` | 同一邮箱**再次请求的最小间隔**(秒),默认 **60**;客户端据此跑倒计时、置灰按钮 |
+| `devCode` | **仅开发模式**回显的验证码(见下);生产恒不出现 |
+
+**响应绝不回显验证码**,唯一例外:`ORDO_MAIL_TRANSPORT=console` **且** `ORDO_DEV_ECHO_CODE=1` 的**非生产**环境
+会额外返回 `devCode` 字段供本地联调。`NODE_ENV=production` 且开启回显时服务端**直接拒绝启动**。
+
+| 情况 | 结果 |
+|---|---|
+| 成功 | `202 {sent:true, expiresIn:300, retryAfter:60}` |
+| 邮箱格式不合法 | `400 VALIDATION_FAILED` |
+| 同邮箱 60s 内重复请求 | `429 RATE_LIMITED`,`details = { reason: "code_throttled", retryAfterSec: <1..60> }` + `Retry-After` 头 |
+| 同邮箱超每小时 5 条 / 每天 10 条 | `429 RATE_LIMITED`,`details.retryAfterSec` = `3600` / `86400`(保守上界) |
+| 同一 IP 写接口超过 10 req/s | `429 RATE_LIMITED`(§7.4 全局令牌桶) |
+| 发信通道失败 | `500 INTERNAL`,`details.reason = "mail_failed"` |
+
+> 注意区分两个"秒":**成功响应体顶层**的 `retryAfter`(固定 60)与**错误体**里的
+> `details.retryAfterSec`(本次被拒后还要等多少秒)。后者与 §7.4 全局限流的 `details.retryAfterSec` 同名。
+>
+> 发信失败时**不落库、也不占用限流额度**:用户可立刻重试(不需要等 60s)。
+> 邮件正文与"该邮箱是否已注册"无关,不泄漏账号是否存在。
+
+### `POST /v1/auth/email/login` → `200`(契约 §7.6.5)
+
+免密登录:填 6 位验证码即登录。响应与 `register` / `login` / `guest` **完全同构**。
+
+```json
+// 请求(deviceId / deviceName / platform 均可省略,缺省时与 register 一样兜底)
+{ "email": "a@b.com", "code": "123456", "deviceName": "Pixel 9", "platform": "android", "deviceId": "dev_7f3a" }
+// 响应:与 register 完全同构
+{
+  "user":   { "id": "uuid", "email": "a@b.com", "isGuest": false, "createdAt": 1759900000000 },
+  "device": { "id": "dev_7f3a", "userId": "uuid", "name": "Pixel 9", "platform": "android",
+              "createdAt": 1759900000000, "lastSeenAt": 1759900000000 },
+  "accessToken": "<JWT HS256,30min>",
+  "refreshToken": "<256-bit 随机串,30 天>",
+  "expiresIn": 1800
+}
+```
+
+**账号语义(硬约束)**:
+
+1. **邮箱未注册 → 自动建号**:`is_guest = false`、`email = <已验证邮箱>`、**无口令**(`password_algo = 'none'`,
+   占位哈希 `otp$<random>`)。建出来的就是正式账号 —— 同一 `userId`、同一份云端数据、同一套 refreshToken 体系。
+2. **邮箱已注册 → 直接登录该账号**,**不修改其口令**(原本是游客升级来的账号行为不变,之后仍可用口令登录)。
+3. **无口令账号不能用口令登录**:`login` 遇到 `password_algo = 'none'` 的账号一律返回
+   `401 AUTH_INVALID_CREDENTIALS`(与游客账号同一处理,响应与"邮箱不存在/口令错误"逐字相同,不泄漏账号类型)。
+4. 本轮**不做**"验证码找回/重设口令"(改口令属于账号设置,后续版本)。
+
+| 情况 | 结果 |
+|---|---|
+| 成功 | `200 {user, device, accessToken, refreshToken, expiresIn}` |
+| 邮箱格式不合法 / 验证码不是 6 位数字 | `400 VALIDATION_FAILED` |
+| 验证码错误 | `401 AUTH_INVALID_CREDENTIALS`,`details.reason = "code_invalid"` |
+| 验证码过期(> 300s) | `401 AUTH_INVALID_CREDENTIALS`,`details.reason = "code_expired"` |
+| 同码尝试达到 5 次(作废,必须重新获取) | `401 AUTH_INVALID_CREDENTIALS`,`details.reason = "code_attempts_exceeded"` |
+| 验证码已被用过(一次性消费)/ 从未请求过 | `401 AUTH_INVALID_CREDENTIALS`,`details.reason = "code_invalid"` |
+
+**安全实现要点**(契约 §9):验证码只存 `HMAC-SHA256(ORDO_CODE_PEPPER, email + ':' + code)`,
+绝不落明文或裸 SHA-256;校验成功立即置 `consumed_at`(原子一次性);
+尝试次数达到上限即作废;服务端日志不打印验证码(仅非生产 console 通道会打印)。
+
+### `POST /v1/auth/refresh` → `200`
 ```json
 // 请求
 { "refreshToken": "<旧 refresh>" }
@@ -214,7 +294,8 @@ ordo_rate_limited_total 2
 
 ### `DELETE /v1/account` → `204`(需鉴权)
 
-删除账号与全部数据(契约 §9 级联删除:devices / refresh_tokens / entities / ops / reminders)。
+删除账号与全部数据(契约 §9 级联删除:devices / refresh_tokens / entities / ops / reminders,
+以及该邮箱在 `email_codes` 里的验证码 —— 该表按 email 关联,数据库不会自动级联)。
 
 ---
 
@@ -325,3 +406,7 @@ WS /v1/ws?token=<accessToken>
 | `headingId` 归属校验 | §3 要求 `headingId` 必须属于 `projectId`;服务端查 `heading` 实体(顶层实体,见 §2.2 实现说明),不合法则置 `null` |
 | Heading 模型 | 契约 §2.2 在 2026-10-08 修订:Project **不再内嵌** `headings`,Heading 只作为顶层实体同步。服务端已按修订版实现(ProjectSchema 不含 `headings`,`snapshot.headings` 只来自 heading 实体) |
 | 时区 | `reminder` 是「无时区的本地时间串」,服务端用 `TZ_OFFSET_MINUTES`(默认 `480` = UTC+8)换算 epoch |
+| 邮箱验证码:设备字段 | 契约 §7.6.5 的请求表格把 `deviceId/deviceName/platform` 都标为可选,而共享核心的 `EmailCodeLoginRequest` 里 `deviceName/platform` 是无默认值的必填字段。服务端取**并集**:三个字段全部可选(满足契约表格,也不拒绝按共享核心 DTO 发来的请求),缺省时与 `register` 一样补 `未命名设备` / `unknown` |
+| 邮箱验证码:限流秒数字段 | 错误体里统一叫 `details.retryAfterSec`(与 §7.4 全局限流同名),并额外回标准 `Retry-After` 头;成功响应体顶层的 `retryAfter` 是另一个含义(再次请求的最小间隔,固定 60) |
+| 邮箱验证码:销号级联 | `email_codes` 按 `email` 关联、没有 `user_id` 外键,因此 `DELETE /v1/account` 里**显式**清掉该邮箱的验证码(否则销号后旧码能把刚删的邮箱重新建号)。这是 §9「级联删除」的补全,不改变任何对外契约 |
+| `ORDO_MAIL_TRANSPORT=http` 必填 URL | 缺少 `ORDO_MAIL_HTTP_URL` 时**拒绝启动**(否则每次发码都必然 500,属于配置错误)。契约只要求"发信失败返回 `mail_failed`",这条提前到启动期暴露 |

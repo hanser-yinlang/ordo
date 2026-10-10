@@ -5,14 +5,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ordo.android.R
 import com.ordo.android.auth.AuthFieldError
+import com.ordo.android.auth.AuthMethod
 import com.ordo.android.auth.AuthMode
 import com.ordo.android.auth.AuthStage
+import com.ordo.android.auth.EmailCodeAction
+import com.ordo.android.auth.EmailCodeError
+import com.ordo.android.auth.EmailCodeErrorMapper
+import com.ordo.android.auth.EmailCodeRules
 import com.ordo.android.auth.SessionGate
 import com.ordo.android.auth.SessionVerdict
 import com.ordo.android.data.SeedData
 import com.ordo.android.data.whenValue
 import com.ordo.android.di.ServiceLocator
 import com.ordo.android.net.OrdoAuthApi
+import com.ordo.android.net.OrdoAuthError
 import com.ordo.android.sync.RefreshController
 import com.ordo.android.sync.RefreshPhase
 import com.ordo.android.sync.SyncState
@@ -35,6 +41,8 @@ import com.ordo.core.query.SectionKind
 import com.ordo.core.query.SidebarCounts
 import com.ordo.core.store.OrdoEngine
 import com.ordo.core.sync.AuthRequest
+import com.ordo.core.sync.EmailCodeLoginRequest
+import com.ordo.core.sync.EmailCodeRequest
 import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoApiException
 import com.ordo.core.sync.OrdoSession
@@ -80,6 +88,9 @@ class OrdoViewModel : ViewModel() {
     private var unsubscribe: (() -> Unit)? = null
     private var toastJob: Job? = null
     private var settleJob: Job? = null
+
+    /** 「获取验证码」倒计时协程（每次重新请求都重启） */
+    private var codeCooldownJob: Job? = null
 
     /** 退出登录中：避免"会话被清 → NOT_LOGGED_IN"被误判为令牌失效而重复跳登录页 */
     private var loggingOut = false
@@ -181,12 +192,19 @@ class OrdoViewModel : ViewModel() {
         unsubscribe?.invoke()
         unsubscribe = null
         ServiceLocator.stopRealtime()
+        codeCooldownJob?.cancel()
+        codeCooldownJob = null
         _state.update {
             it.copy(
                 auth = it.auth.copy(
                     stage = AuthStage.LOGIN,
                     submitting = false,
                     password = "",
+                    // 回登录页时旧验证码已失效：清空验证码与倒计时（令牌失效不需要用户等 60s）
+                    code = "",
+                    codeRequesting = false,
+                    codeCooldownSeconds = 0,
+                    devCodeFilled = false,
                     error = notice,
                     errorNonce = if (notice == null) it.auth.errorNonce else it.auth.errorNonce + 1,
                 ),
@@ -212,18 +230,64 @@ class OrdoViewModel : ViewModel() {
         it.copy(auth = it.auth.copy(password = value, error = null))
     }
 
+    /** 验证码输入：即时过滤成 6 位数字（粘贴/输入法带杂字符也不会把校验卡死） */
+    fun onAuthCodeChange(value: String) = _state.update {
+        it.copy(auth = it.auth.copy(code = EmailCodeRules.sanitizeCode(value), error = null))
+    }
+
     fun togglePasswordVisible() = _state.update {
         it.copy(auth = it.auth.copy(passwordVisible = !it.auth.passwordVisible))
     }
 
-    /** 底部文本链接：登录态「还没有账号？注册」/ 注册态「已有账号？登录」 */
+    /**
+     * 切换登录方式：口令 ⇄ 邮箱验证码（契约 §7.6.5，两者同级）。
+     *
+     * 切到验证码时强制回到「登录」语义（未注册邮箱自动建号，注册由服务端隐式完成）；
+     * 同时清空上一种方式残留的验证码与错误，避免切换后立即触发自动提交。
+     */
+    fun switchAuthMethod(method: AuthMethod) = _state.update {
+        it.copy(
+            auth = it.auth.copy(
+                loginMethod = method,
+                mode = if (method == AuthMethod.EMAIL_CODE) AuthMode.LOGIN else it.auth.mode,
+                code = "",
+                devCodeFilled = false,
+                error = null,
+            ),
+        )
+    }
+
+    /** 底部文本链接：登录态「还没有账号？注册」/ 注册态「已有账号？登录」（口令模式内切换） */
     fun switchAuthMode() = _state.update {
         it.copy(auth = it.auth.copy(mode = it.auth.mode.toggled(), error = null))
     }
 
-    /** 主按钮：按当前模式走登录或注册（UI §5.1） */
+    /**
+     * 底部文本链接（UI §5.1 三入口硬约束）：
+     * 口令模式下切换登录/注册；验证码模式下回到「口令 + 注册」——注册入口任何时候都点得到。
+     */
+    fun switchAuthLink() {
+        val target = EmailCodeRules.linkTarget(_state.value.auth.loginMethod, _state.value.auth.mode)
+        _state.update {
+            it.copy(
+                auth = it.auth.copy(
+                    loginMethod = target.method,
+                    mode = target.mode,
+                    code = "",
+                    devCodeFilled = false,
+                    error = null,
+                ),
+            )
+        }
+    }
+
+    /** 主按钮：按当前登录方式走口令（登录/注册）或验证码登录（UI §5.1 / §7.6.5） */
     fun submitAuth() {
         val auth = _state.value.auth
+        if (auth.loginMethod == AuthMethod.EMAIL_CODE) {
+            submitEmailCode()
+            return
+        }
         when (auth.mode) {
             AuthMode.LOGIN -> login(auth.email, auth.password)
             AuthMode.REGISTER -> register(auth.email, auth.password)
@@ -239,6 +303,130 @@ class OrdoViewModel : ViewModel() {
                 .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
                 .onFailure { error -> onAuthFailure(error) }
         }
+    }
+
+    /* -------------------- 邮箱验证码登录（契约 §7.6.5） -------------------- */
+
+    /**
+     * 「获取验证码」：请求 6 位数字码，成功后按响应 `retryAfter` 跑倒计时并置灰按钮。
+     *
+     * 开发模式服务端可能回显 `devCode`，此处仅**自动填入**（方便联调），
+     * 生产恒为 null，界面与流程都不得依赖它。
+     */
+    fun requestEmailCode() {
+        val auth = _state.value.auth
+        if (auth.loginMethod != AuthMethod.EMAIL_CODE) return
+        if (auth.codeRequesting || auth.submitting) return
+        EmailCodeRules.requestBlocker(auth.email)?.let { blocker ->
+            failWith(emailCodeErrorText(blocker, null))
+            return
+        }
+        if (auth.codeCooldownSeconds > 0) return // 倒计时中按钮已置灰，这里只是兜底（契约 §7.6.5：60s 内重复请求会被 429）
+        setCodeRequesting(true)
+        viewModelScope.launch {
+            runCatching { authApi.requestEmailCode(EmailCodeRequest(auth.email.trim())) }
+                .onSuccess { sent ->
+                    val seconds = EmailCodeRules.normalizedRetryAfter(sent.retryAfter)
+                    val devCode = sent.devCode
+                        ?.let { EmailCodeRules.sanitizeCode(it) }
+                        ?.takeIf { it.isNotEmpty() }
+                    _state.update {
+                        it.copy(
+                            auth = it.auth.copy(
+                                codeRequesting = false,
+                                codeCooldownSeconds = seconds,
+                                code = devCode ?: it.auth.code,
+                                devCodeFilled = devCode != null,
+                                error = null,
+                            ),
+                        )
+                    }
+                    startCodeCooldown()
+                }
+                .onFailure { error -> onEmailCodeFailure(error, EmailCodeAction.REQUEST_CODE) }
+        }
+    }
+
+    /**
+     * 「验证码登录」：邮箱 + 6 位码提交（界面在满 6 位时**自动提交**，也支持手动点主按钮）。
+     * 未注册邮箱由服务端自动建号，成功后与口令登录写同一份会话。
+     */
+    fun submitEmailCode() {
+        val auth = _state.value.auth
+        if (auth.loginMethod != AuthMethod.EMAIL_CODE) return
+        if (auth.submitting || auth.codeRequesting) return
+        EmailCodeRules.submitBlocker(auth.email, auth.code)?.let { blocker ->
+            failWith(emailCodeErrorText(blocker, null))
+            return
+        }
+        setSubmitting(true)
+        viewModelScope.launch {
+            val request = EmailCodeLoginRequest(
+                email = auth.email.trim(),
+                code = auth.code,
+                deviceId = ServiceLocator.deviceId,
+                deviceName = deviceName(),
+                platform = PLATFORM,
+            )
+            runCatching { authApi.emailLogin(request) }
+                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
+                .onFailure { error -> onEmailCodeFailure(error, EmailCodeAction.SUBMIT_CODE) }
+        }
+    }
+
+    /** 验证码流程失败：映射成中文文案 + 抖动；429 时按 retryAfter 直接开始倒计时 */
+    private fun onEmailCodeFailure(error: Throwable, action: EmailCodeAction) {
+        val kind = EmailCodeErrorMapper.fromThrowable(error, action)
+        val retryAfter = EmailCodeErrorMapper.retryAfterOf(error)
+        _state.update {
+            it.copy(
+                auth = it.auth.copy(
+                    submitting = false,
+                    codeRequesting = false,
+                    code = if (EmailCodeRules.clearsCode(kind)) "" else it.auth.code,
+                    devCodeFilled = if (EmailCodeRules.clearsCode(kind)) false else it.auth.devCodeFilled,
+                ),
+            )
+        }
+        if (kind == EmailCodeError.THROTTLED && retryAfter > 0) {
+            _state.update { it.copy(auth = it.auth.copy(codeCooldownSeconds = retryAfter)) }
+            startCodeCooldown()
+        }
+        failWith(emailCodeErrorText(kind, retryAfter))
+    }
+
+    /** 倒计时每秒 -1，到 0 自动结束（界面据 codeCooldownSeconds 置灰按钮） */
+    private fun startCodeCooldown() {
+        codeCooldownJob?.cancel()
+        codeCooldownJob = viewModelScope.launch {
+            while (true) {
+                delay(1_000L)
+                val next = EmailCodeRules.tick(_state.value.auth.codeCooldownSeconds)
+                _state.update { it.copy(auth = it.auth.copy(codeCooldownSeconds = next)) }
+                if (next <= 0) break
+            }
+        }
+    }
+
+    private fun setCodeRequesting(value: Boolean) = _state.update {
+        it.copy(auth = it.auth.copy(codeRequesting = value, error = if (value) null else it.auth.error))
+    }
+
+    /** 验证码流程失败类型 → 中文文案（错误不靠颜色单独表达，UI §5.1） */
+    private fun emailCodeErrorText(error: EmailCodeError, retryAfterSeconds: Int?): String = when (error) {
+        EmailCodeError.EMAIL_REQUIRED -> context.getString(R.string.auth_error_email_empty)
+        EmailCodeError.EMAIL_INVALID -> context.getString(R.string.auth_error_email_invalid)
+        EmailCodeError.CODE_INCOMPLETE -> context.getString(R.string.auth_error_code_incomplete)
+        EmailCodeError.CODE_INVALID -> context.getString(R.string.auth_error_code_invalid)
+        EmailCodeError.CODE_EXPIRED -> context.getString(R.string.auth_error_code_expired)
+        EmailCodeError.CODE_ATTEMPTS_EXCEEDED -> context.getString(R.string.auth_error_code_attempts)
+        EmailCodeError.THROTTLED -> context.getString(
+            R.string.auth_error_code_throttled,
+            retryAfterSeconds ?: EmailCodeRules.DEFAULT_RETRY_AFTER_SECONDS,
+        )
+        EmailCodeError.MAIL_FAILED -> context.getString(R.string.auth_error_code_mail_failed)
+        EmailCodeError.NETWORK -> context.getString(R.string.auth_error_code_network)
+        EmailCodeError.UNKNOWN -> context.getString(R.string.auth_error_code_unknown)
     }
 
     private fun login(email: String, password: String) {
@@ -1111,6 +1299,8 @@ class OrdoViewModel : ViewModel() {
      */
     fun logout() {
         loggingOut = true
+        codeCooldownJob?.cancel()
+        codeCooldownJob = null
         viewModelScope.launch {
             runCatching { authApi.logout() }
             ServiceLocator.unbindUser()

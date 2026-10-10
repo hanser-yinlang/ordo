@@ -293,6 +293,7 @@ export struct Sidebar {
           .width(OrdoSize.minTouchTarget)
           .height(OrdoSize.minTouchTarget)
           .textAlign(TextAlign.Center)
+          .id('ordo_sidebar_settings')
           .onClick(() => {
             this.store.settingsOpen = true;
             this.store.bump();

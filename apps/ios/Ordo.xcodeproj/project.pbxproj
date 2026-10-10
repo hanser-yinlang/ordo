@@ -63,6 +63,7 @@
 		D9A411CD888B9C741F2CADF2 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = ACBB1AD746D8F5B7846DF552 /* StatusBarView.swift */; };
 		4BA15E67C287691E652C5A9F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = C53F29BB7732CCDB51E20323 /* SyncCoordinator.swift */; };
 		DB249DB9D0FF833647E29581 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = EB0AFE062C5F15BE1E918D4A /* Assets.xcassets */; };
+		2EBBB621561C8D4484C458AB /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 15F3FE7598E873DB139199DE /* EmailCodeLoginTests.swift */; };
 		A68B9314C0A5E05AF0B2424F /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 76D471331E289BD3781C31CE /* InteractionStateTests.swift */; };
 		E66D6BF8D7E76CB3153EFB86 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A02AD233B66F74BD9F299F61 /* NlpParsingTests.swift */; };
 		865C9E50E97E0D2EA8D53700 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 28EB3C7C60A59494EBCF1DB6 /* OrdoTestSupport.swift */; };
@@ -132,6 +133,7 @@
 		2677C29A1F62C207D37E393D /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SidebarView.swift; path = Ordo/Shell/SidebarView.swift; sourceTree = SOURCE_ROOT; };
 		ACBB1AD746D8F5B7846DF552 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = StatusBarView.swift; path = Ordo/Shell/StatusBarView.swift; sourceTree = SOURCE_ROOT; };
 		C53F29BB7732CCDB51E20323 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncCoordinator.swift; path = Ordo/Sync/SyncCoordinator.swift; sourceTree = SOURCE_ROOT; };
+		15F3FE7598E873DB139199DE /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = EmailCodeLoginTests.swift; path = OrdoTests/EmailCodeLoginTests.swift; sourceTree = SOURCE_ROOT; };
 		76D471331E289BD3781C31CE /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InteractionStateTests.swift; path = OrdoTests/InteractionStateTests.swift; sourceTree = SOURCE_ROOT; };
 		A02AD233B66F74BD9F299F61 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NlpParsingTests.swift; path = OrdoTests/NlpParsingTests.swift; sourceTree = SOURCE_ROOT; };
 		28EB3C7C60A59494EBCF1DB6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoTestSupport.swift; path = OrdoTests/OrdoTestSupport.swift; sourceTree = SOURCE_ROOT; };
@@ -366,6 +368,7 @@ sourceTree = "<group>"
 		54999A26ABE60AC854EA670A /* PBXGroup */ = {
 isa = PBXGroup
 children = (
+				15F3FE7598E873DB139199DE,
 				76D471331E289BD3781C31CE,
 				A02AD233B66F74BD9F299F61,
 				28EB3C7C60A59494EBCF1DB6,
@@ -581,6 +584,7 @@ sourceTree = "<group>"
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2EBBB621561C8D4484C458AB,
 				A68B9314C0A5E05AF0B2424F,
 				E66D6BF8D7E76CB3153EFB86,
 				865C9E50E97E0D2EA8D53700,

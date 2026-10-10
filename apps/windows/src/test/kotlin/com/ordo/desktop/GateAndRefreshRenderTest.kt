@@ -19,6 +19,9 @@ import com.ordo.core.sync.AuthApi
 import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
 import com.ordo.core.sync.DeviceDto
+import com.ordo.core.sync.EmailCodeLoginRequest
+import com.ordo.core.sync.EmailCodeRequest
+import com.ordo.core.sync.EmailCodeSent
 import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoSession
 import com.ordo.core.sync.OrdoSessionStore
@@ -63,6 +66,12 @@ class GateAndRefreshRenderTest {
         override suspend fun refresh(refreshToken: String): AuthResponse = error("渲染测试不发请求")
         override suspend fun guest(request: GuestAuthRequest): AuthResponse = error("渲染测试不发请求")
         override suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse =
+            error("渲染测试不发请求")
+
+        override suspend fun requestEmailCode(request: EmailCodeRequest): EmailCodeSent =
+            error("渲染测试不发请求")
+
+        override suspend fun emailLogin(request: EmailCodeLoginRequest): AuthResponse =
             error("渲染测试不发请求")
     }
 

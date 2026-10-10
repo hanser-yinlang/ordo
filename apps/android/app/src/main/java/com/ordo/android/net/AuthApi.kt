@@ -3,6 +3,9 @@ package com.ordo.android.net
 import com.ordo.core.sync.AuthApi
 import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
+import com.ordo.core.sync.EmailCodeLoginRequest
+import com.ordo.core.sync.EmailCodeRequest
+import com.ordo.core.sync.EmailCodeSent
 import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoApiException
 import com.ordo.core.sync.RefreshRequest
@@ -23,6 +26,7 @@ import kotlinx.coroutines.sync.withLock
  * 契约 §7.4 / §7.6.2 认证接口的 Ktor 实现（shared:core 的 [AuthApi] 接口）。
  *
  *   POST /v1/auth/register · /v1/auth/login · /v1/auth/guest · /v1/auth/refresh · /v1/auth/logout
+ *   POST /v1/auth/email/code · /v1/auth/email/login（邮箱验证码登录，契约 §7.6.5）
  *   POST /v1/auth/upgrade（需带 Access Token；userId 与数据不变）
  *
  * refresh 为轮换制：成功后立即持久化新的 accessToken + refreshToken。
@@ -53,6 +57,36 @@ class OrdoAuthApi(
         val response = postAuth<GuestAuthRequest, AuthResponse>("/v1/auth/guest", request)
         tokens.saveSession(response)
         return response
+    }
+
+    /**
+     * 请求邮箱登录验证码（契约 §7.6.5）：202 + `{sent, expiresIn, retryAfter}`。
+     *
+     * 服务端**绝不回显验证码**；[EmailCodeSent.devCode] 只在开发模式
+     * （`ORDO_MAIL_TRANSPORT=console` 且 `ORDO_DEV_ECHO_CODE=1`）出现，界面不得依赖。
+     * 60s 内重复请求返回 429 `RATE_LIMITED`（details.reason=code_throttled）。
+     */
+    override suspend fun requestEmailCode(request: EmailCodeRequest): EmailCodeSent {
+        val response = client.post("${tokens.serverUrl()}/v1/auth/email/code") { setBody(request) }
+        val text = response.bodyAsText()
+        response.throwAuthError(text)
+        if (text.isBlank()) throw OrdoApiException("INTERNAL", "验证码响应为空")
+        return response.body()
+    }
+
+    /**
+     * 邮箱验证码登录（契约 §7.6.5）：与 register/login/guest **同构**，
+     * 未注册邮箱由服务端自动建号；成功后与其它登录方式一样立即写会话
+     * （共用同一 userId、同一份云端数据、同一套 refreshToken 体系）。
+     */
+    override suspend fun emailLogin(request: EmailCodeLoginRequest): AuthResponse {
+        val response = client.post("${tokens.serverUrl()}/v1/auth/email/login") { setBody(request) }
+        val text = response.bodyAsText()
+        response.throwAuthError(text)
+        if (text.isBlank()) throw OrdoApiException("INTERNAL", "认证响应为空")
+        val body: AuthResponse = response.body()
+        tokens.saveSession(body)
+        return body
     }
 
     /**

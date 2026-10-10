@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -41,15 +42,20 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ordo.android.R
+import com.ordo.android.auth.AuthMethod
 import com.ordo.android.auth.AuthMode
+import com.ordo.android.auth.CodeSendState
+import com.ordo.android.auth.EmailCodeRules
 import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconKind
 import com.ordo.android.ui.common.OrdoPrimaryButton
 import com.ordo.android.ui.common.OrdoSecondaryButton
+import com.ordo.android.ui.common.OrdoSpinner
 import com.ordo.android.ui.common.OrdoTextField
 import com.ordo.android.ui.theme.OrdoLayout
 import com.ordo.android.ui.theme.OrdoMotion
@@ -71,12 +77,16 @@ import kotlin.math.roundToInt
  *  - 主按钮高 44：提交中禁用 + 16dp 转圈；输入框与游客按钮一并禁用；
  *  - 错误区在主按钮下方固定预留 20dp；失败时 danger 文案 + 左右抖动（振幅 6dp、320ms、衰减两次）；
  *  - 软键盘：整屏 `imePadding()` + 可滚动，聚焦交给**真正的输入节点**（OrdoTextField 内部）。
+ *  - v1.3 免密登录（契约 §7.6.5）：卡片顶部「口令登录 / 验证码登录」**同级**切换；
+ *    验证码模式 = 邮箱 + 6 位数字码 + 「获取验证码」（按 retryAfter 跑倒计时置灰），
+ *    满 6 位**自动提交**，错误仍走同一错误区（抖动 + 文案）。
  */
 @Composable
 fun LoginScreen(state: AuthUi, vm: OrdoViewModel) {
     val colors = OrdoTheme.colors
     val emailFocus = remember { FocusRequester() }
     val passwordFocus = remember { FocusRequester() }
+    val codeFocus = remember { FocusRequester() }
     var serverOpen by remember { mutableStateOf(false) }
     var serverUrl by remember { mutableStateOf("") }
 
@@ -88,6 +98,20 @@ fun LoginScreen(state: AuthUi, vm: OrdoViewModel) {
         animationSpec = tween(OrdoTheme.base, easing = OrdoMotion.easing),
         label = "login-enter",
     )
+
+    // 验证码满 6 位自动提交（§7.6.5 免密体验）：canSubmit 已包含邮箱/码格式/忙碌判定
+    LaunchedEffect(state.loginMethod, state.code) {
+        if (state.loginMethod == AuthMethod.EMAIL_CODE && state.canSubmit) vm.submitEmailCode()
+    }
+
+    // 验证码请求成功（无错误地结束请求中）→ 焦点落到验证码框，软键盘直接可输入
+    var wasCodeRequesting by remember { mutableStateOf(false) }
+    LaunchedEffect(state.codeRequesting, state.error) {
+        if (wasCodeRequesting && !state.codeRequesting && state.error == null) {
+            runCatching { codeFocus.requestFocus() }
+        }
+        wasCodeRequesting = state.codeRequesting
+    }
 
     // 错误抖动：振幅 6dp、320ms、衰减两次（§5.1）
     val shake = remember { Animatable(0f) }
@@ -149,7 +173,15 @@ fun LoginScreen(state: AuthUi, vm: OrdoViewModel) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 BrandHeader()
-                Spacer(Modifier.height(OrdoSpace.xl))
+                Spacer(Modifier.height(OrdoSpace.l))
+
+                // 登录方式：口令 / 验证码，同级切换（契约 §7.6.5）
+                AuthMethodTabs(
+                    current = state.loginMethod,
+                    enabled = !state.submitting && !state.codeRequesting,
+                    onSelect = vm::switchAuthMethod,
+                )
+                Spacer(Modifier.height(OrdoSpace.l))
 
                 OrdoTextField(
                     value = state.email,
@@ -157,30 +189,79 @@ fun LoginScreen(state: AuthUi, vm: OrdoViewModel) {
                     placeholder = stringResource(R.string.auth_email),
                     label = stringResource(R.string.auth_email),
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.submitting,
+                    enabled = !state.submitting && !state.codeRequesting,
                     isError = state.error != null,
                     contentAlpha = if (state.submitting) 0.5f else 1f,
-                    onSubmit = { runCatching { passwordFocus.requestFocus() } },
+                    onSubmit = {
+                        when (state.loginMethod) {
+                            AuthMethod.EMAIL_CODE -> runCatching { codeFocus.requestFocus() }
+                            AuthMethod.PASSWORD -> runCatching { passwordFocus.requestFocus() }
+                        }
+                    },
                 )
                 Spacer(Modifier.height(OrdoSpace.m))
-                OrdoTextField(
-                    value = state.password,
-                    onValueChange = vm::onAuthPasswordChange,
-                    placeholder = stringResource(R.string.auth_password),
-                    label = stringResource(R.string.auth_password),
-                    modifier = Modifier.fillMaxWidth(),
-                    focusRequester = passwordFocus,
-                    isPassword = true,
-                    enabled = !state.submitting,
-                    isError = state.error != null,
-                    contentAlpha = if (state.submitting) 0.5f else 1f,
-                    onSubmit = vm::submitAuth,
-                )
+
+                if (state.loginMethod == AuthMethod.PASSWORD) {
+                    OrdoTextField(
+                        value = state.password,
+                        onValueChange = vm::onAuthPasswordChange,
+                        placeholder = stringResource(R.string.auth_password),
+                        label = stringResource(R.string.auth_password),
+                        modifier = Modifier.fillMaxWidth(),
+                        focusRequester = passwordFocus,
+                        isPassword = true,
+                        enabled = !state.submitting,
+                        isError = state.error != null,
+                        contentAlpha = if (state.submitting) 0.5f else 1f,
+                        onSubmit = vm::submitAuth,
+                    )
+                } else {
+                    OrdoTextField(
+                        value = state.code,
+                        onValueChange = vm::onAuthCodeChange,
+                        placeholder = stringResource(R.string.auth_code),
+                        label = stringResource(R.string.auth_code),
+                        modifier = Modifier.fillMaxWidth(),
+                        focusRequester = codeFocus,
+                        keyboardType = KeyboardType.NumberPassword,
+                        enabled = !state.submitting && !state.codeRequesting,
+                        isError = state.error != null,
+                        contentAlpha = if (state.submitting || state.codeRequesting) 0.5f else 1f,
+                        onSubmit = vm::submitEmailCode,
+                        trailing = {
+                            CodeSendAction(
+                                sendState = state.codeSendState,
+                                cooldownSeconds = state.codeCooldownSeconds,
+                                enabled = !state.submitting && !state.codeRequesting,
+                                onClick = vm::requestEmailCode,
+                            )
+                        },
+                    )
+                    Spacer(Modifier.height(OrdoSpace.xs))
+                    Text(
+                        text = stringResource(R.string.auth_code_hint),
+                        style = OrdoTheme.type.micro,
+                        color = colors.textTertiary,
+                    )
+                    if (state.devCodeFilled) {
+                        // 仅开发模式会走到这里（服务端回显 devCode）；生产恒不显示，流程不依赖它
+                        Spacer(Modifier.height(OrdoSpace.xs))
+                        Text(
+                            text = stringResource(R.string.auth_code_dev_hint),
+                            style = OrdoTheme.type.micro,
+                            color = colors.accent,
+                        )
+                    }
+                }
                 Spacer(Modifier.height(OrdoSpace.m))
 
                 OrdoPrimaryButton(
                     label = stringResource(
-                        if (state.mode == AuthMode.REGISTER) R.string.auth_register else R.string.auth_login,
+                        if (state.loginMethod == AuthMethod.PASSWORD && state.mode == AuthMode.REGISTER) {
+                            R.string.auth_register
+                        } else {
+                            R.string.auth_login
+                        },
                     ),
                     onClick = vm::submitAuth,
                     enabled = state.canSubmit,
@@ -207,7 +288,7 @@ fun LoginScreen(state: AuthUi, vm: OrdoViewModel) {
                 OrdoSecondaryButton(
                     label = stringResource(R.string.auth_guest),
                     onClick = vm::continueAsGuest,
-                    enabled = !state.submitting,
+                    enabled = !state.submitting && !state.codeRequesting,
                 )
                 Spacer(Modifier.height(OrdoSpace.s))
                 Text(
@@ -218,18 +299,29 @@ fun LoginScreen(state: AuthUi, vm: OrdoViewModel) {
 
                 Spacer(Modifier.height(OrdoSpace.l))
 
-                // 底部文本链接：登录态「还没有账号？注册」/ 注册态「已有账号？登录」
+                /*
+                 * 底部文本链接（UI §5.1 三入口硬约束）：
+                 * 口令模式「还没有账号？注册」/「已有账号？登录」；验证码模式固定回到「口令 + 注册」，
+                 * 保证注册入口在任何登录方式下都点得到（§7.6.5 的自动建号不替代显式注册）。
+                 */
                 Box(
                     Modifier
                         .height(OrdoLayout.touchTarget)
                         .clip(RoundedCornerShape(OrdoRadius.pill))
-                        .clickable(enabled = !state.submitting, onClick = vm::switchAuthMode)
+                        .clickable(
+                            enabled = !state.submitting && !state.codeRequesting,
+                            onClick = vm::switchAuthLink,
+                        )
                         .padding(horizontal = OrdoSpace.l),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = stringResource(
-                            if (state.mode == AuthMode.REGISTER) R.string.auth_to_login else R.string.auth_to_register,
+                            if (state.loginMethod == AuthMethod.PASSWORD && state.mode == AuthMode.REGISTER) {
+                                R.string.auth_to_login
+                            } else {
+                                R.string.auth_to_register
+                            },
                         ),
                         style = OrdoTheme.type.caption,
                         color = colors.accent,
@@ -244,7 +336,7 @@ fun LoginScreen(state: AuthUi, vm: OrdoViewModel) {
                     Modifier
                         .height(OrdoLayout.touchTarget)
                         .clip(RoundedCornerShape(OrdoRadius.pill))
-                        .clickable(enabled = !state.submitting) { serverOpen = !serverOpen }
+                        .clickable(enabled = !state.submitting && !state.codeRequesting) { serverOpen = !serverOpen }
                         .padding(horizontal = OrdoSpace.l),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -310,3 +402,101 @@ private fun BrandHeader() {
 
 /** 错误区固定高度（UI §5.1：主按钮下方固定预留 20 高度，避免出错时卡片跳动） */
 private val ErrorAreaHeight = 20.dp
+
+/* ==================== 登录方式切换 / 获取验证码（v1.3 · §7.6.5） ==================== */
+
+/**
+ * 「口令登录 / 验证码登录」切换：两级**同级**的胶囊标签（选中 accent + accentSoft 底），
+ * 触控高度 44（UI §5.1 硬约束），提交中或请求验证码中禁用。
+ */
+@Composable
+private fun AuthMethodTabs(
+    current: AuthMethod,
+    enabled: Boolean,
+    onSelect: (AuthMethod) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AuthMethodTab(
+            label = stringResource(R.string.auth_method_password),
+            selected = current == AuthMethod.PASSWORD,
+            enabled = enabled,
+            onClick = { onSelect(AuthMethod.PASSWORD) },
+        )
+        Spacer(Modifier.width(OrdoSpace.s))
+        AuthMethodTab(
+            label = stringResource(R.string.auth_method_code),
+            selected = current == AuthMethod.EMAIL_CODE,
+            enabled = enabled,
+            onClick = { onSelect(AuthMethod.EMAIL_CODE) },
+        )
+    }
+}
+
+@Composable
+private fun AuthMethodTab(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = OrdoTheme.colors
+    Box(
+        Modifier
+            .height(OrdoLayout.touchTarget)
+            .clip(RoundedCornerShape(OrdoRadius.pill))
+            .background(if (selected) colors.accentSoft else Color.Transparent)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = OrdoSpace.l),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = OrdoTheme.type.caption,
+            color = if (selected) colors.accent else colors.textSecondary,
+        )
+    }
+}
+
+/**
+ * 验证码框尾部的「获取验证码」：
+ *  - [CodeSendState.IDLE] 可点（accent）；
+ *  - [CodeSendState.SENDING] 转圈（请求中）；
+ *  - [CodeSendState.COOLDOWN] 显示剩余秒数并置灰（取服务端 retryAfter，§7.6.5）；
+ *  - [CodeSendState.DISABLED] 邮箱不合法 / 正在提交，置灰。
+ */
+@Composable
+private fun CodeSendAction(
+    sendState: CodeSendState,
+    cooldownSeconds: Int,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = OrdoTheme.colors
+    val clickable = enabled && sendState == CodeSendState.IDLE
+    Box(
+        Modifier
+            .height(OrdoLayout.touchTarget)
+            .clip(RoundedCornerShape(OrdoRadius.pill))
+            .clickable(enabled = clickable, onClick = onClick)
+            .padding(horizontal = OrdoSpace.s),
+        contentAlignment = Alignment.Center,
+    ) {
+        when (sendState) {
+            CodeSendState.SENDING -> OrdoSpinner(size = 16.dp, color = colors.accent)
+            CodeSendState.COOLDOWN -> Text(
+                text = stringResource(R.string.auth_code_resend, cooldownSeconds),
+                style = OrdoTheme.type.micro,
+                color = colors.textTertiary,
+            )
+            else -> Text(
+                text = stringResource(R.string.auth_code_send),
+                style = OrdoTheme.type.micro,
+                color = if (clickable) colors.accent else colors.textTertiary,
+            )
+        }
+    }
+}

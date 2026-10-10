@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ordo.desktop.app.LoginController
 import com.ordo.desktop.app.LoginField
+import com.ordo.desktop.app.LoginMethod
 import com.ordo.desktop.app.LoginUiState
 import com.ordo.desktop.ui.common.OrdoIcons
 import com.ordo.desktop.ui.theme.OrdoMotion
@@ -66,13 +67,14 @@ import com.ordo.desktop.ui.theme.ordoDark
 import javax.imageio.ImageIO
 
 /**
- * 登录页(04-UI规范 §5.1)。
+ * 登录页(04-UI规范 §5.1 / 契约 §7.6.5)。
  *
  * 结构:整屏居中卡片(宽 400,高自适应),画布 + 一层极淡的品牌光晕;
- * 卡片内自上而下 = 品牌区 → 输入区(邮箱 / 口令,浮动标签 + 显示隐藏)→ 主按钮 →
+ * 卡片内自上而下 = 品牌区 → **登录方式切换(口令 / 验证码,平级)** → 输入区 → 主按钮 →
  * 「以游客身份继续」→ 底部文本链接;主按钮下方固定预留 20 高给错误文案。
  *
- * 三个入口(登录 / 注册 / 游客登录)都在这里,且**游客与正式登录共用同一条提交链路**(§5.1 硬约束)。
+ * 四个入口(口令登录 / 注册 / **验证码登录** / 游客登录)都在这里,且**共用同一条提交链路**
+ * (§5.1 硬约束、契约 §7.6.5:验证码登录与口令登录拿到的是同一 userId、同一套令牌)。
  */
 @Composable
 fun LoginView(state: LoginUiState, controller: LoginController, modifier: Modifier = Modifier) {
@@ -123,46 +125,32 @@ fun LoginView(state: LoginUiState, controller: LoginController, modifier: Modifi
         ) {
             BrandHeader()
 
-            Spacer(Modifier.height(OrdoSpace.xl))
+            Spacer(Modifier.height(OrdoSpace.l))
 
-            FloatingLabelField(
-                value = state.email,
-                onValueChange = controller::setEmail,
-                label = "邮箱",
+            // 四个入口平级:口令登录 ⇄ 验证码登录就在卡片顶部,不做二级页面
+            LoginMethodSwitcher(
+                method = state.method,
                 enabled = state.enabled,
-                focused = state.focused == LoginField.EMAIL,
-                onFocusChange = { focused ->
-                    controller.setFocused(if (focused) LoginField.EMAIL else null)
-                }
-            )
-
-            Spacer(Modifier.height(OrdoSpace.m))
-
-            FloatingLabelField(
-                value = state.password,
-                onValueChange = controller::setPassword,
-                label = "口令",
-                enabled = state.enabled,
-                focused = state.focused == LoginField.PASSWORD,
-                onFocusChange = { focused ->
-                    controller.setFocused(if (focused) LoginField.PASSWORD else null)
-                },
-                secret = true,
-                secretVisible = state.passwordVisible,
-                onToggleSecret = controller::togglePasswordVisible
+                onSelect = controller::setMethod
             )
 
             Spacer(Modifier.height(OrdoSpace.l))
 
-            PrimaryButton(
-                label = state.primaryLabel,
-                busy = state.busy,
-                enabled = state.canSubmit,
-                onClick = controller::submit
-            )
+            if (state.method == LoginMethod.EMAIL_CODE) {
+                EmailCodePanel(state = state, controller = controller)
+            } else {
+                PasswordPanel(state = state, controller = controller)
+            }
 
             // 错误区:固定预留 20 高,失败时 danger 文案 + 左右抖动(振幅 6px / 320ms / 衰减两次)
             ErrorSlot(message = state.error, shakeToken = state.errorShake)
+
+            // 提示行(不是错误,不抖动):优先显示"这个码作废了,请重新获取",否则显示"已发送"
+            HintSlot(message = if (state.method == LoginMethod.EMAIL_CODE && state.emailCode.mustRequestAgain) {
+                state.emailCode.mustRequestAgainHint
+            } else {
+                state.hint
+            })
 
             SecondaryButton(
                 label = "以游客身份继续",
@@ -177,19 +165,219 @@ fun LoginView(state: LoginUiState, controller: LoginController, modifier: Modifi
 
             Spacer(Modifier.height(OrdoSpace.l))
 
-            // 底部一行的文本链接(登录态 ⇄ 注册态)
+            // 底部一行的文本链接(登录态 ⇄ 注册态);验证码方式没有"注册",自动建号
+            if (state.showsModeSwitchLink) {
+                Text(
+                    text = state.switchHint,
+                    style = OrdoType.caption,
+                    color = if (state.enabled) colors.accent else colors.textTertiary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(OrdoRadius.pill))
+                        .clickable(enabled = state.enabled) { controller.switchMode() }
+                        .padding(horizontal = OrdoSpace.s, vertical = OrdoSpace.xs)
+                )
+            } else {
+                Text(
+                    text = "未注册的邮箱会自动创建账号",
+                    style = OrdoType.micro,
+                    color = colors.textTertiary
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 登录方式切换(契约 §7.6.5「与口令登录同级」):卡片顶部的一个分段控件,
+ * 两个选项宽度各半、点击即切;选中项 accent 填充,未选中项只留文字 —— 一眼能看出是两个平级入口。
+ */
+@Composable
+private fun LoginMethodSwitcher(
+    method: LoginMethod,
+    enabled: Boolean,
+    onSelect: (LoginMethod) -> Unit
+) {
+    val colors = ordoColors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(OrdoRadius.row))
+            .background(colors.canvas)
+            .border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.row))
+            .padding(OrdoSpace.xs),
+        horizontalArrangement = Arrangement.spacedBy(OrdoSpace.xs)
+    ) {
+        LoginMethodTab(
+            label = "口令登录",
+            selected = method == LoginMethod.PASSWORD,
+            enabled = enabled,
+            onClick = { onSelect(LoginMethod.PASSWORD) },
+            modifier = Modifier.weight(1f)
+        )
+        LoginMethodTab(
+            label = "验证码登录",
+            selected = method == LoginMethod.EMAIL_CODE,
+            enabled = enabled,
+            onClick = { onSelect(LoginMethod.EMAIL_CODE) },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun LoginMethodTab(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = ordoColors
+    val textColor = when {
+        selected -> Color.White
+        enabled -> colors.textSecondary
+        else -> colors.textTertiary
+    }
+    Box(
+        modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(OrdoSpace.s))
+            .background(if (selected) colors.accent else Color.Transparent)
+            .clickable(enabled = enabled && !selected, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, style = OrdoType.caption, color = textColor)
+    }
+}
+
+/** 口令方式:邮箱 + 口令(§5.1 原有输入区,保持不变) */
+@Composable
+private fun PasswordPanel(state: LoginUiState, controller: LoginController) {
+    FloatingLabelField(
+        value = state.email,
+        onValueChange = controller::setEmail,
+        label = "邮箱",
+        enabled = state.enabled,
+        focused = state.focused == LoginField.EMAIL,
+        onFocusChange = { focused ->
+            controller.setFocused(if (focused) LoginField.EMAIL else null)
+        }
+    )
+
+    Spacer(Modifier.height(OrdoSpace.m))
+
+    FloatingLabelField(
+        value = state.password,
+        onValueChange = controller::setPassword,
+        label = "口令",
+        enabled = state.enabled,
+        focused = state.focused == LoginField.PASSWORD,
+        onFocusChange = { focused ->
+            controller.setFocused(if (focused) LoginField.PASSWORD else null)
+        },
+        secret = true,
+        secretVisible = state.passwordVisible,
+        onToggleSecret = controller::togglePasswordVisible
+    )
+
+    Spacer(Modifier.height(OrdoSpace.l))
+
+    PrimaryButton(
+        label = state.primaryLabel,
+        busy = state.busy,
+        enabled = state.canSubmit,
+        onClick = controller::submit
+    )
+}
+
+/**
+ * 验证码方式(契约 §7.6.5):邮箱 + 6 位验证码 +「获取验证码」。
+ *
+ * - 「获取验证码」在倒计时中置灰并显示剩余秒数(秒数取自响应 `retryAfter`),倒计时结束自动恢复;
+ * - 验证码满 6 位**自动提交**(输入处理在 [LoginController.setCode] 里);
+ * - 错误沿用同一条错误区(抖动 + 文案),见 [LoginView] 的 [ErrorSlot]。
+ */
+@Composable
+private fun EmailCodePanel(state: LoginUiState, controller: LoginController) {
+    val code = state.emailCode
+
+    FloatingLabelField(
+        value = state.email,
+        onValueChange = controller::setEmail,
+        label = "邮箱",
+        enabled = state.enabled,
+        focused = state.focused == LoginField.EMAIL,
+        onFocusChange = { focused ->
+            controller.setFocused(if (focused) LoginField.EMAIL else null)
+        }
+    )
+
+    Spacer(Modifier.height(OrdoSpace.m))
+
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(OrdoSpace.s)
+    ) {
+        Box(Modifier.weight(1f)) {
+            FloatingLabelField(
+                value = code.code,
+                onValueChange = controller::setCode,
+                label = "验证码",
+                enabled = state.enabled,
+                focused = state.focused == LoginField.CODE,
+                onFocusChange = { focused ->
+                    controller.setFocused(if (focused) LoginField.CODE else null)
+                }
+            )
+        }
+        SendCodeButton(
+            label = code.requestButtonLabel,
+            enabled = code.canRequestCode,
+            busy = state.busy && !code.coolingDown,
+            onClick = controller::requestCode
+        )
+    }
+
+    Spacer(Modifier.height(OrdoSpace.l))
+
+    PrimaryButton(
+        label = "验证码登录",
+        busy = state.busy,
+        enabled = code.canSubmitCode,
+        onClick = controller::submitEmailCode
+    )
+}
+
+/** 「获取验证码」:高 44(触控目标 ≥44,§5.1 硬约束),倒计时中置灰并显示剩余秒数 */
+@Composable
+private fun SendCodeButton(label: String, enabled: Boolean, busy: Boolean, onClick: () -> Unit) {
+    val colors = ordoColors
+    val shape = RoundedCornerShape(OrdoRadius.row)
+    Row(
+        Modifier
+            .width(104.dp)
+            .height(44.dp)
+            .clip(shape)
+            .background(colors.canvas, shape)
+            .border(1.dp, if (enabled) colors.accent else colors.hairline, shape)
+            .clickable(enabled = enabled, onClick = onClick),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (busy) {
+            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = colors.accent)
+        } else {
             Text(
-                text = state.switchHint,
-                style = OrdoType.caption,
-                color = if (state.enabled) colors.accent else colors.textTertiary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(OrdoRadius.pill))
-                    .clickable(enabled = state.enabled) { controller.switchMode() }
-                    .padding(horizontal = OrdoSpace.s, vertical = OrdoSpace.xs)
+                text = label,
+                style = OrdoType.micro,
+                color = if (enabled) colors.accent else colors.textTertiary,
+                maxLines = 1
             )
         }
     }
 }
+
 
 /** 品牌区:56 应用图标 + 「Ordo」(24/32,600)+ 副标题「把今天理清楚」 */
 @Composable
@@ -418,6 +606,26 @@ private fun ErrorSlot(message: String?, shakeToken: Long) {
             Text(message, style = OrdoType.micro, color = colors.danger, maxLines = 1)
         }
     }
+}
+
+/**
+ * 提示区(非错误):「验证码已发送至 x@y.z,5 分钟内有效」或「请重新获取验证码」。
+ *
+ * 与 [ErrorSlot] 分开:提示用 `text.secondary`、不抖动、出现即占位,避免整卡高度反复跳。
+ */
+@Composable
+private fun HintSlot(message: String?) {
+    if (message == null) return
+    val colors = ordoColors
+    Text(
+        text = message,
+        style = OrdoType.micro,
+        color = colors.textSecondary,
+        maxLines = 1,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = OrdoSpace.xs)
+    )
 }
 
 /** 应用图标(与窗口图标同源);资源缺失时返回 null,由调用方退化为字母标记 */

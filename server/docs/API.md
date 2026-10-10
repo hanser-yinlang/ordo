@@ -25,11 +25,11 @@
 
 | code | HTTP | 触发场景 |
 |---|---|---|
-| `VALIDATION_FAILED` | 400 | 参数/schema 校验失败、`ops.length > 500`、`pull limit > 1000`、`X-Ordo-Schema` 不兼容 |
-| `AUTH_REQUIRED` | 401 | 缺少/伪造 Authorization 头 |
-| `AUTH_INVALID_CREDENTIALS` | 401 | 登录时邮箱或口令错误 |
+| `VALIDATION_FAILED` | 400 | 参数/schema 校验失败、`ops.length > 500`、`pull limit > 1000`、`X-Ordo-Schema` 不兼容;**非游客账号调用 `POST /v1/auth/upgrade`**(`details.reason = "not_guest"`) |
+| `AUTH_REQUIRED` | 401 | 缺少/伪造 Authorization 头;`upgrade` 的令牌对应账号已不存在 |
+| `AUTH_INVALID_CREDENTIALS` | 401 | 登录时邮箱或口令错误;**游客账号调用 `login`**(无口令可校验,契约 §7.6.2) |
 | `AUTH_TOKEN_EXPIRED` | 401 | access/refresh 过期;refresh 被重放(同时撤销全部会话) |
-| `AUTH_EMAIL_TAKEN` | 409 | 注册邮箱已存在 |
+| `AUTH_EMAIL_TAKEN` | 409 | 注册邮箱已存在;**`upgrade` 的目标邮箱已被其它账号占用** |
 | `SYNC_SEQ_GAP` | 409 | 客户端 `sinceSeq` 超前于服务端(`push` 与 `pull` 都会返回),客户端应重新拉快照 |
 | `SYNC_OP_TOO_LARGE` | 413 | 单个 op 的 payload > 256 KB,或请求体超过服务端上限 |
 | `NOT_FOUND` | 404 | 路由不存在 |
@@ -98,6 +98,10 @@ ordo_rate_limited_total 2
 
 ## 2. 认证
 
+> **`user` 投影(契约 §7.6.2)**:`register` / `login` / `guest` / `refresh` 的响应结构**完全同构**,
+> `user` 恒为 `{ "id", "email", "isGuest", "createdAt" }`。
+> 正式账号 `isGuest = false`;游客 `isGuest = true` 且 `email = null`。
+
 ### `POST /v1/auth/register` → `201`
 
 ```json
@@ -105,7 +109,7 @@ ordo_rate_limited_total 2
 { "email": "a@b.com", "password": "password123", "deviceName": "Pixel 9", "platform": "android", "deviceId": "dev_7f3a" }
 // 响应
 {
-  "user":   { "id": "uuid", "email": "a@b.com", "createdAt": 1759900000000 },
+  "user":   { "id": "uuid", "email": "a@b.com", "isGuest": false, "createdAt": 1759900000000 },
   "device": { "id": "dev_7f3a", "userId": "uuid", "name": "Pixel 9", "platform": "android",
               "createdAt": 1759900000000, "lastSeenAt": 1759900000000 },
   "accessToken": "<JWT HS256,30min>",
@@ -114,20 +118,83 @@ ordo_rate_limited_total 2
 }
 ```
 
-口令最小长度 8;邮箱大小写不敏感;`deviceId` 省略时服务端生成。
+口令最小长度 8;邮箱大小写不敏感;`deviceId` 省略时服务端生成。邮箱已存在 → `409 AUTH_EMAIL_TAKEN`。
 
 ### `POST /v1/auth/login` → `200`
 
-请求同 `register`(可省略 `deviceName`/`platform`),响应结构相同。
+请求同 `register`(可省略 `deviceName`/`platform`),响应结构相同(`isGuest = false`)。
 邮箱不存在或口令错误统一返回 `401 AUTH_INVALID_CREDENTIALS`。
+
+> **游客账号不能用 login 登录**:游客没有邮箱口令,`login` 一律返回 `401 AUTH_INVALID_CREDENTIALS`
+> (与"邮箱不存在/口令错误"不可区分,不泄漏账号类型)。客户端应引导游客用原 `refreshToken`
+> 恢复会话,或重新走 `POST /v1/auth/guest`(契约 §7.6.2)。
+
+### `POST /v1/auth/guest` → `201`(契约 §7.6.2)
+
+```json
+// 请求(全部可选)
+{ "deviceId": "dev_7f3a", "deviceName": "Pixel 9", "platform": "android" }
+// 响应:与 register/login **完全同构**
+{
+  "user":   { "id": "uuid", "email": null, "isGuest": true, "createdAt": 1759900000000 },
+  "device": { "id": "dev_7f3a", "userId": "uuid", "name": "Pixel 9", "platform": "android",
+              "createdAt": 1759900000000, "lastSeenAt": 1759900000000 },
+  "accessToken": "<JWT HS256,30min>",
+  "refreshToken": "<256-bit 随机串,30 天>",
+  "expiresIn": 1800
+}
+```
+
+创建一个**匿名账号**:`email = null`、`is_guest = true`,并签发与注册登录一样的令牌。
+
+⚠️ **游客不是离线模式**:这一步就真的把用户写进 `users` 表(带一个随机占位口令哈希,
+永不匹配任何口令),之后 `push` / `pull` / `snapshot` / WS / Fastlane 全部按正常用户走 ——
+数据同样入库、同样多端同步。区别只有两点:没有邮箱口令、`isGuest = true`。
+
+- 每次调用都会创建**新的** userId(游客之间数据互相隔离,不共享)。
+  恢复既有游客会话请用 `POST /v1/auth/refresh`。
+- 游客的 `email` 是 SQL `NULL`(不是空串),因此 `users.email` 的唯一索引可以容纳任意多个游客
+  —— PostgreSQL 的 `unique` **默认允许多个 NULL**(见迁移 `003_guest_accounts.sql` 的注释)。
+
+### `POST /v1/auth/upgrade` → `200`(需鉴权,契约 §7.6.2)
+
+```json
+// 请求(需 Authorization: Bearer <accessToken>)
+{ "email": "a@b.com", "password": "password123" }
+// 响应:只返回 user(不重发令牌)
+{ "user": { "id": "uuid", "email": "a@b.com", "isGuest": false, "createdAt": 1759900000000 } }
+```
+
+把**当前游客账号**升级为正式账号:**userId 不变、全部数据不变**
+(devices / entities / ops / reminders / refresh_tokens 一行都不动),只补上邮箱口令并把
+`is_guest` 置回 `false`。
+
+| 情况 | 结果 |
+|---|---|
+| 成功 | `200 {user:{id,email,isGuest:false}}` |
+| 邮箱已被**其它**账号占用 | `409 AUTH_EMAIL_TAKEN`(账号仍是游客,无副作用) |
+| 调用者**不是**游客(已是正式账号) | `400 VALIDATION_FAILED`,`details.reason = "not_guest"` |
+| 缺/无效 Access Token | `401 AUTH_REQUIRED` / `AUTH_TOKEN_EXPIRED` |
+| 口令 < 8 字符或邮箱格式错误 | `400 VALIDATION_FAILED` |
+
+**升级后旧 `refreshToken` 依然有效**:令牌与 `userId` 绑定,升级不改变 `userId`,
+因此升级不会打断四端现有会话(`refresh` 的响应会带上最新的 `isGuest`/`email`)。
+升级后即可用新邮箱走 `login`。
 
 ### `POST /v1/auth/refresh` → `200`
 
 ```json
 // 请求
 { "refreshToken": "<旧 refresh>" }
-// 响应
-{ "accessToken": "<新 JWT>", "refreshToken": "<新 refresh>", "expiresIn": 1800 }
+// 响应:与 register/login 同构(带 user/device)
+{
+  "user":   { "id": "uuid", "email": "a@b.com", "isGuest": false, "createdAt": 1759900000000 },
+  "device": { "id": "dev_7f3a", "userId": "uuid", "name": "未命名设备", "platform": "unknown",
+              "createdAt": 1759900000000, "lastSeenAt": 1759900000000 },
+  "accessToken": "<新 JWT>",
+  "refreshToken": "<新 refresh>",
+  "expiresIn": 1800
+}
 ```
 
 **轮换语义**:旧 refresh 立即失效。若旧 refresh 被重放,服务端撤销该用户**全部**会话并返回 `AUTH_TOKEN_EXPIRED`。

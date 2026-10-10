@@ -3,21 +3,31 @@ package com.ordo.android.net
 import com.ordo.core.sync.AuthApi
 import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
+import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoApiException
 import com.ordo.core.sync.RefreshRequest
+import com.ordo.core.sync.UpgradeRequest
+import com.ordo.core.sync.UpgradeResponse
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * 契约 §7.4 认证接口的 Ktor 实现（shared:core 的 [AuthApi] 接口）。
+ * 契约 §7.4 / §7.6.2 认证接口的 Ktor 实现（shared:core 的 [AuthApi] 接口）。
  *
- *   POST /v1/auth/register · /v1/auth/login · /v1/auth/refresh · /v1/auth/logout
+ *   POST /v1/auth/register · /v1/auth/login · /v1/auth/guest · /v1/auth/refresh · /v1/auth/logout
+ *   POST /v1/auth/upgrade（需带 Access Token；userId 与数据不变）
+ *
  * refresh 为轮换制：成功后立即持久化新的 accessToken + refreshToken。
+ * 游客登录与正式登录在这里**完全同构**（都返回正常令牌、都写同一份会话）——
+ * 游客不是"离线模式"，差别只有"没有邮箱口令"（契约 §7.6.1）。
  */
 class OrdoAuthApi(
     private val client: HttpClient,
@@ -27,15 +37,39 @@ class OrdoAuthApi(
     private val refreshMutex = Mutex()
 
     override suspend fun register(request: AuthRequest): AuthResponse {
-        val response = postAuth("/v1/auth/register", request)
+        val response = postAuth<AuthRequest, AuthResponse>("/v1/auth/register", request)
         tokens.saveSession(response)
         return response
     }
 
     override suspend fun login(request: AuthRequest): AuthResponse {
-        val response = postAuth("/v1/auth/login", request)
+        val response = postAuth<AuthRequest, AuthResponse>("/v1/auth/login", request)
         tokens.saveSession(response)
         return response
+    }
+
+    /** 游客登录：服务端创建匿名账号并返回正常令牌（契约 §7.6.2） */
+    override suspend fun guest(request: GuestAuthRequest): AuthResponse {
+        val response = postAuth<GuestAuthRequest, AuthResponse>("/v1/auth/guest", request)
+        tokens.saveSession(response)
+        return response
+    }
+
+    /**
+     * 游客升级为正式账号（契约 §7.6.2）：需要当前 Access Token；
+     * 邮箱已占用时服务端返回 `AUTH_EMAIL_TAKEN`，此处原样抛出（由界面提示）。
+     */
+    override suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse {
+        val response = client.post("${tokens.serverUrl()}/v1/auth/upgrade") {
+            header(HttpHeaders.Authorization, "Bearer $accessToken")
+            setBody(request)
+        }
+        val text = response.bodyAsText()
+        response.throwIfError(text)
+        if (text.isBlank()) throw OrdoApiException("INTERNAL", "升级响应为空")
+        val body: UpgradeResponse = response.body()
+        tokens.applyUpgrade(body.user)
+        return body
     }
 
     override suspend fun refresh(refreshToken: String): AuthResponse = refreshMutex.withLock {
@@ -49,7 +83,7 @@ class OrdoAuthApi(
         body
     }
 
-    /** 退出登录：通知服务端（忽略失败）+ 清本地令牌，保留本地数据 */
+    /** 退出登录：通知服务端（忽略失败）+ 清本地会话，保留本地数据（契约 §7.6.3） */
     suspend fun logout() {
         val refreshToken = tokens.refreshToken()
         if (!refreshToken.isNullOrBlank()) {
@@ -68,8 +102,8 @@ class OrdoAuthApi(
         return runCatching { refresh(token) }.getOrNull()
     }
 
-    private suspend fun postAuth(path: String, request: AuthRequest): AuthResponse {
-        val response = client.post("${tokens.serverUrl()}$path") { setBody(request) }
+    private suspend inline fun <reified B, reified R> postAuth(path: String, request: B): R {
+        val response: HttpResponse = client.post("${tokens.serverUrl()}$path") { setBody(request) }
         val text = response.bodyAsText()
         response.throwIfError(text)
         if (text.isBlank()) throw OrdoApiException("INTERNAL", "认证响应为空")

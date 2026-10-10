@@ -220,4 +220,48 @@
     <!-- 日历(只读) -->
     <string name="agenda_empty">今天没有日历事件</string>
     <string name="agenda_calendar">日历</string>
+
+    <!-- 登录门禁 / 登录页(UI §5.1 · 契约 §7.6) -->
+    <string name="auth_brand">Ordo</string>
+    <string name="auth_brand_sub">把今天理清楚</string>
+    <string name="auth_email">邮箱</string>
+    <string name="auth_password">口令</string>
+    <string name="auth_login">登录</string>
+    <string name="auth_register">注册</string>
+    <string name="auth_guest">以游客身份继续</string>
+    <string name="auth_to_register">还没有账号？注册</string>
+    <string name="auth_to_login">已有账号？登录</string>
+    <string name="auth_guest_hint">游客同样同步到云端，之后可在设置里升级为正式账号</string>
+    <string name="auth_error_email_empty">请输入邮箱</string>
+    <string name="auth_error_email_invalid">邮箱格式不正确</string>
+    <string name="auth_error_password_empty">请输入口令</string>
+    <string name="auth_error_password_short">口令至少 8 位</string>
+    <string name="auth_error_session_expired">登录已过期，请重新登录（本地数据保留）</string>
+    <string name="auth_error_no_session">会话写入失败，请重试</string>
+    <string name="auth_server_toggle">服务器设置</string>
+    <string name="field_password_show">显示</string>
+    <string name="field_password_hide">隐藏</string>
+
+    <!-- 状态栏刷新控件(UI §5.3) -->
+    <string name="refresh_desc">刷新（立即同步）</string>
+    <string name="sync_syncing_ellipsis">同步中…</string>
+    <string name="sync_failed_retry">同步失败，点击重试</string>
+    <string name="sync_offline_retry">离线，点击重试</string>
+    <string name="sync_unsynced">未同步</string>
+
+    <!-- 长按拖拽(UI §5.4) -->
+    <string name="row_drag_desc">长按拖动排序：%1$s</string>
+
+    <!-- 账号(设置页 · 契约 §7.6.3) -->
+    <string name="settings_account_current">当前账号</string>
+    <string name="settings_account_guest">游客</string>
+    <string name="settings_account_id">用户 ID：%1$s</string>
+    <string name="settings_account_dir">本地数据目录：%1$s</string>
+    <string name="settings_account_none">未登录：本地数据不参与同步</string>
+    <string name="settings_upgrade">升级为正式账号</string>
+    <string name="settings_account_hint">退出登录只清除会话，本地数据目录会保留（下次登录仍在）</string>
+    <string name="toast_upgrade_ok">已升级为正式账号（数据保留）</string>
+    <string name="toast_heading_created">已新建标题「%1$s」</string>
+    <string name="quickadd_heading_need_project">标题需要建在项目里，请先进入一个项目</string>
+    <string name="quickadd_menu_desc">快捷菜单</string>
 </resources>

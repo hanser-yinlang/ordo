@@ -19,9 +19,11 @@ import {
 
 interface UserDbRow {
   id: string;
-  email: string;
+  /** 游客为 null(见迁移 003:email 可为 NULL,unique 索引默认容忍多个 NULL) */
+  email: string | null;
   password_hash: string;
   password_algo: string;
+  is_guest: boolean;
   created_at: string | number;
 }
 
@@ -151,9 +153,16 @@ export class PgRepository implements Repository {
 
   async createUser(user: UserRow): Promise<UserRow> {
     const { rows } = await this.pool.query<UserDbRow>(
-      `insert into users (id, email, password_hash, password_algo, created_at)
-       values ($1,$2,$3,$4,$5) returning *`,
-      [user.id, user.email.toLowerCase(), user.passwordHash, user.passwordAlgo, user.createdAt]
+      `insert into users (id, email, password_hash, password_algo, is_guest, created_at)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [
+        user.id,
+        user.email === null ? null : user.email.toLowerCase(),
+        user.passwordHash,
+        user.passwordAlgo,
+        user.isGuest === true,
+        user.createdAt
+      ]
     );
     return mapUser(rows[0]);
   }
@@ -174,6 +183,30 @@ export class PgRepository implements Repository {
       passwordHash,
       passwordAlgo
     ]);
+  }
+
+  /**
+   * 游客升级为正式账号(契约 §7.6.2):`email` + `password_hash` + `is_guest = false`
+   * 在**一条 UPDATE** 里完成(要么全成要么全不成,不会出现"有口令却没邮箱"的中间态)。
+   * `users.id` 不变,其它表的 `user_id` 自然不变 → 数据零迁移。
+   *
+   * 邮箱唯一性由 `users_email_key` 兜底:并发升级到同一邮箱时,输的那一方拿到 23505
+   * (AuthService.upgrade 会把它翻译成 AUTH_EMAIL_TAKEN)。
+   */
+  async upgradeGuestAccount(
+    userId: string,
+    email: string,
+    passwordHash: string,
+    passwordAlgo: string
+  ): Promise<UserRow | null> {
+    const { rows } = await this.pool.query<UserDbRow>(
+      `update users
+          set email = $2, password_hash = $3, password_algo = $4, is_guest = false
+        where id = $1
+        returning *`,
+      [userId, email.toLowerCase(), passwordHash, passwordAlgo]
+    );
+    return rows[0] ? mapUser(rows[0]) : null;
   }
 
   async deleteUser(userId: string): Promise<void> {
@@ -436,9 +469,12 @@ export class PgRepository implements Repository {
 function mapUser(row: UserDbRow): UserRow {
   return {
     id: row.id,
-    email: row.email,
+    // 迁移 003 之前建的行没有 email 概念上的 null;这里统一收敛为 null 或非空串
+    email: row.email === null || row.email === '' ? null : row.email,
     passwordHash: row.password_hash,
     passwordAlgo: row.password_algo,
+    // 迁移 003 之前插入的行 is_guest 由列默认值补成 false;这里再兜一层,保证返回布尔
+    isGuest: row.is_guest === true,
     createdAt: n(row.created_at)
   };
 }

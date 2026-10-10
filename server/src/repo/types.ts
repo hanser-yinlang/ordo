@@ -7,10 +7,24 @@ import { AnyEntity, EntityKind, OpType } from '../domain/model';
 
 export interface UserRow {
   id: string;
-  email: string;
+  /**
+   * **游客账号为 `null`**(契约 §7.6.1:游客没有邮箱口令)。
+   *
+   * 为什么用 `null` 而不是空串:PostgreSQL 的 `unique` 索引**默认允许多个 NULL**
+   * (SQL 标准里 `NULL` 互不相等),因此 `email` 上的唯一约束天然容忍任意多个游客;
+   * 而空串会被当成同一个值,第二个游客就再也建不出来。见迁移 003 的注释。
+   */
+  email: string | null;
   passwordHash: string;
   /** 'argon2id' | 'scrypt'(见 services/password.ts) */
   passwordAlgo: string;
+  /**
+   * 是否游客账号(契约 §7.6)。同一个 `user` 从游客升级为正式账号时**此值翻转、`id` 不变**。
+   *
+   * 可选:`false` 是默认值,旧调用点(测试夹具、既有代码)可以省略。
+   * 两个仓储都会在读出时补齐为布尔值,因此 `repo.findUser*()` 的返回值一定是布尔。
+   */
+  isGuest?: boolean;
   createdAt: number;
 }
 
@@ -92,6 +106,11 @@ export interface Repository {
   findUserByEmail(email: string): Promise<UserRow | null>;
   findUserById(id: string): Promise<UserRow | null>;
   updateUserPassword(userId: string, passwordHash: string, passwordAlgo: string): Promise<void>;
+  /**
+   * 游客 → 正式账号(契约 §7.6.2):在**同一行**上补邮箱口令并把 `is_guest` 置回 false。
+   * `id` 与其它表的 `user_id` 一律不动 —— 数据零迁移。
+   */
+  upgradeGuestAccount(userId: string, email: string, passwordHash: string, passwordAlgo: string): Promise<UserRow | null>;
   /** 删除账号与全部数据(级联) */
   deleteUser(userId: string): Promise<void>;
 

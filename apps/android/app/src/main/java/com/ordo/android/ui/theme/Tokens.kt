@@ -155,7 +155,17 @@ object OrdoLayout {
     val checkboxSize: Dp = 20.dp
     val contentMaxWidth: Dp = 720.dp
     val sheetWidth: Dp = 280.dp
-    val fabSize: Dp = 52.dp
+    /** 快加号（UI §5.2：只保留一个圆形按钮，直径 56） */
+    val fabSize: Dp = 56.dp
+    /** 长按弹出的快捷菜单宽度（UI §5.2：从按钮左上方弹出） */
+    val quickAddMenuWidth: Dp = 200.dp
+    /** 表单输入框（UI §5.1：浮动标签需要两行高度） */
+    val fieldHeight: Dp = 52.dp
+    val fieldHeightCompact: Dp = 44.dp
+    /** 主/次按钮高度（UI §5.1：高 44） */
+    val buttonHeight: Dp = 44.dp
+    /** 登录卡片宽度上限（UI §5.1：宽 400） */
+    val loginCardWidth: Dp = 400.dp
     val touchTarget: Dp = 44.dp
     val projectRingSize: Dp = 18.dp
     val sidebarIconSize: Dp = 18.dp
@@ -180,6 +190,22 @@ object OrdoMotion {
     const val COLLAPSE_START = 700
     const val COLLAPSE_DURATION = 180
     const val RING_PULSE = 900
+
+    /** §5.3 刷新控件：同步中图标每圈 900ms（linear）；成功色闪现 320ms */
+    const val SPINNER_PERIOD = 900
+    const val SUCCESS_FLASH = 320
+
+    /** §5.2 快加号菜单：面板 180ms、菜单项逐个错位 40ms、收起 140ms */
+    const val MENU_POP_IN = 180
+    const val MENU_ITEM_STAGGER = 40
+    const val MENU_COLLAPSE = 140
+    /** §5.2 长按到 400ms 时轻微放大并保持 */
+    const val FAB_HOLD_SCALE = 1.06f
+
+    /** §5.4 长按拖拽：进入拖拽 400ms、其余行让位 120ms、行回落 160ms */
+    const val DRAG_LONG_PRESS = 400
+    const val DRAG_SHIFT = 120
+    const val DRAG_SETTLE = 160
 
     const val COLLAPSE_TOTAL = 900
     const val SHEET_COLLAPSE = 260

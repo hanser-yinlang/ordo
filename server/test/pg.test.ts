@@ -92,8 +92,8 @@ describe('PgRepository × pg-mem(真实执行 001_init.sql)', () => {
       );
       assert.deepEqual(
         before.map((r) => Number(r.version)),
-        [1, 2],
-        '001_init.sql 与 002_device_id_text.sql 都应被记录'
+        [1, 2, 3],
+        '001_init.sql、002_device_id_text.sql 与 003_guest_accounts.sql 都应被记录'
       );
 
       // PgRepository.init() 再来一次:已应用的版本会被跳过
@@ -108,7 +108,32 @@ describe('PgRepository × pg-mem(真实执行 001_init.sql)', () => {
         [...files.map((f) => f.version)].sort((a, b) => a - b),
         '迁移必须按版本号升序执行'
       );
-      assert.ok(files.length >= 2, `应发现至少 2 个迁移文件,实际 ${files.length}`);
+      assert.ok(files.length >= 3, `应发现至少 3 个迁移文件,实际 ${files.length}`);
+    });
+
+    it('003_guest_accounts.sql:users.is_guest 列已建出且默认 false', async () => {
+      // pg-mem 的 plpgsql 是 no-op(夹具只注册了空实现),所以 003 里 DO 块的
+      // ALTER 语句在 pg-mem 上**不会真的执行**;这里能验证的是:① 迁移文件被真实执行过
+      // ② 迁移里的 is_guest 声明可解析。真正的"列被加上、email 变可空、多个 NULL 可共存"
+      // 由 scripts/pg-real-verify.mts 在真实 PostgreSQL 上断言(见该脚本第 0.5 / 11 节)。
+      const migration = loadMigrations(MIGRATIONS_DIR).find((m) => m.version === 3);
+      assert.ok(migration, '应发现 003_guest_accounts.sql');
+      assert.equal(migration!.name, '003_guest_accounts.sql');
+
+      const sql = migration!.sql;
+      assert.match(
+        sql,
+        /alter table users add column (if not exists )?is_guest boolean not null default false/i,
+        '003 必须给 users 加 is_guest boolean not null default false'
+      );
+      assert.match(
+        sql,
+        /alter table users alter column email drop not null/i,
+        '003 必须摘掉 users.email 的 NOT NULL(游客无邮箱)'
+      );
+      // 唯一索引要显式保留:PostgreSQL 的 unique 默认允许多个 NULL,这是游客能无限创建的前提
+      assert.match(sql, /create unique index (if not exists )?users_email_key on users \(email\)/i);
+      assert.match(sql, /允许多个 NULL/, '迁移里必须写明"unique 默认允许多个 NULL"这一关键事实');
     });
 
     it('deviceId 相关列是 text 而不是 uuid(契约 §7.2 的 dev_xxx 形态)', async () => {

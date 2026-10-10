@@ -1,5 +1,8 @@
 package com.ordo.android.vm
 
+import com.ordo.android.auth.AuthMode
+import com.ordo.android.auth.AuthStage
+import com.ordo.android.sync.RefreshUiState
 import com.ordo.android.sync.SyncState
 import com.ordo.android.ui.theme.ThemeMode
 import com.ordo.core.model.CalendarEvent
@@ -146,6 +149,34 @@ data class ScheduleTargetUi(
     val forDeadline: Boolean,
 )
 
+/**
+ * 登录门禁的界面状态（契约 §7.6.4 / UI §5.1）。
+ *
+ * [errorNonce] 每失败一次 +1：界面据此**重放一次抖动动画**（同样的错误文案也要有反馈）。
+ */
+data class AuthUi(
+    val stage: AuthStage = AuthStage.LOADING,
+    val mode: AuthMode = AuthMode.LOGIN,
+    val email: String = "",
+    val password: String = "",
+    val passwordVisible: Boolean = false,
+    /** 提交中：主按钮禁用 + 16dp 转圈；输入框与游客按钮一并禁用 */
+    val submitting: Boolean = false,
+    /** 错误文案（位于主按钮下方固定 20dp 高的错误区） */
+    val error: String? = null,
+    val errorNonce: Int = 0,
+    /** 当前账号展示名：正式账号 = 邮箱，游客 = 「游客」 */
+    val displayName: String = "",
+    val isGuest: Boolean = false,
+    val userId: String? = null,
+) {
+    /** 是否已进入主界面 */
+    val loggedIn: Boolean get() = stage == AuthStage.MAIN
+
+    val canSubmit: Boolean
+        get() = stage == AuthStage.LOGIN && !submitting
+}
+
 data class UiState(
     val loading: Boolean = true,
     val routeKey: String = ROUTE_TODAY,
@@ -161,7 +192,10 @@ data class UiState(
     val detail: DetailUi? = null,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val syncState: SyncState = SyncState.IDLE,
-    val loggedIn: Boolean = false,
+    /** 登录门禁：LOADING → LOGIN / MAIN（契约 §7.6.4） */
+    val auth: AuthUi = AuthUi(),
+    /** 状态栏刷新控件（UI §5.3）：同步中连续旋转、成功 1.4s 后回常态、失败常驻 */
+    val refresh: RefreshUiState = RefreshUiState(),
     val searchQuery: String = "",
     val searchResults: List<SearchResultUi> = emptyList(),
     val fastFindOpen: Boolean = false,
@@ -177,6 +211,9 @@ data class UiState(
     /** 设备本地只读日历事件（契约 §2.8，不上传） */
     val eventList: List<CalendarEvent> = emptyList(),
 ) {
+    /** 已进入主界面（登录门禁通过）；设置页与侧栏据此展示账号区 */
+    val loggedIn: Boolean get() = auth.loggedIn
+
     companion object {
         const val ROUTE_INBOX = "inbox"
         const val ROUTE_TODAY = "today"

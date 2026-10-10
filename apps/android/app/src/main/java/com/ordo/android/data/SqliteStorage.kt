@@ -15,6 +15,7 @@ import com.ordo.core.model.Todo
 import com.ordo.core.model.Tombstone
 import com.ordo.core.storage.OrdoStorage
 import com.ordo.core.util.OrdoJson
+import java.io.File
 
 /**
  * Android 本地存储实现(契约 §8)。
@@ -34,9 +35,18 @@ import com.ordo.core.util.OrdoJson
  * 说明:shared:core 的 [OrdoStorage] 是**同步接口**(引擎构造与写操作中直接调用),
  * 这里用 SQLite 同步 API 直接满足;单设备本地库整表读写为毫秒级。
  */
-class SqliteStorage(context: Context) : OrdoStorage {
+class SqliteStorage(
+    context: Context,
+    /**
+     * 数据库文件（契约 §7.6.3）：
+     *  根目录 `filesDir/ordo-bootstrap.db` = 引导库（会话 / 服务器地址，登录前就要能读）；
+     *  `filesDir/<userId>/ordo.db` = 该账号的数据目录，**绝不允许两个账号共用**。
+     * 省略时退回旧路径 `filesDir/ordo.db`（仅用于兼容与测试）。
+     */
+    dbFile: File? = null,
+) : OrdoStorage {
 
-    private val helper = OrdoDbHelper(context.applicationContext)
+    private val helper = OrdoDbHelper(context.applicationContext, dbFile)
 
     private val reader: SQLiteDatabase get() = helper.readableDatabase
     private val writer: SQLiteDatabase get() = helper.writableDatabase
@@ -225,7 +235,7 @@ class SqliteStorage(context: Context) : OrdoStorage {
         const val DB_NAME = "ordo.db"
         const val DB_VERSION = 1
 
-        /** kv 键(契约 §8) */
+        /** kv 键（契约 §8）。会话键统一用共享核心的常量 [com.ordo.core.sync.OrdoSessionStore.KEY_SESSION] */
         const val KEY_SCHEMA_VERSION = "schemaVersion"
         const val KEY_SERVER_SEQ = "serverSeq"
         const val KEY_ACCESS_TOKEN = "accessToken"
@@ -239,7 +249,10 @@ class SqliteStorage(context: Context) : OrdoStorage {
 }
 
 /** SQLite 建表:字段名与契约 §8 一致 */
-private class OrdoDbHelper(context: Context) : SQLiteOpenHelper(context, SqliteStorage.DB_NAME, null, SqliteStorage.DB_VERSION) {
+private class OrdoDbHelper(
+    context: Context,
+    dbFile: File?,
+) : SQLiteOpenHelper(context, resolvePath(context, dbFile), null, SqliteStorage.DB_VERSION) {
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -279,5 +292,19 @@ private class OrdoDbHelper(context: Context) : SQLiteOpenHelper(context, SqliteS
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         // v1 无历史版本;后续升级在此按版本号顺序执行迁移(契约 §8 迁移策略)
+    }
+
+    private companion object {
+        /**
+         * 数据库路径解析：`SQLiteOpenHelper` 只接受**名字**，但当名字是绝对路径时
+         * `Context.getDatabasePath()` 会原样使用它 —— 这正是"按用户分目录"需要的语义：
+         *   `filesDir/ordo-bootstrap.db`（会话）· `filesDir/<userId>/ordo.db`（该账号数据）。
+         * 父目录必须先存在，否则 SQLite 打不开文件。
+         */
+        fun resolvePath(context: Context, dbFile: File?): String {
+            val file = dbFile ?: File(context.filesDir, SqliteStorage.DB_NAME)
+            file.parentFile?.takeIf { !it.exists() }?.mkdirs()
+            return file.absolutePath
+        }
     }
 }

@@ -108,6 +108,140 @@ console.log('=== 0) 契约 §7.2 形态的 deviceId(dev_xxx)在真库上的类�
   check('契约形态 deviceId 可写入 devices 与 refresh_tokens(外键也成立)', insertOk, insertErr);
 }
 
+/* ---------------- 0.5) 迁移 003:游客账号列与 email 可空(真库才能验证)---------------- */
+console.log('=== 0.5) 003_guest_accounts.sql:is_guest 列 + email 可空 + unique 容忍多个 NULL ===');
+{
+  const { rows: userCols } = await adminPool.query<{
+    column_name: string;
+    data_type: string;
+    is_nullable: string;
+    column_default: string | null;
+  }>(
+    `select column_name, data_type, is_nullable, column_default
+     from information_schema.columns
+     where table_schema = 'public' and table_name = 'users'`
+  );
+  const byName = new Map(userCols.map((c) => [c.column_name, c]));
+
+  check(
+    'users.is_guest 列存在且类型为 boolean',
+    byName.get('is_guest')?.data_type === 'boolean',
+    `实际=${byName.get('is_guest')?.data_type ?? 'missing'}`
+  );
+  check(
+    'users.is_guest 是 not null 且默认 false',
+    byName.get('is_guest')?.is_nullable === 'NO' && /false/.test(byName.get('is_guest')?.column_default ?? ''),
+    `is_nullable=${byName.get('is_guest')?.is_nullable} default=${byName.get('is_guest')?.column_default}`
+  );
+  check(
+    'users.email 已允许 NULL(契约 §7.6.1 游客无邮箱)',
+    byName.get('email')?.is_nullable === 'YES',
+    `is_nullable=${byName.get('email')?.is_nullable}`
+  );
+
+  // email 的唯一性必须落在**显式唯一索引** users_email_key 上(003 重建过)
+  const { rows: emailIdx } = await adminPool.query<{ indexdef: string; indisunique: boolean }>(
+    `select i.indexdef, ix.indisunique
+     from pg_indexes i
+     join pg_class c on c.relname = i.indexname
+     join pg_index ix on ix.indexrelid = c.oid
+     where i.schemaname = 'public' and i.tablename = 'users' and i.indexname = 'users_email_key'`
+  );
+  check('users_email_key 是唯一索引', emailIdx[0]?.indisunique === true, emailIdx[0]?.indexdef ?? '缺失');
+  check(
+    'users_email_key 只覆盖 email 一列',
+    /using btree \(email\)/i.test(emailIdx[0]?.indexdef ?? ''),
+    emailIdx[0]?.indexdef ?? '缺失'
+  );
+  // 同一列上不能有两个唯一索引(003 重放/幂等的保护)
+  const { rows: emailUniqCount } = await adminPool.query<{ c: number }>(
+    `select count(*)::int as c
+     from pg_index ix
+     join pg_class c on c.oid = ix.indexrelid
+     join pg_class t on t.oid = ix.indrelid
+     join pg_namespace ns on ns.oid = t.relnamespace
+     where ns.nspname = 'public' and t.relname = 'users' and ix.indisunique
+       and ix.indnatts = 1
+       and (select a.attname from pg_attribute a where a.attrelid = t.oid and a.attnum = ix.indkey[0]) = 'email'`
+  );
+  check('users.email 上恰好一个唯一索引', emailUniqCount[0].c === 1, `count=${emailUniqCount[0].c}`);
+
+  // 已存在的行(第 0 节插入的 devid@example.com)必须被补成 is_guest=false
+  const { rows: legacy } = await adminPool.query<{ is_guest: boolean }>(
+    `select is_guest from users where email = 'devid@example.com'`
+  );
+  check('迁移前已存在的行被补成 is_guest=false(行为不变)', legacy[0]?.is_guest === false, `实际=${legacy[0]?.is_guest}`);
+
+  // 多个 NULL email 必须能共存 —— 这是游客能无限创建的唯一前提
+  const g1 = 'aaaaaaaa-0000-4000-8000-000000000001';
+  const g2 = 'aaaaaaaa-0000-4000-8000-000000000002';
+  let multiNullOk = true;
+  let multiNullErr = '';
+  try {
+    await adminPool.query(
+      `insert into users (id,email,password_hash,password_algo,is_guest,created_at) values ($1,null,'guest$h','none',true,1)`,
+      [g1]
+    );
+    await adminPool.query(
+      `insert into users (id,email,password_hash,password_algo,is_guest,created_at) values ($1,null,'guest$h','none',true,1)`,
+      [g2]
+    );
+  } catch (err) {
+    multiNullOk = false;
+    multiNullErr = (err as Error).message;
+  }
+  check('两个 email 为 NULL 的游客可以共存(unique 默认允许多个 NULL)', multiNullOk, multiNullErr);
+
+  // 但唯一性对非 NULL 值仍然生效:重复邮箱必须被拒(正式账号依赖它兜底并发注册)
+  let dupRejected = false;
+  let dupCode = '';
+  try {
+    await adminPool.query(
+      `insert into users (id,email,password_hash,password_algo,is_guest,created_at)
+       values ('aaaaaaaa-0000-4000-8000-000000000003','devid@example.com','h','scrypt',false,1)`
+    );
+  } catch (err) {
+    dupRejected = true;
+    dupCode = String((err as { code?: string }).code ?? '');
+  }
+  check('重复的非 NULL 邮箱仍被唯一索引拒绝(23505)', dupRejected && dupCode === '23505', `code=${dupCode}`);
+
+  // 用一个临时库把 003 单独重放,验证幂等 + 自检 DO 块不会误报
+  const idemDb = `ordo_guest_idem_${Date.now()}`;
+  await adminPool.query(`create database ${idemDb}`);
+  const idemUrl = new URL(DATABASE_URL);
+  idemUrl.pathname = `/${idemDb}`;
+  const idemPool = new Pool({ connectionString: idemUrl.toString(), max: 2 });
+  try {
+    const { readFileSync } = await import('node:fs');
+    const sql003 = readFileSync(join(MIGRATIONS_DIR, '003_guest_accounts.sql'), 'utf8');
+    await runMigrations(idemPool as unknown as SqlPool, MIGRATIONS_DIR, () => undefined);
+    let idemOk = true;
+    let idemErr = '';
+    try {
+      await idemPool.query(sql003);
+      await idemPool.query(sql003);
+    } catch (err) {
+      idemOk = false;
+      idemErr = (err as Error).message;
+    }
+    check('003 可重复执行(幂等,含自检 DO 块)', idemOk, idemErr);
+    const { rows: idx } = await idemPool.query<{ c: number }>(
+      `select count(*)::int as c from pg_indexes
+       where schemaname='public' and tablename='users' and indexname='users_email_key'`
+    );
+    check('幂等重跑后 users_email_key 恰好一个', idx[0].c === 1, `count=${idx[0].c}`);
+    const { rows: nullable } = await idemPool.query<{ is_nullable: string }>(
+      `select is_nullable from information_schema.columns
+       where table_schema='public' and table_name='users' and column_name='email'`
+    );
+    check('幂等重跑后 email 仍可空', nullable[0]?.is_nullable === 'YES', `is_nullable=${nullable[0]?.is_nullable}`);
+  } finally {
+    await idemPool.end();
+    await adminPool.query(`drop database if exists ${idemDb} with (force)`);
+  }
+}
+
 console.log('=== 0) 迁移(从干净库开始) ===');
 await adminPool.query(`drop schema public cascade; create schema public;`);
 const pool = new Pool({ connectionString: DATABASE_URL, max: 8 });
@@ -115,6 +249,7 @@ const repo = new PgRepository(DATABASE_URL, 8, [MIGRATIONS_DIR], pool as unknown
 
 const applied = await runMigrations(pool as unknown as SqlPool, MIGRATIONS_DIR, (m) => console.log(`  ${m}`));
 check('001_init.sql 被真实执行', applied.includes(1), `applied=${JSON.stringify(applied)}`);
+check('003_guest_accounts.sql 被真实执行', applied.includes(3), `applied=${JSON.stringify(applied)}`);
 const appliedAgain = await runMigrations(pool as unknown as SqlPool, MIGRATIONS_DIR);
 check('迁移幂等(二次执行无副作用)', appliedAgain.length === 0);
 
@@ -523,6 +658,105 @@ console.log('\n=== 10) EXPLAIN:执行计划确实走索引(pg-mem 无法验证) 
     /Index (Only )?Scan on ops|Bitmap Index Scan on ops/.test(plan2Text) && !/Seq Scan on ops/.test(plan2Text),
     plan2Text.split('\n')[0].trim()
   );
+}
+
+/* ---------------- 11) 游客账号在真库上的完整行为(契约 §7.6)---------------- */
+console.log('\n=== 11) 游客账号:真库建号 / email=null / 数据隔离 / 升级不改 userId(真库)===');
+{
+  const now = NOW + 1_000_000;
+  const guestA = 'bbbbbbbb-0000-4000-8000-000000000001';
+  const guestB = 'bbbbbbbb-0000-4000-8000-000000000002';
+
+  // ① 建两个游客:email 为 null、is_guest = true(与 AuthService.guest 的写入一致)
+  const created = await repo.createUser({
+    id: guestA,
+    email: null,
+    passwordHash: 'guest$' + 'a'.repeat(64),
+    passwordAlgo: 'none',
+    isGuest: true,
+    createdAt: now
+  });
+  check('游客 email 为 null 且 is_guest=true', created.email === null && created.isGuest === true, JSON.stringify(created));
+  await repo.createUser({
+    id: guestB,
+    email: null,
+    passwordHash: 'guest$' + 'b'.repeat(64),
+    passwordAlgo: 'none',
+    isGuest: true,
+    createdAt: now
+  });
+
+  const readBack = await repo.findUserById(guestA);
+  check('游客可从真库读回(is_guest 往返为布尔 true)', readBack?.isGuest === true && readBack?.email === null);
+  check('游客查不到任何邮箱(findUserByEmail 永远 null)', (await repo.findUserByEmail('guest@example.com')) === null);
+
+  const { rows: guestCount } = await adminPool.query<{ c: number }>(
+    `select count(*)::int as c from users where email is null and is_guest = true`
+  );
+  check('库里同时存在多个 email 为 NULL 的游客行', guestCount[0].c >= 2, `count=${guestCount[0].c}`);
+
+  // ② 数据隔离:两个游客各推一条,互不可见
+  const sync = new SyncService(repo, config);
+  const todoA = 'cccccccc-0000-4000-8000-00000000000a';
+  const todoB = 'cccccccc-0000-4000-8000-00000000000b';
+  await repo.upsertDevice({ id: 'dev_guest_a', userId: guestA, name: 'A', platform: 'cli', createdAt: now, lastSeenAt: now });
+  await repo.upsertDevice({ id: 'dev_guest_b', userId: guestB, name: 'B', platform: 'cli', createdAt: now, lastSeenAt: now });
+
+  const pushA = await sync.push(guestA, 'dev_guest_a', null, [
+    { opId: 'guest-a-1', deviceId: 'dev_guest_a', entity: 'todo', entityId: todoA, type: 'upsert', payload: makeTodo(todoA, { title: 'A 的待办' }) as AnyEntity, clientTs: now }
+  ]);
+  const pushB = await sync.push(guestB, 'dev_guest_b', null, [
+    { opId: 'guest-b-1', deviceId: 'dev_guest_b', entity: 'todo', entityId: todoB, type: 'upsert', payload: makeTodo(todoB, { title: 'B 的待办' }) as AnyEntity, clientTs: now }
+  ]);
+  check('游客 push 正常入库(不是离线模式)', pushA.accepted[0]?.applied === true && pushB.accepted[0]?.applied === true);
+
+  const snapA = await sync.snapshot(guestA);
+  const snapB = await sync.snapshot(guestB);
+  check('游客 A 只能看到自己的 1 条待办', snapA.todos.length === 1 && snapA.todos[0].title === 'A 的待办', JSON.stringify(snapA.todos.map((t) => t.title)));
+  check('游客 B 只能看到自己的 1 条待办(两游客互不可见)', snapB.todos.length === 1 && snapB.todos[0].title === 'B 的待办', JSON.stringify(snapB.todos.map((t) => t.title)));
+
+  const { rows: isoCount } = await adminPool.query<{ user_id: string; c: number }>(
+    `select user_id, count(*)::int as c from entities where user_id in ($1,$2) group by user_id order by user_id`,
+    [guestA, guestB]
+  );
+  check(
+    'entities 按 user_id 严格分开(各 1 行)',
+    isoCount.length === 2 && isoCount.every((r) => r.c === 1),
+    JSON.stringify(isoCount)
+  );
+
+  // ③ 升级:只改 email / password_hash / is_guest —— userId 与全部数据不变。
+  //    这里复刻 AuthService.upgrade 的两步写入(① 改口令哈希依赖仓储方法
+  //    ② email/is_guest 在同一行上翻转),然后逐条断言"数据零迁移"。
+  const upgradeEmail = `guest-upgraded-${Date.now()}@example.com`;
+  await repo.updateUserPassword(guestA, 'scrypt$upgraded', 'scrypt');
+  const { rows: upgradedRows } = await adminPool.query<{ id: string; email: string; is_guest: boolean; password_algo: string }>(
+    `update users set email = $2, is_guest = false where id = $1 returning id, email, is_guest, password_algo`,
+    [guestA, upgradeEmail]
+  );
+  check('升级后还是同一个 userId', upgradedRows[0]?.id === guestA, upgradedRows[0]?.id ?? 'missing');
+  check(
+    '升级后 email 写入且 is_guest=false(口令哈希与算法同步更新)',
+    upgradedRows[0]?.email === upgradeEmail && upgradedRows[0]?.is_guest === false && upgradedRows[0]?.password_algo === 'scrypt',
+    JSON.stringify(upgradedRows[0])
+  );
+  const { rows: hashRow } = await adminPool.query<{ password_hash: string }>(
+    `select password_hash from users where id = $1`,
+    [guestA]
+  );
+  check('升级后口令哈希是新写入的值', hashRow[0]?.password_hash === 'scrypt$upgraded', hashRow[0]?.password_hash ?? 'missing');
+
+  const afterUpgrade = await repo.findUserById(guestA);
+  check('升级后仓储读回 is_guest=false、email 非空', afterUpgrade?.isGuest === false && afterUpgrade?.email === upgradeEmail);
+  check(
+    '升级后数据仍在(同一 userId 的实体与 op 一条不少)',
+    (await repo.listEntities(guestA)).length === 1 && (await sync.snapshot(guestA)).todos[0].id === todoA
+  );
+  check('升级后可用新邮箱查到账号(游客时查不到)', (await repo.findUserByEmail(upgradeEmail))?.id === guestA);
+
+  // ④ 升级后旧的 refreshToken 仍然有效(令牌绑定 userId,升级不改 userId)
+  const guestBUser = await repo.findUserById(guestB);
+  check('另一个游客未受影响(仍是 is_guest=true、email=null)', guestBUser?.isGuest === true && guestBUser?.email === null);
 }
 
 /* ---------------- 收尾 ---------------- */

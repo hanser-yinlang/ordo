@@ -12,6 +12,7 @@
  *  只投一次 → 401 刷新令牌重放 → 限流 429 → 单批 500 ops / 256 KB 上限 → SYNC_SEQ_GAP
  */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 import { WebSocket } from 'ws';
 import { http, makeServer, makeTodo, nextOpId, sleep, type ServerContext } from './helpers';
@@ -116,6 +117,7 @@ describe('端到端协议(真实 HTTP + WS)', () => {
     });
     assert.equal(res.status, 201, res.text);
     assert.equal(res.body.user.email, email);
+    assert.equal(res.body.user.isGuest, false, '契约 §7.6.2:register 响应带 user.isGuest=false');
     assert.equal(typeof res.body.accessToken, 'string');
     assert.equal(typeof res.body.refreshToken, 'string');
     assert.equal(res.body.expiresIn, server.config.accessTtlSec);
@@ -138,6 +140,7 @@ describe('端到端协议(真实 HTTP + WS)', () => {
     });
     assert.equal(ok.status, 200, ok.text);
     assert.equal(ok.body.user.id, userId);
+    assert.equal(ok.body.user.isGuest, false);
 
     const bad = await http(server.baseUrl, 'POST', '/v1/auth/login', {
       body: { email, password: 'wrong-password' }
@@ -566,6 +569,8 @@ describe('端到端协议(真实 HTTP + WS)', () => {
     const rotated = await http(server.baseUrl, 'POST', '/v1/auth/refresh', { body: { refreshToken } });
     assert.equal(rotated.status, 200, rotated.text);
     assert.equal(typeof rotated.body.accessToken, 'string');
+    assert.equal(rotated.body.user.isGuest, false, '契约 §7.6.2:refresh 响应也带 user.isGuest');
+    assert.equal(rotated.body.user.id, userId);
     assert.notEqual(rotated.body.refreshToken, refreshToken, 'refresh token 必须轮换');
     const freshAccessToken = rotated.body.accessToken as string;
     const freshRefreshToken = rotated.body.refreshToken as string;
@@ -622,6 +627,128 @@ describe('端到端协议(真实 HTTP + WS)', () => {
     assert.equal(snap.status, 200);
     assert.equal(snap.body.todos.length, 0, '账号删除应级联清空实体');
     assert.equal(snap.body.serverSeq, 0);
+  });
+
+  it('游客走真实 HTTP + WS:注册 → 同步 → 实时通道 → 升级(契约 §7.6)', async () => {
+    // 1. 游客登录:与 register 同构,但 email=null、isGuest=true
+    const guestRes = await http(server.baseUrl, 'POST', '/v1/auth/guest', {
+      body: { deviceId: 'e2e-guest-1', deviceName: '游客设备', platform: 'cli' }
+    });
+    assert.equal(guestRes.status, 201, guestRes.text);
+    assert.equal(guestRes.body.user.email, null, '游客没有邮箱');
+    assert.equal(guestRes.body.user.isGuest, true);
+    assert.deepEqual(
+      Object.keys(guestRes.body).sort(),
+      ['accessToken', 'device', 'expiresIn', 'refreshToken', 'user'],
+      'guest 响应必须与 register/login 同构'
+    );
+
+    const guest = guestRes.body;
+    const guestUserId = guest.user.id as string;
+    assert.notEqual(guestUserId, userId, '游客是独立账号,不复用已有 userId');
+
+    // 2. 真实 WS 握手:游客同样能拿到 hello(实时通道对游客一视同仁)
+    const ws = await connectWs(server.wsUrl, guest.accessToken as string);
+    try {
+      const hello = await ws.waitFor('hello');
+      assert.ok(hello, '游客 WS 应收到 hello');
+
+      // 3. push 一条待办 → 该游客自己的连接收到 ops 广播
+      const todoId = randomUUID();
+      const guestTodo = makeTodo({ id: todoId, title: '游客的待办' });
+      const pushed = await http(server.baseUrl, 'POST', '/v1/sync/push', {
+        token: guest.accessToken as string,
+        body: {
+          deviceId: 'e2e-guest-1',
+          sinceSeq: 0,
+          ops: [
+            {
+              opId: nextOpId('guest'),
+              deviceId: 'e2e-guest-1',
+              entity: 'todo',
+              entityId: todoId,
+              type: 'upsert',
+              payload: guestTodo,
+              clientTs: Date.now()
+            }
+          ]
+        }
+      });
+      assert.equal(pushed.status, 200, pushed.text);
+      assert.equal(pushed.body.accepted[0].applied, true);
+      const guestSeq = pushed.body.serverSeq as number;
+      assert.ok(guestSeq > 0, '游客的 op 必须拿到 serverSeq');
+
+      // 游客不是离线模式:数据真的入库了
+      const guestSnap = await http(server.baseUrl, 'GET', '/v1/sync/snapshot', { token: guest.accessToken as string });
+      assert.equal(guestSnap.status, 200);
+      assert.equal(guestSnap.body.todos.length, 1);
+      assert.equal(guestSnap.body.todos[0].title, '游客的待办');
+
+      // 4. 按用户隔离:原账号(email 注册的那个)看不到游客的数据
+      const memberSnap = await http(server.baseUrl, 'GET', '/v1/sync/snapshot', { token: accessToken });
+      assert.equal(memberSnap.status, 200);
+      assert.equal(
+        memberSnap.body.todos.some((t: { title: string }) => t.title === '游客的待办'),
+        false,
+        '游客的数据绝不能出现在别的账号里'
+      );
+
+      const ops = await ws.waitFor('ops');
+      if (ops) assert.ok(Array.isArray(ops.ops), 'ops 广播必须带 op 数组');
+    } finally {
+      ws.close();
+    }
+
+    // 5. 升级为正式账号:userId 与数据都不变
+    const upgradeEmail = `e2e_guest_upgraded_${Date.now()}@example.com`;
+    const upgraded = await http(server.baseUrl, 'POST', '/v1/auth/upgrade', {
+      token: guest.accessToken as string,
+      body: { email: upgradeEmail, password: 'password123' }
+    });
+    assert.equal(upgraded.status, 200, upgraded.text);
+    assert.equal(upgraded.body.user.id, guestUserId, '升级必须保持 userId 不变');
+    assert.equal(upgraded.body.user.isGuest, false);
+    assert.equal(upgraded.body.user.email, upgradeEmail);
+
+    const afterUpgrade = await http(server.baseUrl, 'GET', '/v1/sync/snapshot', { token: guest.accessToken as string });
+    assert.equal(afterUpgrade.status, 200);
+    assert.equal(afterUpgrade.body.todos.length, 1, '升级后数据必须还在');
+    assert.equal(afterUpgrade.body.todos[0].title, '游客的待办');
+
+    // 升级后能用邮箱登录
+    const memberLogin = await http(server.baseUrl, 'POST', '/v1/auth/login', {
+      body: { email: upgradeEmail, password: 'password123' }
+    });
+    assert.equal(memberLogin.status, 200, memberLogin.text);
+    assert.equal(memberLogin.body.user.id, guestUserId);
+    assert.equal(memberLogin.body.user.isGuest, false);
+
+    // 6. 邮箱已被占用 → 409;非游客账号再升级 → 400 not_guest
+    const secondGuest = await http(server.baseUrl, 'POST', '/v1/auth/guest', {
+      body: { deviceId: 'e2e-guest-2' }
+    });
+    assert.equal(secondGuest.status, 201);
+    const taken = await http(server.baseUrl, 'POST', '/v1/auth/upgrade', {
+      token: secondGuest.body.accessToken as string,
+      body: { email: upgradeEmail, password: 'password123' }
+    });
+    assert.equal(taken.status, 409, taken.text);
+    assert.equal(taken.body.error.code, 'AUTH_EMAIL_TAKEN');
+
+    const again = await http(server.baseUrl, 'POST', '/v1/auth/upgrade', {
+      token: guest.accessToken as string,
+      body: { email: `e2e_guest_again_${Date.now()}@example.com`, password: 'password123' }
+    });
+    assert.equal(again.status, 400, again.text);
+    assert.equal(again.body.error.details.reason, 'not_guest');
+
+    // 7. 游客不能登录:邮箱为 null 的账号在 login 里一律 401
+    const guestLogin = await http(server.baseUrl, 'POST', '/v1/auth/login', {
+      body: { email: `guest_${guestUserId}@example.com`, password: 'password123' }
+    });
+    assert.equal(guestLogin.status, 401);
+    assert.equal(guestLogin.body.error.code, 'AUTH_INVALID_CREDENTIALS');
   });
 
   it('运维端点:/v1/ops/status 反映运行状态', async () => {

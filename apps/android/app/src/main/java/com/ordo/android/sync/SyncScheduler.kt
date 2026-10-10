@@ -39,14 +39,17 @@ enum class SyncState {
  *
  * 真正的同步动作委托给共享核心的 [SyncEngine]（push outbox → 应用捎带 ops → 循环 pull，
  * 幂等与冲突合并全部由 core 负责，契约 §7.3）。
+ *
+ * [engine] 与 [storage] 用**取值函数**而不是实例：本地数据目录按账号隔离（契约 §7.6.3），
+ * 换账号/退出登录会重新绑定目录，调度器必须每次取当前账号的那一份。
  */
 class SyncScheduler(
     private val context: Context,
-    private val engine: OrdoEngine,
+    private val engine: () -> OrdoEngine,
     private val api: KtorSyncApi,
     private val auth: OrdoAuthApi,
     private val tokens: TokenStore,
-    private val storage: SqliteStorage,
+    private val storage: () -> SqliteStorage,
     private val settings: SettingsStore,
 ) {
 
@@ -101,7 +104,7 @@ class SyncScheduler(
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    /** 单次同步；调用于前台轮询 / 回前台 / 网络恢复 / 设置里的"立即同步" */
+    /** 单次同步；调用于前台轮询 / 回前台 / 网络恢复 / 状态栏刷新键 / 下拉刷新 */
     suspend fun syncOnce(): SyncState {
         if (!tokens.isLoggedIn()) {
             _state.value = SyncState.NOT_LOGGED_IN
@@ -112,7 +115,17 @@ class SyncScheduler(
             return SyncState.OFFLINE
         }
         _state.value = SyncState.SYNCING
-        val result = SyncEngine(engine, api, pullLimit = KtorSyncApi.MAX_PULL_LIMIT).syncOnce()
+        // 退出登录会关闭账号库句柄：正在跑的同步可能抛异常。
+        // 这里兜底成 FAILED（而不是让异常穿出去把状态永久留在 SYNCING —— 那样刷新图标会一直转）。
+        val result = try {
+            SyncEngine(engine(), api, pullLimit = KtorSyncApi.MAX_PULL_LIMIT).syncOnce()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            _lastResult.value = null
+            _state.value = SyncState.FAILED
+            return SyncState.FAILED
+        }
         _lastResult.value = result
 
         // 契约 §7.4：SYNC_SEQ_GAP 表示本地游标与服务端断档 → 退回全量快照
@@ -134,13 +147,13 @@ class SyncScheduler(
     /** 换设备 / 数据修复 / SEQ_GAP 恢复：用服务端快照整表替换（本地 outbox 保留） */
     suspend fun fullResync(): SyncState {
         _state.value = SyncState.SYNCING
-        val result = SyncEngine(engine, api, pullLimit = KtorSyncApi.MAX_PULL_LIMIT).fullResync()
+        val result = SyncEngine(engine(), api, pullLimit = KtorSyncApi.MAX_PULL_LIMIT).fullResync()
         _lastResult.value = result
         _state.value = if (result.ok) SyncState.IDLE else SyncState.FAILED
         return _state.value
     }
 
-    suspend fun outboxCount(): Int = runCatching { storage.outboxCount() }.getOrDefault(0)
+    suspend fun outboxCount(): Int = runCatching { storage().outboxCount() }.getOrDefault(0)
 
     private fun registerNetworkCallback() {
         if (networkCallback != null) return

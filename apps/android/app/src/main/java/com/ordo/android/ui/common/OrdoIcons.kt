@@ -25,6 +25,8 @@ enum class OrdoIconKind {
     Tag, Area, Project, Heading,
     Plus, Search, More, Check, Bell, Flag, Repeat, Note, Checklist,
     ChevronRight, ChevronDown, Close, Trash, Copy, Sun, Moon, Menu, Settings, Handle,
+    /** 刷新（UI §5.3：状态栏刷新控件；同步中围绕中心连续旋转） */
+    Refresh,
 }
 
 @Composable
@@ -308,6 +310,24 @@ private fun DrawScope.drawIcon(
             dot(7.6f, 5.4f, 1.1f); dot(12.4f, 5.4f, 1.1f)
             dot(7.6f, 10f, 1.1f); dot(12.4f, 10f, 1.1f)
             dot(7.6f, 14.6f, 1.1f); dot(12.4f, 14.6f, 1.1f)
+        }
+
+        /** 刷新（UI §5.3）：一个不闭合的圆环 + 右上的箭头；旋转由调用方施加 */
+        OrdoIconKind.Refresh -> {
+            drawArc(
+                color = tint,
+                startAngle = 35f,
+                sweepAngle = 285f,
+                useCenter = false,
+                topLeft = Offset(3.4f * u, 3.4f * u),
+                size = Size(13.2f * u, 13.2f * u),
+                style = stroke,
+            )
+            path {
+                moveTo(15.9f * u, 3.4f * u)
+                lineTo(16.3f * u, 7.6f * u)
+                lineTo(12.2f * u, 6.6f * u)
+            }
         }
     }
 }

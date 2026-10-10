@@ -4,10 +4,18 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ordo.android.R
+import com.ordo.android.auth.AuthFieldError
+import com.ordo.android.auth.AuthMode
+import com.ordo.android.auth.AuthStage
+import com.ordo.android.auth.SessionGate
+import com.ordo.android.auth.SessionVerdict
 import com.ordo.android.data.SeedData
 import com.ordo.android.data.whenValue
 import com.ordo.android.di.ServiceLocator
 import com.ordo.android.net.OrdoAuthApi
+import com.ordo.android.sync.RefreshController
+import com.ordo.android.sync.RefreshPhase
+import com.ordo.android.sync.SyncState
 import com.ordo.android.ui.common.OrdoFormatter
 import com.ordo.android.ui.theme.ThemeMode
 import com.ordo.core.model.CalendarEvent
@@ -27,7 +35,10 @@ import com.ordo.core.query.SectionKind
 import com.ordo.core.query.SidebarCounts
 import com.ordo.core.store.OrdoEngine
 import com.ordo.core.sync.AuthRequest
+import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoApiException
+import com.ordo.core.sync.OrdoSession
+import com.ordo.core.sync.UpgradeRequest
 import com.ordo.core.util.OrdoDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -47,19 +58,31 @@ import java.net.URLEncoder
  */
 class OrdoViewModel : ViewModel() {
 
-    private val engine: OrdoEngine = ServiceLocator.engine
+    /**
+     * 当前账号的引擎。**不能**在字段初始化时读成 val：
+     * 数据目录按账号隔离（契约 §7.6.3），登录/退出都会重新绑定，必须每次取当前账号的那一份。
+     */
+    private val engine: OrdoEngine get() = ServiceLocator.engine
     private val settings = ServiceLocator.settings
     private val tokens = ServiceLocator.tokens
+    private val sessions = ServiceLocator.sessions
     private val scheduler = ServiceLocator.scheduler
     private val authApi: OrdoAuthApi = ServiceLocator.authApi
     private val context: Context = ServiceLocator.appContext
     private val formatter = OrdoFormatter(context)
+
+    /** 刷新控件状态机（UI §5.3）：状态栏刷新键与下拉刷新共用同一份状态 */
+    private val refreshController = RefreshController()
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var unsubscribe: (() -> Unit)? = null
     private var toastJob: Job? = null
+    private var settleJob: Job? = null
+
+    /** 退出登录中：避免"会话被清 → NOT_LOGGED_IN"被误判为令牌失效而重复跳登录页 */
+    private var loggingOut = false
 
     /** 区域折叠是设备本地 UI 偏好（契约 §2.3 的同类本地状态），由界面层持有 */
     private val collapsedAreas = mutableSetOf<String>()
@@ -69,19 +92,22 @@ class OrdoViewModel : ViewModel() {
             settings.themeMode.collect { mode -> _state.update { it.copy(themeMode = mode) } }
         }
         viewModelScope.launch {
-            scheduler.state.collect { value -> _state.update { it.copy(syncState = value) } }
+            scheduler.state.collect { value ->
+                _state.update { it.copy(syncState = value) }
+                applySyncState(value)
+            }
+        }
+        viewModelScope.launch {
+            refreshController.state.collect { value -> _state.update { it.copy(refresh = value) } }
         }
         viewModelScope.launch {
             _state.update {
                 it.copy(
-                    loggedIn = tokens.isLoggedIn(),
                     eventList = runCatching { SeedData.events() }.getOrDefault(emptyList()),
                     loading = false,
                 )
             }
-            // subscribe 会立即回调一次，首帧即有数据
-            unsubscribe = runCatching { engine.subscribe { snapshot -> rebuild(snapshot) } }.getOrNull()
-            rebuild(runCatching { engine.snapshot }.getOrNull())
+            startGate()
         }
     }
 
@@ -89,6 +115,240 @@ class OrdoViewModel : ViewModel() {
         unsubscribe?.invoke()
         super.onCleared()
     }
+
+    /* ============================ 登录门禁 ============================ */
+
+    /**
+     * 启动流程（契约 §7.6.4）：
+     * ```
+     * 读 session
+     *   ├─ 有且未过期            → 直接进主界面（后台静默 refresh）
+     *   ├─ 有但 accessToken 过期 → 先 refresh；失败 → 登录页（保留 userId 目录）
+     *   └─ 无                    → 登录页（登录 / 注册 / 游客登录）
+     * ```
+     */
+    private suspend fun startGate() {
+        val session = runCatching { sessions.load() }.getOrNull()
+        when (val verdict = SessionGate.decide(session, System.currentTimeMillis())) {
+            SessionVerdict.NoSession -> showLogin()
+
+            is SessionVerdict.Ready -> enterMain(verdict.session, silentRefresh = true)
+
+            is SessionVerdict.RefreshFirst -> {
+                val refreshed = runCatching { authApi.refresh(verdict.session.refreshToken) }.getOrNull()
+                val stored = runCatching { sessions.load() }.getOrNull()
+                when (val after = SessionGate.afterRefresh(refreshed != null, stored, verdict.session)) {
+                    is SessionVerdict.Ready -> enterMain(after.session, silentRefresh = false)
+                    // refresh 失败：回登录页，但只清会话、不清目录（契约 §7.6.3）
+                    else -> showLogin()
+                }
+            }
+        }
+    }
+
+    /** 进入主界面：绑定该账号的数据目录 → 订阅引擎 → 起实时通道 → 静默同步 */
+    private fun enterMain(session: OrdoSession, silentRefresh: Boolean) {
+        runCatching { ServiceLocator.bindUser(session.userId, seedIfEmpty = false) }
+            .onFailure { showLogin(); return }
+
+        unsubscribe?.invoke()
+        unsubscribe = runCatching { engine.subscribe { snapshot -> rebuild(snapshot) } }.getOrNull()
+
+        _state.update {
+            it.copy(
+                auth = AuthUi(
+                    stage = AuthStage.MAIN,
+                    displayName = session.displayName(),
+                    isGuest = session.isGuest,
+                    userId = session.userId,
+                    email = session.email.orEmpty(),
+                ),
+                loading = false,
+            )
+        }
+        rebuild(runCatching { engine.snapshot }.getOrNull())
+
+        ServiceLocator.startRealtime()
+        if (silentRefresh) {
+            // 后台静默 refresh：失败也不打断使用（accessToken 仍有效，401 时由网络层兜底）
+            viewModelScope.launch { runCatching { authApi.refreshSaved() } }
+        }
+        viewModelScope.launch { runCatching { scheduler.syncOnce() } }
+    }
+
+    /** 回到登录页：清空界面数据（**不动**任何用户目录） */
+    private fun showLogin(notice: String? = null) {
+        unsubscribe?.invoke()
+        unsubscribe = null
+        ServiceLocator.stopRealtime()
+        _state.update {
+            it.copy(
+                auth = it.auth.copy(
+                    stage = AuthStage.LOGIN,
+                    submitting = false,
+                    password = "",
+                    error = notice,
+                    errorNonce = if (notice == null) it.auth.errorNonce else it.auth.errorNonce + 1,
+                ),
+                sections = emptyList(),
+                agenda = emptyList(),
+                areas = emptyList(),
+                tags = emptyList(),
+                projectHeader = null,
+                detail = null,
+                selectedTodoId = null,
+                totalCount = 0,
+                doneCount = 0,
+                loading = false,
+            )
+        }
+    }
+
+    fun onAuthEmailChange(value: String) = _state.update {
+        it.copy(auth = it.auth.copy(email = value, error = null))
+    }
+
+    fun onAuthPasswordChange(value: String) = _state.update {
+        it.copy(auth = it.auth.copy(password = value, error = null))
+    }
+
+    fun togglePasswordVisible() = _state.update {
+        it.copy(auth = it.auth.copy(passwordVisible = !it.auth.passwordVisible))
+    }
+
+    /** 底部文本链接：登录态「还没有账号？注册」/ 注册态「已有账号？登录」 */
+    fun switchAuthMode() = _state.update {
+        it.copy(auth = it.auth.copy(mode = it.auth.mode.toggled(), error = null))
+    }
+
+    /** 主按钮：按当前模式走登录或注册（UI §5.1） */
+    fun submitAuth() {
+        val auth = _state.value.auth
+        when (auth.mode) {
+            AuthMode.LOGIN -> login(auth.email, auth.password)
+            AuthMode.REGISTER -> register(auth.email, auth.password)
+        }
+    }
+
+    /** 次要按钮「以游客身份继续」：与正式登录**体验对等**（同样写会话、同样同步） */
+    fun continueAsGuest() {
+        if (_state.value.auth.submitting) return
+        setSubmitting(true)
+        viewModelScope.launch {
+            runCatching { authApi.guest(GuestAuthRequest(deviceId = ServiceLocator.deviceId, deviceName = deviceName(), platform = PLATFORM)) }
+                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
+                .onFailure { error -> onAuthFailure(error) }
+        }
+    }
+
+    private fun login(email: String, password: String) {
+        if (_state.value.auth.submitting) return
+        when (val invalid = SessionGate.validate(AuthMode.LOGIN, email, password)) {
+            AuthFieldError.NONE -> Unit
+            else -> {
+                failWith(localErrorText(invalid))
+                return
+            }
+        }
+        setSubmitting(true)
+        viewModelScope.launch {
+            runCatching { authApi.login(AuthRequest(email.trim(), password, deviceName(), PLATFORM)) }
+                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
+                .onFailure { error -> onAuthFailure(error) }
+        }
+    }
+
+    private fun register(email: String, password: String) {
+        if (_state.value.auth.submitting) return
+        when (val invalid = SessionGate.validate(AuthMode.REGISTER, email, password)) {
+            AuthFieldError.NONE -> Unit
+            else -> {
+                failWith(localErrorText(invalid))
+                return
+            }
+        }
+        setSubmitting(true)
+        viewModelScope.launch {
+            runCatching { authApi.register(AuthRequest(email.trim(), password, deviceName(), PLATFORM)) }
+                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
+                .onFailure { error -> onAuthFailure(error) }
+        }
+    }
+
+    /** 游客升级为正式账号（契约 §7.6.2）：userId 与数据都不变 */
+    fun upgradeGuest(email: String, password: String) {
+        val token = tokens.accessToken() ?: return
+        when (val invalid = SessionGate.validate(AuthMode.REGISTER, email, password)) {
+            AuthFieldError.NONE -> Unit
+            else -> {
+                failWith(localErrorText(invalid))
+                return
+            }
+        }
+        viewModelScope.launch {
+            runCatching { authApi.upgrade(token, UpgradeRequest(email.trim(), password)) }
+                .onSuccess { response ->
+                    _state.update {
+                        it.copy(
+                            auth = it.auth.copy(
+                                isGuest = response.user.isGuest,
+                                displayName = response.user.email.ifBlank { response.user.id },
+                                error = null,
+                            ),
+                        )
+                    }
+                    showToast(context.getString(R.string.toast_upgrade_ok))
+                }
+                .onFailure { error -> failWith(loginErrorMessage(error)) }
+        }
+    }
+
+    /** 登录/注册/游客成功后：绑定该账号的数据目录并进入主界面（契约 §7.6.3） */
+    private fun onAuthSuccess(userId: String, seedIfEmpty: Boolean) {
+        val session = runCatching { sessions.load() }.getOrNull()
+        if (session == null) {
+            onAuthFailure(IllegalStateException(context.getString(R.string.auth_error_no_session)))
+            return
+        }
+        runCatching { ServiceLocator.bindUser(userId, seedIfEmpty = seedIfEmpty) }
+            .onFailure { error -> onAuthFailure(error); return }
+        enterMain(session, silentRefresh = false)
+        showToast(context.getString(R.string.toast_login_ok))
+    }
+
+    private fun onAuthFailure(error: Throwable) {
+        _state.update { it.copy(auth = it.auth.copy(submitting = false)) }
+        failWith(loginErrorMessage(error))
+    }
+
+    private fun setSubmitting(value: Boolean) = _state.update {
+        it.copy(auth = it.auth.copy(submitting = value, error = if (value) null else it.auth.error))
+    }
+
+    /** 失败：文案 + 抖动（errorNonce 递增，界面据此重放抖动动画） */
+    private fun failWith(message: String) = _state.update {
+        it.copy(
+            auth = it.auth.copy(
+                submitting = false,
+                error = message,
+                errorNonce = it.auth.errorNonce + 1,
+            ),
+        )
+    }
+
+    private fun localErrorText(error: AuthFieldError): String = context.getString(
+        when (error) {
+            AuthFieldError.EMAIL_EMPTY -> R.string.auth_error_email_empty
+            AuthFieldError.EMAIL_INVALID -> R.string.auth_error_email_invalid
+            AuthFieldError.PASSWORD_EMPTY -> R.string.auth_error_password_empty
+            AuthFieldError.PASSWORD_TOO_SHORT -> R.string.auth_error_password_short
+            AuthFieldError.NONE -> R.string.auth_error_email_empty
+        },
+    )
+
+    private fun deviceName(): String =
+        runCatching { "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim() }
+            .getOrDefault("Android 设备")
 
     /* ============================== 导航 ============================== */
 
@@ -123,6 +383,56 @@ class OrdoViewModel : ViewModel() {
     fun closeFastFind() = _state.update { it.copy(fastFindOpen = false, searchQuery = "", searchResults = emptyList()) }
 
     fun openQuickAddMenu(open: Boolean) = _state.update { it.copy(quickAddMenuOpen = open) }
+
+    /**
+     * 快加号单击（UI §5.2）：只保留一个 FAB，按"菜单是否已展开"分两种语义。
+     *   菜单未展开 → 打开行内输入行（聚焦 + 弹软键盘）
+     *   菜单已展开 → 收起菜单（按钮转回 0°），**不**打开输入行
+     */
+    fun onQuickAddTap() {
+        if (_state.value.quickAddMenuOpen) {
+            openQuickAddMenu(false)
+        } else {
+            openComposer(composerTarget())
+        }
+    }
+
+    /** 快加号长按 400ms（UI §5.2）：从按钮左上方弹出快捷菜单，按钮旋转 45° */
+    fun onQuickAddLongPress() = openQuickAddMenu(true)
+
+    /** 菜单落地目标：当前处于项目/区域视图时把新待办直接放进去 */
+    fun composerTarget(): String? = when (val route = _state.value.routeKey) {
+        UiState.ROUTE_TODAY -> null
+        else -> route.takeIf { it.startsWith(ROUTE_PROJECT_PREFIX) || it.startsWith(ROUTE_AREA_PREFIX) }
+    }
+
+    /**
+     * 快加号菜单「新建标题」：标题必须属于某个项目（契约 §2.3），
+     * 因此只在项目视图里创建；其它视图给出明确提示，而不是偷偷建到别的项目里。
+     */
+    fun createHeadingFromQuickAdd(name: String) {
+        val projectId = _state.value.routeKey
+            .takeIf { it.startsWith(ROUTE_PROJECT_PREFIX) }
+            ?.removePrefix(ROUTE_PROJECT_PREFIX)
+        if (projectId.isNullOrBlank()) {
+            openQuickAddMenu(false)
+            showToast(context.getString(R.string.quickadd_heading_need_project))
+            return
+        }
+        val value = name.trim().ifEmpty { context.getString(R.string.heading_default_name) }
+        createHeading(projectId, value)
+        openQuickAddMenu(false)
+    }
+
+    /**
+     * 长按拖拽落库（UI §5.4）：只重排**同一分组内**的待办。
+     * 位置未变时界面层不会调用本方法（契约要求"位置未变则不写库"）。
+     */
+    fun reorderSection(orderedIds: List<String>) {
+        if (orderedIds.size < 2) return
+        runCatching { engine.reorderTodos(orderedIds) }
+        rebuild(runCatching { engine.snapshot }.getOrNull())
+    }
 
     /* ============================ 状态重建 ============================ */
 
@@ -728,57 +1038,90 @@ class OrdoViewModel : ViewModel() {
         showToast(context.getString(R.string.toast_reset))
     }
 
-    /* ============================== 同步 ============================== */
+    /* ============================== 同步 · 刷新 ============================== */
 
-    fun syncNow() {
-        viewModelScope.launch {
-            val result = scheduler.syncOnce()
-            showToast(
-                context.getString(
-                    if (result == com.ordo.android.sync.SyncState.FAILED) R.string.toast_sync_failed
-                    else R.string.toast_sync_done,
-                ),
-            )
+    /**
+     * 状态栏刷新键（UI §5.3）与下拉刷新共用这一条路径，因此两处表现必然一致。
+     * 同步中、或成功后 1.4s 防抖窗口内的点按是空操作。
+     */
+    fun refresh() {
+        if (!tokens.isLoggedIn()) {
+            refreshController.onNotLoggedIn()
+            return
+        }
+        if (!refreshController.onClick()) return
+        viewModelScope.launch { runCatching { scheduler.syncOnce() } }
+    }
+
+    /** 设置页的「立即同步」：走同一条路径，用户同样能看到图标连续旋转 */
+    fun syncNow() = refresh()
+
+    /**
+     * 同步状态 → 刷新控件（把控制器做成 [SyncScheduler] 状态的**投影**，
+     * 于是轮询 / 回前台 / 网络恢复触发的同步同样有转圈反馈）。
+     */
+    private fun applySyncState(value: SyncState) {
+        val control = refreshController.state.value
+        when (value) {
+            SyncState.SYNCING -> refreshController.requestSync()
+
+            SyncState.IDLE -> when (control.phase) {
+                RefreshPhase.SYNCING -> {
+                    refreshController.onSyncFinished(true)
+                    settleJob?.cancel()
+                    settleJob = viewModelScope.launch {
+                        delay(RefreshController.SETTLE_MILLIS)
+                        refreshController.settle()
+                    }
+                }
+                RefreshPhase.SUCCESS, RefreshPhase.FAILED -> Unit
+                RefreshPhase.IDLE -> refreshController.onIdle()
+            }
+
+            SyncState.FAILED -> if (control.phase == RefreshPhase.SYNCING) refreshController.onSyncFinished(false)
+
+            SyncState.OFFLINE -> refreshController.onOffline()
+
+            SyncState.NOT_LOGGED_IN -> {
+                refreshController.onNotLoggedIn()
+                // 令牌失效（refresh 也失败）→ 转登录态，但**本地数据目录保留**（契约 §7.4 / §7.6.3）
+                if (!loggingOut && _state.value.auth.stage == AuthStage.MAIN) {
+                    ServiceLocator.unbindUser()
+                    showLogin(context.getString(R.string.auth_error_session_expired))
+                }
+            }
         }
     }
 
     fun onAppForeground() {
         scheduler.onForeground()
-        ServiceLocator.applicationScope.launch { scheduler.syncOnce() }
+        if (!tokens.isLoggedIn()) return
+        ServiceLocator.applicationScope.launch { runCatching { scheduler.syncOnce() } }
     }
 
     fun onAppBackground() = scheduler.onBackground()
 
-    fun login(email: String, password: String, deviceName: String) {
-        viewModelScope.launch {
-            runCatching {
-                authApi.login(AuthRequest(email.trim(), password, deviceName, PLATFORM))
-            }.onSuccess {
-                _state.update { current -> current.copy(loggedIn = true) }
-                ServiceLocator.startRealtime()
-                scheduler.syncOnce()
-                showToast(context.getString(R.string.toast_login_ok))
-            }.onFailure { error -> showToast(loginErrorMessage(error)) }
-        }
-    }
+    /* ============================== 账号 ============================== */
 
-    fun register(email: String, password: String, deviceName: String) {
-        viewModelScope.launch {
-            runCatching {
-                authApi.register(AuthRequest(email.trim(), password, deviceName, PLATFORM))
-            }.onSuccess {
-                _state.update { current -> current.copy(loggedIn = true) }
-                ServiceLocator.startRealtime()
-                showToast(context.getString(R.string.toast_login_ok))
-            }.onFailure { error -> showToast(loginErrorMessage(error)) }
-        }
-    }
-
+    /**
+     * 退出登录（契约 §7.6.3）：**只清会话，保留该 userId 的数据目录**。
+     * 下次同一账号登录时数据仍在（离线可用，联网后增量同步）。
+     */
     fun logout() {
+        loggingOut = true
         viewModelScope.launch {
             runCatching { authApi.logout() }
-            ServiceLocator.stopRealtime()
-            _state.update { it.copy(loggedIn = false) }
+            ServiceLocator.unbindUser()
+            unsubscribe?.invoke()
+            unsubscribe = null
+            val themeMode = _state.value.themeMode
+            _state.value = UiState(
+                themeMode = themeMode,
+                auth = AuthUi(stage = AuthStage.LOGIN),
+                refresh = refreshController.state.value,
+                eventList = _state.value.eventList,
+            )
+            loggingOut = false
             showToast(context.getString(R.string.toast_logout))
         }
     }
@@ -788,9 +1131,12 @@ class OrdoViewModel : ViewModel() {
         showToast(context.getString(R.string.toast_server_saved))
     }
 
+    /** 当前服务器地址（登录页与设置页共用同一份配置） */
+    fun currentServerUrl(): String = tokens.serverUrl()
+
     private fun loginErrorMessage(error: Throwable): String {
         val message = (error as? OrdoApiException)?.message ?: error.message.orEmpty()
-        return context.getString(R.string.toast_login_failed, message)
+        return context.getString(R.string.toast_login_failed, message.ifBlank { error::class.java.simpleName })
     }
 
     /* ============================== Toast ============================== */

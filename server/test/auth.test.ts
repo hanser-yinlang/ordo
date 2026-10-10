@@ -44,6 +44,7 @@ describe('认证 §7.4 / §9', () => {
     assert.equal(res.statusCode, 201);
     const body = res.json();
     assert.equal(body.user.email, email.toLowerCase());
+    assert.equal(body.user.isGuest, false, '契约 §7.6.2:register 响应必须带 user.isGuest(正式账号为 false)');
     assert.ok(body.device.id);
     assert.ok(body.accessToken.split('.').length === 3, 'accessToken 应为 JWT');
     assert.ok(body.refreshToken.length >= 40, 'refreshToken 应为 256-bit 随机串');
@@ -83,6 +84,7 @@ describe('认证 §7.4 / §9', () => {
       payload: { email: user.email, password: user.password }
     });
     assert.equal(ok.statusCode, 200);
+    assert.equal(ok.json().user.isGuest, false, '契约 §7.6.2:login 响应也必须带 user.isGuest');
 
     const wrongPassword = await ctx.app.inject({
       method: 'POST',

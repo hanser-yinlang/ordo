@@ -1,7 +1,13 @@
 package com.ordo.android.ui.common
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -16,39 +22,52 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Canvas
+import com.ordo.android.R
 import com.ordo.android.ui.theme.OrdoElevation
 import com.ordo.android.ui.theme.OrdoLayout
 import com.ordo.android.ui.theme.OrdoMotion
@@ -164,35 +183,248 @@ fun OrdoTextField(
      * —— 这正是实测「点加号没有反应」的根因之一。
      */
     focusRequester: FocusRequester? = null,
+    /** 浮动标签（UI §5.1）：聚焦或有内容时上移 12dp 并转 accent；口令框必须给标签 */
+    label: String? = null,
+    /** 口令框：内容掩码 + 显示/隐藏切换 */
+    isPassword: Boolean = false,
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    /** 提交中禁用时的遮罩透明度 */
+    contentAlpha: Float = 1f,
 ) {
     val colors = OrdoTheme.colors
-    Box(
+    var focused by remember { mutableStateOf(false) }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    val active = focused || value.isNotEmpty()
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isError -> colors.danger
+            focused -> colors.accent
+            else -> colors.hairline
+        },
+        animationSpec = tween(OrdoTheme.fast, easing = OrdoMotion.easing),
+        label = "field-border",
+    )
+    val labelShift by animateDpAsState(
+        targetValue = if (active) 0.dp else FieldLabelShift,
+        animationSpec = tween(OrdoTheme.fast, easing = OrdoMotion.easing),
+        label = "field-label-shift",
+    )
+    val labelColor by animateColorAsState(
+        targetValue = when {
+            isError -> colors.danger
+            focused -> colors.accent
+            else -> colors.textTertiary
+        },
+        animationSpec = tween(OrdoTheme.fast, easing = OrdoMotion.easing),
+        label = "field-label-color",
+    )
+
+    Row(
         modifier = modifier
             .clip(RoundedCornerShape(OrdoRadius.row))
             .background(colors.surface)
-            .border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.row))
-            .padding(horizontal = OrdoSpace.m, vertical = OrdoSpace.s),
-        contentAlignment = Alignment.CenterStart,
+            .border(1.dp, borderColor, RoundedCornerShape(OrdoRadius.row))
+            .height(if (label != null) OrdoLayout.fieldHeight else OrdoLayout.fieldHeightCompact)
+            .padding(horizontal = OrdoSpace.m),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (value.isEmpty()) {
-            Text(text = placeholder, style = textStyle, color = colors.textTertiary)
+        Box(Modifier.weight(1f)) {
+            if (label != null) {
+                Text(
+                    text = label,
+                    style = OrdoTheme.type.micro,
+                    color = labelColor,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 6.dp)
+                        .offset(y = labelShift),
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                singleLine = singleLine,
+                textStyle = textStyle.copy(
+                    color = colors.textPrimary.copy(alpha = contentAlpha),
+                ),
+                visualTransformation = if (isPassword && !passwordVisible) {
+                    PasswordVisualTransformation()
+                } else {
+                    VisualTransformation.None
+                },
+                cursorBrush = SolidColor(colors.accent),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = if (isPassword) KeyboardType.Password else KeyboardType.Text,
+                    imeAction = if (singleLine) ImeAction.Done else ImeAction.Default,
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { onSubmit?.invoke() },
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(if (label != null) Alignment.BottomStart else Alignment.CenterStart)
+                    .padding(bottom = if (label != null) 9.dp else 0.dp)
+                    .onFocusChanged { focused = it.isFocused }
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+            )
+            if (value.isEmpty() && !active && label == null) {
+                Text(
+                    text = placeholder,
+                    style = textStyle,
+                    color = colors.textTertiary.copy(alpha = contentAlpha),
+                    modifier = Modifier.align(Alignment.CenterStart),
+                )
+            }
         }
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = singleLine,
-            textStyle = textStyle.copy(color = colors.textPrimary),
-            cursorBrush = SolidColor(colors.accent),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                imeAction = if (singleLine) androidx.compose.ui.text.input.ImeAction.Done
-                else androidx.compose.ui.text.input.ImeAction.Default,
+        if (isPassword) {
+            // 可读标签 + 44dp 触控：显示/隐藏切换
+            Box(
+                Modifier
+                    .size(OrdoLayout.touchTarget)
+                    .clip(CircleShape)
+                    .clickable(enabled = enabled, onClick = { passwordVisible = !passwordVisible }),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(
+                        if (passwordVisible) R.string.field_password_hide else R.string.field_password_show,
+                    ),
+                    style = OrdoTheme.type.micro,
+                    color = colors.accent.copy(alpha = contentAlpha),
+                )
+            }
+        }
+    }
+}
+
+/** 表单浮动标签的位移量（UI §5.1：聚焦时标签上移 12px） */
+private val FieldLabelShift = 12.dp
+
+/* ============================== 加载指示 ============================== */
+
+/** 小转圈（UI §5.1：提交中主按钮内 16dp 转圈） */
+@Composable
+fun OrdoSpinner(
+    modifier: Modifier = Modifier,
+    size: Dp = 16.dp,
+    color: Color = OrdoTheme.colors.onAccent,
+    strokeWidth: Dp = 2.dp,
+) {
+    val transition = rememberInfiniteTransition(label = "spinner")
+    val angle by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(OrdoMotion.SPINNER_PERIOD, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "spinner-angle",
+    )
+    Canvas(modifier.size(size).rotate(angle)) {
+        drawArc(
+            color = color,
+            startAngle = 0f,
+            sweepAngle = 280f,
+            useCenter = false,
+            topLeft = Offset(strokeWidth.toPx() / 2f, strokeWidth.toPx() / 2f),
+            size = Size(this.size.width - strokeWidth.toPx(), this.size.height - strokeWidth.toPx()),
+            style = Stroke(width = strokeWidth.toPx(), cap = StrokeCap.Round),
+        )
+    }
+}
+
+/* ============================== 登录页按钮 ============================== */
+
+/**
+ * 主按钮（UI §5.1）：高 44、radius 10、accent 填充；提交中禁用 + 内嵌 16dp 转圈。
+ * 按压 scale → 0.98（90ms）。
+ */
+@Composable
+fun OrdoPrimaryButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+) {
+    val colors = OrdoTheme.colors
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled && !loading) 0.98f else 1f,
+        animationSpec = tween(OrdoMotion.PRESS, easing = OrdoMotion.easing),
+        label = "primary-press",
+    )
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(OrdoLayout.buttonHeight)
+            .scale(scale)
+            .clip(RoundedCornerShape(OrdoRadius.row))
+            .background(colors.accent.copy(alpha = if (enabled && !loading) 1f else 0.5f))
+            .clickable(
+                enabled = enabled && !loading,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
             ),
-            keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                onDone = { onSubmit?.invoke() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (loading) {
+                OrdoSpinner(size = 16.dp, color = colors.onAccent)
+                Spacer(Modifier.width(OrdoSpace.s))
+            }
+            Text(text = label, style = OrdoTheme.type.body, color = colors.onAccent)
+        }
+    }
+}
+
+/**
+ * 次要按钮（UI §5.1）：「以游客身份继续」与主按钮**同级**——
+ * surface 底 + hairline 描边，不是灰色小字（游客登录与正式登录体验对等）。
+ */
+@Composable
+fun OrdoSecondaryButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val colors = OrdoTheme.colors
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.98f else 1f,
+        animationSpec = tween(OrdoMotion.PRESS, easing = OrdoMotion.easing),
+        label = "secondary-press",
+    )
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(OrdoLayout.buttonHeight)
+            .scale(scale)
+            .clip(RoundedCornerShape(OrdoRadius.row))
+            .background(colors.surface)
+            .border(1.dp, colors.hairline, RoundedCornerShape(OrdoRadius.row))
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
             ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = OrdoTheme.type.body,
+            color = colors.textPrimary.copy(alpha = if (enabled) 1f else 0.4f),
         )
     }
 }

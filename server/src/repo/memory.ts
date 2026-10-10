@@ -23,6 +23,7 @@ export class MemoryRepository implements Repository {
   readonly kind = 'memory' as const;
 
   private users = new Map<string, UserRow>();
+  /** 只索引**有邮箱**的账号;游客(email = null)不入索引(契约 §7.6) */
   private usersByEmail = new Map<string, UserRow>();
   private devices = new Map<string, DeviceRow>();
   private refreshTokens = new Map<string, RefreshTokenRow>();
@@ -54,15 +55,18 @@ export class MemoryRepository implements Repository {
   /* ---------------- users ---------------- */
 
   async createUser(user: UserRow): Promise<UserRow> {
-    const email = user.email.toLowerCase();
-    if (this.usersByEmail.has(email)) {
+    const email = user.email?.toLowerCase() ?? null;
+    if (email !== null && this.usersByEmail.has(email)) {
       const err = new Error('duplicate email') as Error & { code?: string };
       err.code = '23505';
       throw err;
     }
-    const row = { ...user, email };
+    const row: UserRow = { ...user, email, isGuest: user.isGuest === true };
     this.users.set(row.id, row);
-    this.usersByEmail.set(email, row);
+    // 游客(email=null)没有可索引的邮箱 —— 与 PostgreSQL 的 unique 索引一致:
+    // 多个 NULL 互不冲突,因此游客可以无限创建。这也是"游客不能用 login 登录"的根因:
+    // findUserByEmail 永远查不到游客。
+    if (row.email !== null) this.usersByEmail.set(row.email, row);
     return { ...row };
   }
 
@@ -81,12 +85,40 @@ export class MemoryRepository implements Repository {
     if (!row) return;
     row.passwordHash = passwordHash;
     row.passwordAlgo = passwordAlgo;
-    this.usersByEmail.set(row.email, row);
+    // 注意:这里**不能**再写 `this.usersByEmail.set(row.email, row)` ——
+    // 游客的 email 是 null,索引里也没有它,硬写会把 null 变成索引键。
+    // 索引存的就是同一个对象引用,原地改字段即可。
+  }
+
+  /** 游客升级为正式账号(契约 §7.6.2):同一行上补 email 口令并把 isGuest 置回 false */
+  async upgradeGuestAccount(
+    userId: string,
+    email: string,
+    passwordHash: string,
+    passwordAlgo: string
+  ): Promise<UserRow | null> {
+    const row = this.users.get(userId);
+    if (!row) return null;
+    const normalized = email.toLowerCase();
+    const owner = this.usersByEmail.get(normalized);
+    if (owner && owner.id !== userId) {
+      // 与 PostgreSQL 的唯一索引行为对齐:重复邮箱抛 23505
+      const err = new Error('duplicate email') as Error & { code?: string };
+      err.code = '23505';
+      throw err;
+    }
+    if (row.email !== null) this.usersByEmail.delete(row.email);
+    row.email = normalized;
+    row.passwordHash = passwordHash;
+    row.passwordAlgo = passwordAlgo;
+    row.isGuest = false;
+    this.usersByEmail.set(normalized, row);
+    return { ...row };
   }
 
   async deleteUser(userId: string): Promise<void> {
     const user = this.users.get(userId);
-    if (user) this.usersByEmail.delete(user.email);
+    if (user && user.email !== null) this.usersByEmail.delete(user.email);
     this.users.delete(userId);
     for (const key of [...this.devices.keys()]) if (key.startsWith(`${userId}|`)) this.devices.delete(key);
     for (const [hash, token] of [...this.refreshTokens.entries()]) if (token.userId === userId) this.refreshTokens.delete(hash);

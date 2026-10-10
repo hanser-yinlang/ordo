@@ -13,7 +13,15 @@ import kotlinx.serialization.Serializable
  * ========================================================================== */
 
 @Serializable
-data class UserDto(val id: String, val email: String, val isGuest: Boolean = false)
+data class UserDto(
+    val id: String,
+    /**
+     * 游客账号没有邮箱,服务端返回 `email: null`(契约 §7.6.1)。
+     * 这里必须可空 —— 否则用 kotlinx 直接解码的端(Android / Windows)在游客登录时会抛解码异常。
+     */
+    val email: String? = null,
+    val isGuest: Boolean = false,
+)
 
 @Serializable
 data class DeviceDto(val id: String, val name: String, val platform: String)

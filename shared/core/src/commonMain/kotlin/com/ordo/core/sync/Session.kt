@@ -64,7 +64,7 @@ class OrdoSessionStore(private val storage: OrdoStorage) {
         /** 由登录响应构造会话;`nowMillis` 用于把 `expiresIn`(秒)换算成绝对过期时刻 */
         fun from(response: AuthResponse, nowMillis: Long): OrdoSession = OrdoSession(
             userId = response.user.id,
-            email = response.user.email.takeIf { it.isNotBlank() },
+            email = response.user.email?.takeIf { it.isNotBlank() },
             isGuest = response.user.isGuest,
             accessToken = response.accessToken,
             refreshToken = response.refreshToken,

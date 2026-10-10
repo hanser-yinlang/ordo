@@ -65,7 +65,8 @@ class TokenStore(
         val current = session() ?: return
         sessions.save(
             current.copy(
-                email = user.email.takeIf { it.isNotBlank() },
+                // 游客账号没有邮箱(服务端返回 email: null,契约 §7.6.1)
+                email = user.email?.takeIf { it.isNotBlank() },
                 isGuest = user.isGuest,
             ),
         )

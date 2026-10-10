@@ -50,7 +50,9 @@ const ONLY = {
   'api:endpoints': ['server', 'android', 'ios', 'harmony', 'windows'],
   'api:ws': ['server', 'android', 'ios', 'harmony', 'windows'],
   'api:errors': ['server', 'android', 'ios', 'harmony', 'windows'],
-  'sec:deeplink': ['android', 'ios', 'harmony', 'windows']
+  'sec:deeplink': ['android', 'ios', 'harmony', 'windows'],
+  // §7.6:会话键名是客户端概念(服务端不存它);guest/upgrade 的 URL 路径在客户端,核心只有接口名
+  'session:key': ['core', 'android', 'ios', 'harmony', 'windows']
 };
 
 const SKIP_DIRS = new Set(['node_modules', 'build', '.gradle', '.git', 'dist', 'oh_modules', 'Pods', '.idea', 'schemas']);
@@ -115,6 +117,14 @@ const CHECKS = [
 
   { id: 'sec:tokens', desc: 'access/refresh 令牌', needles: ['accessToken', 'refreshToken'] },
   { id: 'sec:deeplink', desc: 'ordo:// 深链', needles: ['ordo://'] },
+
+  // —— 契约 §7.6 账号/会话/游客(v1.2)—— 五端一致的地基,漏一个就会出现"某端登录后数据串号"
+  // 说明:会话键名是客户端概念(服务端不存它);guest/upgrade 在核心只有接口名、URL 路径在客户端,故用 anyOf。
+  { id: 'session:key', desc: '§7.6.3 会话键名 ordo.session', needles: ['ordo.session'] },
+  { id: 'session:guest', desc: '§7.6.2 游客登录(guest)', needles: ['guest'], anyOf: true },
+  { id: 'session:upgrade', desc: '§7.6.2 游客升级(upgrade)', needles: ['upgrade'], anyOf: true },
+  { id: 'session:isguest', desc: '§7.6.1 游客标记 isGuest', needles: ['isGuest', 'is_guest'], anyOf: true },
+  { id: 'session:userdir', desc: '§7.6.3 本地数据按 userId 分目录', needles: ['userId'], anyOf: true },
 
   // 颜色只比对 6 位十六进制,兼容 Web 的 #5B5BD6 与 Kotlin 的 0xFF5B5BD6、ArkTS 的 '#5B5BD6'
   { id: 'ui:accent', desc: '强调色 #5B5BD6 / #7C7CF0', needles: ['5B5BD6', '7C7CF0'] },

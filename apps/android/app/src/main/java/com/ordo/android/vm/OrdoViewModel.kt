@@ -292,7 +292,9 @@ class OrdoViewModel : ViewModel() {
                         it.copy(
                             auth = it.auth.copy(
                                 isGuest = response.user.isGuest,
-                                displayName = response.user.email.ifBlank { response.user.id },
+                                // 游客没有邮箱 → 退回 userId 作为展示名(契约 §7.6.1)
+                                displayName = response.user.email?.takeIf { it.isNotBlank() }
+                                    ?: response.user.id,
                                 error = null,
                             ),
                         )

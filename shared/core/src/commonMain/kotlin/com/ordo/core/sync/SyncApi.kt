@@ -13,7 +13,7 @@ import kotlinx.serialization.Serializable
  * ========================================================================== */
 
 @Serializable
-data class UserDto(val id: String, val email: String)
+data class UserDto(val id: String, val email: String, val isGuest: Boolean = false)
 
 @Serializable
 data class DeviceDto(val id: String, val name: String, val platform: String)
@@ -25,6 +25,21 @@ data class AuthRequest(
     val deviceName: String,
     val platform: String
 )
+
+/** 游客登录:不需要邮箱口令,只带设备信息(契约 §7.6.2) */
+@Serializable
+data class GuestAuthRequest(
+    val deviceId: String? = null,
+    val deviceName: String,
+    val platform: String
+)
+
+/** 游客升级为正式账号:userId 与数据都不变(契约 §7.6.2) */
+@Serializable
+data class UpgradeRequest(val email: String, val password: String)
+
+@Serializable
+data class UpgradeResponse(val user: UserDto)
 
 @Serializable
 data class RefreshRequest(val refreshToken: String)
@@ -98,6 +113,12 @@ interface AuthApi {
     suspend fun login(request: AuthRequest): AuthResponse
 
     suspend fun refresh(refreshToken: String): AuthResponse
+
+    /** 游客登录:服务端创建匿名账号并返回正常令牌(数据同样入库、同样多端同步,契约 §7.6) */
+    suspend fun guest(request: GuestAuthRequest): AuthResponse
+
+    /** 把游客账号升级为正式账号(userId 与数据不变) */
+    suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse
 }
 
 /** 快车道推送(契约 §7.5) */

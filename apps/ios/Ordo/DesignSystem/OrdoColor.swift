@@ -84,6 +84,9 @@ public enum OrdoColor {
     public static var selectionFill: Color { accent.opacity(0.12) }
     /// 行悬浮底色。
     public static let rowHover = Color(light: "#000000", dark: "#FFFFFF").opacity(0.04)
+    /// 菜单项 / 行**按下(选中)**底色(规范 §5.2 快加号菜单条目:悬停/按下 `rowSelected`)。
+    /// 比 `rowHover` 更重一档,因为移动端没有 hover、按下必须一眼可见。
+    public static let rowSelected = Color(light: "#000000", dark: "#FFFFFF").opacity(0.08)
     /// 复选框未完成描边(规范 §4:`1.6px #C6C3BA`)。
     public static let checkboxIdle = Color(light: "#C6C3BA", dark: "#5A5A5E")
     /// 卡片阴影(规范 §2.3 `elev.card`)。

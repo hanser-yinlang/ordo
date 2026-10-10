@@ -156,6 +156,9 @@ object OrdoType {
     val bodyStrong = TextStyle(fontFamily = family, fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
     val caption = TextStyle(fontFamily = family, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Normal)
     val micro = TextStyle(fontFamily = family, fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium)
+
+    /** 快捷菜单条目标签(§5.2:13.5,≈ caption 与 body 之间;对齐参照原型 `.pop-item` 的 13.5px) */
+    val menuItem = TextStyle(fontFamily = family, fontSize = 13.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.Normal)
 }
 
 // ---------------------------------------------------------------- 主题载体

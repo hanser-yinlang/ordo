@@ -157,8 +157,8 @@ object OrdoLayout {
     val sheetWidth: Dp = 280.dp
     /** 快加号（UI §5.2：只保留一个圆形按钮，直径 56） */
     val fabSize: Dp = 56.dp
-    /** 长按弹出的快捷菜单宽度（UI §5.2：从按钮左上方弹出） */
-    val quickAddMenuWidth: Dp = 200.dp
+    /** 长按弹出的快捷菜单宽度（UI §5.2 v1.3：面板**最小宽 ≥208**；与 ui/quickadd/QuickAddMenuRules.PANEL_MIN_WIDTH_DP 一致） */
+    val quickAddMenuWidth: Dp = 208.dp
     /** 表单输入框（UI §5.1：浮动标签需要两行高度） */
     val fieldHeight: Dp = 52.dp
     val fieldHeightCompact: Dp = 44.dp

@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -27,6 +28,17 @@ enum class OrdoIconKind {
     ChevronRight, ChevronDown, Close, Trash, Copy, Sun, Moon, Menu, Settings, Handle,
     /** 刷新（UI §5.3：状态栏刷新控件；同步中围绕中心连续旋转） */
     Refresh,
+    /*
+     * UI §5.2 v1.3「快加号菜单图标对齐参照原型」的三个专用形状。
+     * 与上面的 Project（环形 + 点）/ Area（方框 + 点）/ Heading（H）**并存**：
+     * 侧栏等处的旧形状不变，只有快加号菜单改用下列形状（项目 = H、区域 = 圆角方框 + 点、标题 = 三横线）。
+     */
+    /** 新建项目：H（两竖 + 中间一横），stroke 1.7 圆头 */
+    LetterH,
+    /** 新建区域：14×14 圆角 4 的描边方框 + 中心 2.6 实心点 */
+    RoundedSquareDot,
+    /** 新建标题：三横线（≡），与 H 可区分的标题线形 */
+    TripleLine,
 }
 
 @Composable
@@ -168,8 +180,9 @@ private fun DrawScope.drawIcon(
         }
 
         OrdoIconKind.Plus -> {
-            line(10f, 4.5f, 10f, 15.5f)
-            line(4.5f, 10f, 15.5f, 10f)
+            // UI §5.2 v1.3：几何以规范表为准（取自参照原型 i-plus）——(4,10)-(16,10)、(10,4)-(10,16)
+            line(10f, 4f, 10f, 16f)
+            line(4f, 10f, 16f, 10f)
         }
 
         OrdoIconKind.Search -> {
@@ -328,6 +341,34 @@ private fun DrawScope.drawIcon(
                 lineTo(16.3f * u, 7.6f * u)
                 lineTo(12.2f * u, 6.6f * u)
             }
+        }
+
+        /* ---------- UI §5.2 v1.3：快加号菜单的三个专用形状（矢量绘制，无位图） ---------- */
+
+        /** 新建项目：H —— 两竖 x=5/x=15（y 4→16）+ 中间一横 y=10（x 5→15），stroke 1.7 圆头（§5.2 表） */
+        OrdoIconKind.LetterH -> {
+            line(5f, 4f, 5f, 16f)
+            line(15f, 4f, 15f, 16f)
+            line(5f, 10f, 15f, 10f)
+        }
+
+        /** 新建区域：方框 rect(3,3,14,14) rx=4（stroke 1.5）+ 中心 circle(10,10) r=2.6 实心（§5.2 表） */
+        OrdoIconKind.RoundedSquareDot -> {
+            drawRoundRect(
+                color = tint,
+                topLeft = Offset(3f * u, 3f * u),
+                size = Size(14f * u, 14f * u),
+                cornerRadius = CornerRadius(4f * u, 4f * u),
+                style = stroke,
+            )
+            dot(10f, 10f, 2.6f)
+        }
+
+        /** 新建标题：三条横线 y=5/10/15（x 4.5→15.5），stroke 1.7 圆头（§5.2 表） */
+        OrdoIconKind.TripleLine -> {
+            line(4.5f, 5f, 15.5f, 5f)
+            line(4.5f, 10f, 15.5f, 10f)
+            line(4.5f, 15f, 15.5f, 15f)
         }
     }
 }

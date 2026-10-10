@@ -17,6 +17,13 @@
 //  动效:按压 scale → 0.96(90ms);长按到 400ms 轻微放大到 1.06 并保持;
 //        面板 scale 0.9→1 + alpha 0→1(180ms);菜单项逐个错位 40ms 淡入并上移 6px;收起反向 140ms。
 //
+//  菜单视觉(v1.3 对齐参照原型,见 UI 规范 §5.2「菜单项图标」):
+//    · 面板:最小宽 208、radius 12、1px hairline、底色 surface;
+//    · 条目:高 44、左内边距 9、图标↔文字 8、字号 13.5、条目 radius 7、按下底 `rowSelected`;
+//    · 前导图标四种形状(全部 `Path` 自绘,见 `QuickAddIcons.swift`):待办 ＋ / 项目 H / 区域 圆角方框+中心点 / 标题 ≡;
+//    · 颜色:菜单项图标 `textSecondary`(FAB 与选中态才用 `accent`),不引入参照原型的蓝色;
+//    · 快捷键提示只有「新建待办」显示 ⌘N(项模型见 `QuickAddMenuItem.swift`)。
+//
 
 import SwiftUI
 
@@ -102,31 +109,22 @@ public struct QuickAddButton: View {
     private var menu: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(menuItems.enumerated()), id: \.offset) { index, item in
-                Button {
-                    perform(item)
-                } label: {
-                    Label(item.title, systemImage: item.icon)
-                        .font(OrdoFont.bodyEmphasis)
-                        .foregroundStyle(OrdoColor.textPrimary)
-                        .padding(.horizontal, OrdoSpacing.s)
-                        .frame(height: 36)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .opacity(index < revealedItems ? 1 : 0)
-                .offset(y: index < revealedItems ? 0 : OrdoMotion.QuickAdd.itemOffset)
-                .accessibilityLabel(item.title)
+                menuRow(item)
+                    .opacity(index < revealedItems ? 1 : 0)
+                    .offset(y: index < revealedItems ? 0 : OrdoMotion.QuickAdd.itemOffset)
             }
         }
         .padding(OrdoSpacing.xs)
-        .frame(width: 180)
+        // 规范 §5.2:最小宽 208;内容(如带 ⌘N 的「新建待办」)更宽时按内容撑开,
+        // 但不吃满整屏 —— `fixedSize` 让面板取自身理想宽度,`minWidth` 兜住下限。
+        .frame(minWidth: OrdoMotion.QuickAdd.menuMinWidth, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
         .background(
-            RoundedRectangle(cornerRadius: OrdoRadius.sheet, style: .continuous)
+            RoundedRectangle(cornerRadius: OrdoRadius.quickAddMenu, style: .continuous)
                 .fill(OrdoColor.surface)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: OrdoRadius.sheet, style: .continuous)
+            RoundedRectangle(cornerRadius: OrdoRadius.quickAddMenu, style: .continuous)
                 .stroke(OrdoColor.hairline, lineWidth: 1)
         )
         .ordoSheetElevation()
@@ -138,38 +136,39 @@ public struct QuickAddButton: View {
         .accessibilityLabel("新建菜单")
     }
 
-    /// 菜单项:标题只在项目内出现(与核心的 heading 归属规则一致)。
-    private var menuItems: [QuickAddItem] {
-        var items: [QuickAddItem] = [.todo, .project, .area]
-        if shell.selection.kind == .project {
-            items.append(.heading)
+    /// 单个菜单条目:自绘图标 + 文案 + (仅待办)⌘N。
+    private func menuRow(_ item: QuickAddItem) -> some View {
+        Button {
+            perform(item)
+        } label: {
+            HStack(spacing: OrdoMotion.QuickAdd.menuItemIconTextGap) {
+                QuickAddIcon(kind: item.iconKind, color: OrdoColor.textSecondary)
+
+                Text(item.title)
+                    .font(OrdoFont.quickAddItem)
+                    .foregroundStyle(OrdoColor.textPrimary)
+
+                Spacer(minLength: OrdoSpacing.s)
+
+                if let shortcut = item.shortcut {
+                    Text(shortcut)
+                        .font(OrdoFont.caption)
+                        .foregroundStyle(OrdoColor.textTertiary)
+                }
+            }
+            .padding(.leading, OrdoMotion.QuickAdd.menuItemLeading)
+            .padding(.trailing, OrdoMotion.QuickAdd.menuItemTrailing)
+            .frame(height: OrdoMotion.QuickAdd.menuItemHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        return items
+        .buttonStyle(OrdoQuickAddItemStyle())
+        .accessibilityLabel(item.title)
     }
 
-    enum QuickAddItem: Hashable {
-        case todo
-        case project
-        case area
-        case heading
-
-        var title: String {
-            switch self {
-            case .todo: return "新建待办"
-            case .project: return "新建项目"
-            case .area: return "新建区域"
-            case .heading: return "新建标题"
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .todo: return "plus.circle"
-            case .project: return "circle.dashed"
-            case .area: return "square.grid.2x2"
-            case .heading: return "text.line.first.and.arrowtriangle.forward"
-            }
-        }
+    /// 菜单项(规范 §5.2:菜单仍是 4 项;「新建标题」只在项目视图里出现)。
+    private var menuItems: [QuickAddItem] {
+        QuickAddItem.menuItems(in: shell.selection.kind)
     }
 
     // MARK: 手势状态
@@ -276,5 +275,26 @@ public struct QuickAddButton: View {
     private var environmentAreaCount: Int { shell.snapshotAreaCount }
     private func environmentHeadingCount(projectId: String) -> Int {
         shell.headingsCount(projectId: projectId)
+    }
+}
+
+// MARK: - 菜单条目按下态(规范 §5.2:条目 radius 7,按下底 rowSelected)
+
+/// 条目按下时铺一层 `rowSelected` 底色,圆角取 §5.2 的 **7**;
+/// 松手即回到透明(移动端没有 hover,只表达按下)。
+struct OrdoQuickAddItemStyle: ButtonStyle {
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: OrdoRadius.quickAddItem, style: .continuous)
+                    .fill(configuration.isPressed ? OrdoColor.rowSelected : Color.clear)
+            )
+            .animation(
+                OrdoMotion.resolved(OrdoMotion.fastEase, reduceMotion: reduceMotion),
+                value: configuration.isPressed
+            )
     }
 }

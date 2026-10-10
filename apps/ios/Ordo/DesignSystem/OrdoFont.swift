@@ -63,6 +63,11 @@ public enum OrdoFont {
     public static let loginBrandSize: CGFloat = 24
     public static let loginBrandLineHeight: CGFloat = 32
 
+    /// 快加号菜单条目(UI 规范 §5.2:字号 **13.5**,介于 `caption` 13 与 `body` 15 之间;
+    /// 规范未定字重,取 `.medium` 与既有的 `bodyEmphasis` 菜单写法保持一致)。
+    public static let quickAddItem = Font.system(size: quickAddItemSize, weight: .medium, design: .default)
+    public static let quickAddItemSize: CGFloat = 13.5
+
     /// 等宽(备注中的 `代码`、调试信息)。
     public static let mono = Font.system(size: Size.caption, weight: .regular, design: .monospaced)
 

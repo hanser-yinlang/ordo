@@ -8,12 +8,15 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +54,7 @@ import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
 import com.ordo.desktop.app.UiState
 import com.ordo.desktop.ui.common.OrdoIcons
+import com.ordo.desktop.ui.common.OrdoMenuIcons
 import com.ordo.desktop.ui.common.OrdoTextField
 import com.ordo.desktop.ui.common.detectPressGesture
 import com.ordo.desktop.ui.theme.LocalOrdoReduceMotion
@@ -201,10 +205,50 @@ object QuickAddGesture {
 enum class QuickAddAction { OPEN_COMPOSER, CLOSE_MENU, EXPAND_MENU, KEEP_MENU }
 
 /**
+ * 快捷菜单的视觉规格(04-UI规范 §5.2「菜单项图标」),数值逐条对齐参照原型 `things-clone`
+ * 的 `.pop` / `.pop-item`(最小宽 208 / radius 12 / 1px 描边 / 条目 padding 9 / gap 8 / radius 7 / 13.5px)。
+ *
+ * 抽成常量而不是写在 Modifier 里:既让四条菜单项的间距不会各自漂移,也让"最小宽 ≥208、条目高 ≥44"
+ * 这类硬指标可以被单测直接断言。
+ */
+object QuickAddMenuSpec {
+
+    /** 面板最小宽(§5.2 ≥208;原型 `.pop { min-width: 208px }`)。四项文案固定,所以它同时就是实际宽 */
+    val MIN_WIDTH = 208.dp
+
+    /** 面板圆角(原型 `border-radius: 12px`) */
+    val PANEL_RADIUS = 12.dp
+
+    /** 面板内边距(原型 `padding: 5px`) */
+    val PANEL_PADDING = 5.dp
+
+    /** 面板描边:1px hairline */
+    val HAIRLINE = 1.dp
+
+    /** 面板投影(与快加号按钮同一档 8dp) */
+    val PANEL_ELEVATION = 8.dp
+
+    /** 条目高(§5.2 ≥44:触控目标够大比照抄原型的 28 更重要) */
+    val ITEM_HEIGHT = 44.dp
+
+    /** 条目圆角(原型 `border-radius: 7px`) */
+    val ITEM_RADIUS = 7.dp
+
+    /** 条目左/右内边距(原型 `padding: 6px 9px`) */
+    val ITEM_PADDING = 9.dp
+
+    /** 图标与文字间距(原型 `gap: 8px`) */
+    val ICON_TEXT_GAP = 8.dp
+
+    /** 图标渲染尺寸(原型 `.pop-item .ico { 16px }`;20×20 viewBox 等比缩到 16dp) */
+    val ICON_SIZE = 16.dp
+}
+
+/**
  * 快捷菜单面板:菜单项逐个错位 40ms 淡入并上移 6px(§5.2 动效表)。
  *
- * 从按钮**左上方**弹出:面板宽度固定 200,在按钮所在 Column 里右对齐(End),
- * 因此它的右下角贴着按钮的左上角。
+ * 从按钮**左上方**弹出:面板宽度按 [QuickAddMenuSpec.MIN_WIDTH] 起,在按钮所在 Column 里右对齐(End),
+ * 因此它的右下角贴着按钮的左上角。四项前导图标见 [OrdoMenuIcons]。
  */
 @Composable
 private fun QuickAddMenu(
@@ -214,27 +258,34 @@ private fun QuickAddMenu(
     val colors = ordoColors
     val reduceMotion = LocalOrdoReduceMotion.current
     val hasHeading = state.route is OrdoRoute.Project
+    val shape = RoundedCornerShape(QuickAddMenuSpec.PANEL_RADIUS)
 
     Column(
         Modifier
-            .width(200.dp)
-            .shadow(8.dp, RoundedCornerShape(OrdoRadius.card))
-            .clip(RoundedCornerShape(OrdoRadius.card))
+            // 宽度 = 最宽那一行的内容,但兜住 208 的下限(参照原型 `.pop{min-width:208px}` 的生效宽度)。
+            // 不能只写 widthIn(min=208):条目里的 fillMaxWidth 会把它撑到整窗宽。
+            .width(IntrinsicSize.Max)
+            .widthIn(min = QuickAddMenuSpec.MIN_WIDTH)
+            .shadow(QuickAddMenuSpec.PANEL_ELEVATION, shape)
+            .clip(shape)
             .background(colors.surface)
-            .padding(OrdoSpace.xs)
+            .border(QuickAddMenuSpec.HAIRLINE, colors.hairline, shape)
+            .padding(QuickAddMenuSpec.PANEL_PADDING)
     ) {
         StaggeredItem(index = 0, reduceMotion = reduceMotion) {
-            MenuItem(OrdoIcons.Add, "新建待办", "Ctrl+N") { onAction(MenuAction.TODO) }
+            MenuItem(OrdoMenuIcons.Todo, "新建待办", "Ctrl+N") { onAction(MenuAction.TODO) }
         }
         StaggeredItem(index = 1, reduceMotion = reduceMotion) {
-            MenuItem(OrdoIcons.Area, "新建项目", null) { onAction(MenuAction.PROJECT) }
+            // H(两竖 + 一横):以前这里错用了 OrdoIcons.Area(文件夹)
+            MenuItem(OrdoMenuIcons.Project, "新建项目", null) { onAction(MenuAction.PROJECT) }
         }
         StaggeredItem(index = 2, reduceMotion = reduceMotion) {
-            MenuItem(OrdoIcons.Area, "新建区域", null) { onAction(MenuAction.AREA) }
+            MenuItem(OrdoMenuIcons.Area, "新建区域", null) { onAction(MenuAction.AREA) }
         }
         if (hasHeading) {
             StaggeredItem(index = 3, reduceMotion = reduceMotion) {
-                MenuItem(OrdoIcons.Checklist, "新建标题", null) { onAction(MenuAction.HEADING) }
+                // ≡(三横线):与「H」区分,是 Ordo 自有项(参照原型没有)
+                MenuItem(OrdoMenuIcons.Heading, "新建标题", null) { onAction(MenuAction.HEADING) }
             }
         }
     }
@@ -269,24 +320,36 @@ private fun StaggeredItem(index: Int, reduceMotion: Boolean, content: @Composabl
 /** 菜单项错位间隔(§5.2:逐个错位 40ms) */
 private const val STAGGER_MILLIS = 40L
 
+/**
+ * 菜单条目(§5.2):高 [QuickAddMenuSpec.ITEM_HEIGHT]、radius 7、左内边距 9、图标↔文字 8、
+ * 字号 13.5;悬停与按下**都**用 `rowSelected`(本端令牌名是 `colors.selected`);
+ * 快捷键提示只有「新建待办」有(由调用方传 shortcut,其余项传 null)。
+ */
 @Composable
 private fun MenuItem(icon: ImageVector, label: String, shortcut: String?, onClick: () -> Unit) {
     val colors = ordoColors
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val pressed by interaction.collectIsPressedAsState()
+    val shape = RoundedCornerShape(QuickAddMenuSpec.ITEM_RADIUS)
     Row(
         Modifier
             .fillMaxWidth()
-            .height(34.dp)
-            .clip(RoundedCornerShape(OrdoRadius.row))
-            .background(if (hovered) colors.hover else Color.Transparent, RoundedCornerShape(OrdoRadius.row))
+            .height(QuickAddMenuSpec.ITEM_HEIGHT)
+            .clip(shape)
+            .background(if (hovered || pressed) colors.selected else Color.Transparent, shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = OrdoSpace.s),
+            .padding(horizontal = QuickAddMenuSpec.ITEM_PADDING),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(OrdoSize.iconSm))
-        Spacer(Modifier.width(OrdoSpace.s))
-        Text(label, style = OrdoType.body, color = colors.textPrimary)
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(QuickAddMenuSpec.ICON_SIZE)
+        )
+        Spacer(Modifier.width(QuickAddMenuSpec.ICON_TEXT_GAP))
+        Text(label, style = OrdoType.menuItem, color = colors.textPrimary)
         Spacer(Modifier.weight(1f))
         if (shortcut != null) Text(shortcut, style = OrdoType.micro, color = colors.textTertiary)
     }

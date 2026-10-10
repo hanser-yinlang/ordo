@@ -139,6 +139,21 @@ public enum OrdoMotion {
         public static let expandedRotation: Double = 45
         public static let rotateDuration: Double = 0.18
         public static var rotate: Animation { .easeInOut(duration: rotateDuration) }
+
+        // MARK: 菜单面板与条目(规范 §5.2「菜单项图标」小节,v1.3)
+
+        /// 菜单面板最小宽(规范:最小宽 **208**;内容更宽时按内容撑开,见 `QuickAddButton.menu`)。
+        public static let menuMinWidth: CGFloat = 208
+        /// 菜单条目高度(规范:**≥44**;取触控目标下限 44)。
+        public static let menuItemHeight: CGFloat = 44
+        /// 菜单条目左内边距(规范:**9**)。
+        public static let menuItemLeading: CGFloat = 9
+        /// 菜单条目右内边距(规范只给了左侧 9;右侧取同值以求对称,用来放 ⌘N 提示)。
+        public static let menuItemTrailing: CGFloat = 9
+        /// 菜单条目「图标 ↔ 文字」间距(规范:**8**)。
+        public static let menuItemIconTextGap: CGFloat = 8
+        /// 菜单条目图标尺寸(规范:20×20 viewBox,见 `QuickAddIconMetrics.viewBox`)。
+        public static let menuItemIconSize: CGFloat = 20
     }
 
     // MARK: 长按拖拽(规范 §5.4)

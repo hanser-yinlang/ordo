@@ -9,10 +9,15 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,11 +25,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -44,6 +51,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -55,6 +63,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ordo.android.R
 import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconKind
@@ -180,6 +189,10 @@ fun QuickAddMenuLayer(
     panelModifier: Modifier = Modifier,
 ) {
     val visible = state.quickAddMenuOpen
+    // §5.2 v1.3：「新建标题」仅在项目视图出现（heading 必须归属 project）。
+    // 判定与 OrdoViewModel.createHeadingFromQuickAdd 同源（同一路由前缀常量）。
+    val inProjectView = state.routeKey.startsWith(OrdoViewModel.ROUTE_PROJECT_PREFIX)
+    val menuActions = QuickAddMenuRules.visibleActions(inProjectView)
     var projectDraft by remember { mutableStateOf("") }
     var areaDraft by remember { mutableStateOf("") }
     var headingDraft by remember { mutableStateOf("") }
@@ -213,33 +226,34 @@ fun QuickAddMenuLayer(
         ) {
             Column(
                 Modifier
-                    .width(OrdoLayout.quickAddMenuWidth)
-                    .shadow(OrdoElevation.popover, RoundedCornerShape(OrdoRadius.card))
-                    .clip(RoundedCornerShape(OrdoRadius.card))
+                    // §5.2：面板最小宽 ≥208、radius 12、1px hairline、底色 surface
+                    .widthIn(min = OrdoLayout.quickAddMenuWidth)
+                    .shadow(OrdoElevation.popover, RoundedCornerShape(QuickAddMenuRules.PANEL_RADIUS_DP.dp))
+                    .clip(RoundedCornerShape(QuickAddMenuRules.PANEL_RADIUS_DP.dp))
                     .background(OrdoTheme.colors.surface)
+                    .border(
+                        QuickAddMenuRules.PANEL_BORDER_DP.dp,
+                        OrdoTheme.colors.hairline,
+                        RoundedCornerShape(QuickAddMenuRules.PANEL_RADIUS_DP.dp),
+                    )
                     .padding(OrdoSpace.s),
             ) {
                 when (mode) {
                     Mode.MENU -> {
-                        StaggeredItem(0) {
-                            MenuItem(OrdoIconKind.Anytime, stringResource(R.string.quickadd_todo)) {
-                                vm.openQuickAddMenu(false)
-                                vm.openComposer(vm.composerTarget())
-                            }
-                        }
-                        StaggeredItem(1) {
-                            MenuItem(OrdoIconKind.Project, stringResource(R.string.quickadd_project)) {
-                                mode = Mode.PROJECT
-                            }
-                        }
-                        StaggeredItem(2) {
-                            MenuItem(OrdoIconKind.Area, stringResource(R.string.quickadd_area)) {
-                                mode = Mode.AREA
-                            }
-                        }
-                        StaggeredItem(3) {
-                            MenuItem(OrdoIconKind.Heading, stringResource(R.string.quickadd_heading)) {
-                                mode = Mode.HEADING
+                        // 项目视图 4 项；其它视图前三项（「新建标题」隐藏，§5.2 v1.3）
+                        menuActions.forEachIndexed { index, action ->
+                            StaggeredItem(index) {
+                                MenuItem(action) {
+                                    when (action) {
+                                        QuickAddAction.NEW_TODO -> {
+                                            vm.openQuickAddMenu(false)
+                                            vm.openComposer(vm.composerTarget())
+                                        }
+                                        QuickAddAction.NEW_PROJECT -> mode = Mode.PROJECT
+                                        QuickAddAction.NEW_AREA -> mode = Mode.AREA
+                                        QuickAddAction.NEW_HEADING -> mode = Mode.HEADING
+                                    }
+                                }
                             }
                         }
                     }
@@ -344,20 +358,59 @@ private fun currentAreaId(state: UiState): String? = when {
 }
 
 @Composable
-private fun MenuItem(icon: OrdoIconKind, label: String, onClick: () -> Unit) {
+private fun MenuItem(action: QuickAddAction, onClick: () -> Unit) {
     val colors = OrdoTheme.colors
+    // 按下 / 悬停底色 = rowSelected（§5.2）：用交互源自己画，关掉默认 ripple 避免两层反馈叠加
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val active = pressed || hovered
+
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(OrdoRadius.row))
-            .clickable(onClick = onClick)
-            .padding(vertical = OrdoSpace.m, horizontal = OrdoSpace.s),
+            .heightIn(min = QuickAddMenuRules.ITEM_MIN_HEIGHT_DP.dp)
+            .clip(RoundedCornerShape(QuickAddMenuRules.ITEM_RADIUS_DP.dp))
+            .background(if (active) colors.selected else Color.Transparent)
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(start = QuickAddMenuRules.ITEM_START_PADDING_DP.dp, end = OrdoSpace.s),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        OrdoIcon(icon, size = 16.dp, tint = colors.textSecondary)
-        Spacer(Modifier.width(OrdoSpace.s))
-        Text(text = label, style = OrdoTheme.type.body, color = colors.textPrimary)
+        OrdoIcon(
+            kind = action.iconShape.iconKind,
+            size = QuickAddMenuRules.ICON_SIZE_DP.dp,
+            tint = colors.textSecondary,
+            strokeWidth = action.iconShape.strokeWidth,
+        )
+        Spacer(Modifier.width(QuickAddMenuRules.ICON_TEXT_GAP_DP.dp))
+        Text(
+            text = action.label(),
+            style = OrdoTheme.type.caption.copy(fontSize = QuickAddMenuRules.LABEL_FONT_SIZE_SP.sp),
+            color = colors.textPrimary,
+        )
+        // 快捷键提示：只有「新建待办」有（§5.2），其余项右侧留空
+        action.shortcut()?.let { hint ->
+            Spacer(Modifier.weight(1f))
+            Text(text = hint, style = OrdoTheme.type.micro, color = colors.textTertiary)
+        }
     }
+}
+
+/** 菜单项文案：资源名 → 实际字符串（资源名见 [QuickAddAction.labelResName]，有文案契约用例兜底） */
+@Composable
+private fun QuickAddAction.label(): String = when (this) {
+    QuickAddAction.NEW_TODO -> stringResource(R.string.quickadd_todo)
+    QuickAddAction.NEW_PROJECT -> stringResource(R.string.quickadd_project)
+    QuickAddAction.NEW_AREA -> stringResource(R.string.quickadd_area)
+    QuickAddAction.NEW_HEADING -> stringResource(R.string.quickadd_heading)
+}
+
+/** 快捷键提示：仅「新建待办」显示 Ctrl+N（Android 硬件键盘；§5.2） */
+@Composable
+private fun QuickAddAction.shortcut(): String? = when (this) {
+    QuickAddAction.NEW_TODO -> stringResource(R.string.quickadd_shortcut_todo)
+    QuickAddAction.NEW_PROJECT, QuickAddAction.NEW_AREA, QuickAddAction.NEW_HEADING -> null
 }
 
 /**

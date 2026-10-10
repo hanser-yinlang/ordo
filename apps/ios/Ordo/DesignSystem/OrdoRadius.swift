@@ -28,6 +28,10 @@ public enum OrdoRadius {
     public static let primaryButton: CGFloat = 10
     /// 主按钮高度(规范 §5.1:高 44)。
     public static let primaryButtonHeight: CGFloat = 44
+    /// 快加号菜单面板(规范 §5.2:面板 `radius 12`,与 §2.3 的 `radius.sheet` 14 不同)。
+    public static let quickAddMenu: CGFloat = 12
+    /// 快加号菜单条目(规范 §5.2:条目 `radius 7`)。
+    public static let quickAddItem: CGFloat = 7
 }
 
 public enum OrdoElevation {

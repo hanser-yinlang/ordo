@@ -236,26 +236,116 @@ class GateAndRefreshRenderTest {
     @Test
     fun `快加号菜单展开可离屏渲染并产出截图`() {
         val vm = viewModel()
+        // 菜单只有在"项目内"才多出「新建标题」(参照原型同样只在项目里给这一项),
+        // 所以先进一个项目,好让四个新图标(＋ / H / 圆角方框+点 / ≡)都在同一张截图里可核对
+        val project = vm.engine.createProject("Q4 产品发布")
+        vm.navigate(com.ordo.desktop.app.OrdoRoute.Project(project.id))
         vm.setQuickAddMenu(true)
-        // 菜单项是逐个错位 40ms 淡入的:让它先跑完错位,再喂帧做展开动画
-        Thread.sleep(220L)
 
         val scene = ImageComposeScene(width = 1440, height = 900, density = Density(1f)) { OrdoApp(vm) }
         try {
-            scene.render(0L)
-            var now = 0L
-            var bytes: ByteArray? = null
-            repeat(20) {
-                now += 16_000_000L
-                bytes = scene.render(now).encodeToData()!!.bytes
-            }
+            val bytes = renderStaggeredMenu(scene)
             val labels = texts(scene)
-            assertTrue("菜单应包含四个新建入口:$labels", labels.contains("新建待办") && labels.contains("新建项目") && labels.contains("新建区域"))
+            assertTrue(
+                "菜单必须仍是四项(§5.2 菜单项图标):$labels",
+                labels.contains("新建待办") && labels.contains("新建项目") &&
+                    labels.contains("新建区域") && labels.contains("新建标题")
+            )
             assertFalse("折叠箭头那个多余按钮不该存在:$labels", labels.any { it.contains("更多新建") })
+            assertEquals("快捷键提示只有「新建待办」一项", 1, labels.count { it == "Ctrl+N" })
 
-            saveBytes(bytes!!, "ordo-quickadd-menu.png")
+            saveBytes(bytes, "ordo-quickadd-menu.png")
         } finally {
             scene.close()
+        }
+    }
+
+    /**
+     * 放大视图:窗口收到只比菜单宽一点(仍把菜单放在内容区,不压侧栏),让 16dp 的图标、
+     * 44 高的条目、208 宽的面板在截图上真正看得清 —— 1440×900 的整窗截图里它们只占一角。
+     */
+    @Test
+    fun `快加号菜单放大视图可离屏渲染`() {
+        val vm = viewModel()
+        val project = vm.engine.createProject("Q4 产品发布")
+        vm.navigate(com.ordo.desktop.app.OrdoRoute.Project(project.id))
+        vm.setQuickAddMenu(true)
+
+        val scene = ImageComposeScene(width = 560, height = 460, density = Density(1f)) { OrdoApp(vm) }
+        try {
+            val bytes = renderStaggeredMenu(scene)
+            val labels = texts(scene)
+            for (item in listOf("新建待办", "新建项目", "新建区域", "新建标题")) {
+                assertTrue("放大视图里也要有 $item:$labels", labels.contains(item))
+            }
+
+            val out = File(reportDir(), "ordo-quickadd-menu-closeup.png")
+            out.writeBytes(bytes)
+            assertTrue(out.length() > 5_000)
+            println("[GateAndRefreshRenderTest] 已输出截图:${out.absolutePath} (${out.length()} 字节)")
+        } finally {
+            scene.close()
+        }
+    }
+
+    /**
+     * 喂帧到菜单完全展开并截图。
+     *
+     * 菜单项是**逐个错位 40ms 淡入**的,而错位用的是 `LaunchedEffect` + `delay`(真实时间),
+     * 不是帧时钟;只喂帧不给真实时间的话,第 4 项(新建标题)会被截在半透明上。
+     * 这里每喂一帧就睡 12ms:30 帧 ≈ 360ms > 3×40ms 错位 + 160ms 淡入。
+     */
+    private fun renderStaggeredMenu(scene: ImageComposeScene): ByteArray {
+        var now = 0L
+        var bytes = scene.render(now).encodeToData()!!.bytes
+        repeat(30) {
+            now += 16_000_000L
+            bytes = scene.render(now).encodeToData()!!.bytes
+            Thread.sleep(12L)
+        }
+        return bytes
+    }
+
+    /**
+     * §5.2「新建标题」的可用性:heading 必属 project,所以**只在项目视图**出现这一项,
+     * 其余三项所有视图可用(菜单在项目视图下才是完整的 4 项)。
+     *
+     * 这里断言的是语义树里有没有这一项,与淡入动画的 alpha 无关(节点在面板可见时就已经组合),
+     * 因此不需要等动画。
+     */
+    @Test
+    fun `非项目视图的菜单只有三项,新建标题只在项目视图出现`() {
+        // 「新建待办」在主界面里还有别的落点(项目内联入口等),所以这里只看那件**唯一有分歧**的事:
+        // 「新建标题」到底出不出现 —— 它出现 = 菜单是完整 4 项,不出现 = 只有 3 项。
+        val menuItems = listOf("新建待办", "新建项目", "新建区域")
+
+        val todayVm = viewModel()
+        todayVm.setQuickAddMenu(true)
+        val today = ImageComposeScene(width = 900, height = 700, density = Density(1f)) { OrdoApp(todayVm) }
+        try {
+            today.render(0L)
+            today.render(16_000_000L)
+            val labels = texts(today)
+            assertTrue("前三项在所有视图都要有:$labels", labels.containsAll(menuItems))
+            assertFalse("非项目视图不该有「新建标题」:$labels", labels.contains("新建标题"))
+        } finally {
+            today.close()
+        }
+
+        val projectVm = viewModel()
+        val project = projectVm.engine.createProject("Q4 产品发布")
+        projectVm.navigate(com.ordo.desktop.app.OrdoRoute.Project(project.id))
+        projectVm.setQuickAddMenu(true)
+        val inProject = ImageComposeScene(width = 900, height = 700, density = Density(1f)) { OrdoApp(projectVm) }
+        try {
+            inProject.render(0L)
+            inProject.render(16_000_000L)
+            val labels = texts(inProject)
+            assertTrue("项目视图下菜单是完整 4 项:$labels", labels.containsAll(menuItems + "新建标题"))
+            assertEquals("有且只有一项「新建标题」:$labels", 1, labels.count { it == "新建标题" })
+            assertEquals("快捷键提示也只挂在新建待办上:$labels", 1, labels.count { it == "Ctrl+N" })
+        } finally {
+            inProject.close()
         }
     }
 

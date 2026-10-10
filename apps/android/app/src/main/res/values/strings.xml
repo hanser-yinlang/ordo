@@ -155,6 +155,8 @@
     <string name="quickadd_heading">新建标题</string>
     <string name="quickadd_project_hint">项目名称</string>
     <string name="quickadd_area_hint">区域名称</string>
+    <!-- 快捷键提示:仅「新建待办」显示(UI §5.2 v1.3;Android 硬件键盘用 Ctrl+N) -->
+    <string name="quickadd_shortcut_todo">Ctrl+N</string>
 
     <!-- 设置 -->
     <string name="settings_title">设置</string>

@@ -53,6 +53,8 @@
 		3259E6853B08EC5E81DA76A3 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 9E87B6B4E5F7B22A828DEA50 /* URLSessionSyncApi.swift */; };
 		25D9D9BBAF11E8A3069BDEE1 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = C70D9C71683F8BB623F354C9 /* ReminderScheduler.swift */; };
 		6FF6DDB016DF2B02FD481095 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 59FF96A81B828B50C83B909A /* QuickAddButton.swift */; };
+		D08DF3F5E280539FDB1C492A /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 50FCE37D0F691B627583BB98 /* QuickAddIcons.swift */; };
+		872C28BCCB6C4D80926FBF22 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 5AFAC4FC94E160162F63FA86 /* QuickAddMenuItem.swift */; };
 		3CC87EFDB95C6B77A956A849 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 82FDBEA94CB3395F82550395 /* ScheduleSheet.swift */; };
 		EB827E8CEA8A04A2D039D654 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = EB61CABEA96B67A6D5B06F88 /* FastFindView.swift */; };
 		3A6CF704850810923C7F9021 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B886B1F64E5B6279F539D32F /* SettingsView.swift */; };
@@ -68,6 +70,7 @@
 		E66D6BF8D7E76CB3153EFB86 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = A02AD233B66F74BD9F299F61 /* NlpParsingTests.swift */; };
 		865C9E50E97E0D2EA8D53700 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 28EB3C7C60A59494EBCF1DB6 /* OrdoTestSupport.swift */; };
 		AD6813466606742FD4DC49FB /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = E97CA9F72DF1F98EDAF450FD /* QueryRulesTests.swift */; };
+		7192B66A6F34AE53096318ED /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 2B904AA6B2C61A4E1D6BD265 /* QuickAddMenuTests.swift */; };
 		31C8E445B938D8533C1D3EE8 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = B6865B0230A3E8D3D117D662 /* RepeatEngineTests.swift */; };
 		A59E8BEF51CE9CACB339510E /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 028CA90E73153B5664D7DADE /* SessionAndGateTests.swift */; };
 		C7E17EE10ACE4D64FD7CB386 /* PBXBuildFile */ = { isa = PBXBuildFile; fileRef = 8B2A4251C5F08036C5143754 /* SyncMergeTests.swift */; };
@@ -124,6 +127,8 @@
 		9E87B6B4E5F7B22A828DEA50 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = URLSessionSyncApi.swift; path = Ordo/Net/URLSessionSyncApi.swift; sourceTree = SOURCE_ROOT; };
 		C70D9C71683F8BB623F354C9 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ReminderScheduler.swift; path = Ordo/Notifications/ReminderScheduler.swift; sourceTree = SOURCE_ROOT; };
 		59FF96A81B828B50C83B909A /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickAddButton.swift; path = Ordo/QuickAdd/QuickAddButton.swift; sourceTree = SOURCE_ROOT; };
+		50FCE37D0F691B627583BB98 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickAddIcons.swift; path = Ordo/QuickAdd/QuickAddIcons.swift; sourceTree = SOURCE_ROOT; };
+		5AFAC4FC94E160162F63FA86 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickAddMenuItem.swift; path = Ordo/QuickAdd/QuickAddMenuItem.swift; sourceTree = SOURCE_ROOT; };
 		82FDBEA94CB3395F82550395 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScheduleSheet.swift; path = Ordo/Schedule/ScheduleSheet.swift; sourceTree = SOURCE_ROOT; };
 		EB61CABEA96B67A6D5B06F88 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = FastFindView.swift; path = Ordo/Search/FastFindView.swift; sourceTree = SOURCE_ROOT; };
 		B886B1F64E5B6279F539D32F /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SettingsView.swift; path = Ordo/Settings/SettingsView.swift; sourceTree = SOURCE_ROOT; };
@@ -138,6 +143,7 @@
 		A02AD233B66F74BD9F299F61 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = NlpParsingTests.swift; path = OrdoTests/NlpParsingTests.swift; sourceTree = SOURCE_ROOT; };
 		28EB3C7C60A59494EBCF1DB6 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = OrdoTestSupport.swift; path = OrdoTests/OrdoTestSupport.swift; sourceTree = SOURCE_ROOT; };
 		E97CA9F72DF1F98EDAF450FD /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QueryRulesTests.swift; path = OrdoTests/QueryRulesTests.swift; sourceTree = SOURCE_ROOT; };
+		2B904AA6B2C61A4E1D6BD265 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickAddMenuTests.swift; path = OrdoTests/QuickAddMenuTests.swift; sourceTree = SOURCE_ROOT; };
 		B6865B0230A3E8D3D117D662 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RepeatEngineTests.swift; path = OrdoTests/RepeatEngineTests.swift; sourceTree = SOURCE_ROOT; };
 		028CA90E73153B5664D7DADE /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SessionAndGateTests.swift; path = OrdoTests/SessionAndGateTests.swift; sourceTree = SOURCE_ROOT; };
 		8B2A4251C5F08036C5143754 /* PBXFileReference */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SyncMergeTests.swift; path = OrdoTests/SyncMergeTests.swift; sourceTree = SOURCE_ROOT; };
@@ -292,6 +298,8 @@ sourceTree = "<group>"
 isa = PBXGroup
 children = (
 				59FF96A81B828B50C83B909A,
+				50FCE37D0F691B627583BB98,
+				5AFAC4FC94E160162F63FA86,
 			)
 name = QuickAdd
 sourceTree = "<group>"
@@ -373,6 +381,7 @@ children = (
 				A02AD233B66F74BD9F299F61,
 				28EB3C7C60A59494EBCF1DB6,
 				E97CA9F72DF1F98EDAF450FD,
+				2B904AA6B2C61A4E1D6BD265,
 				B6865B0230A3E8D3D117D662,
 				028CA90E73153B5664D7DADE,
 				8B2A4251C5F08036C5143754,
@@ -568,6 +577,8 @@ sourceTree = "<group>"
 				3259E6853B08EC5E81DA76A3,
 				25D9D9BBAF11E8A3069BDEE1,
 				6FF6DDB016DF2B02FD481095,
+				D08DF3F5E280539FDB1C492A,
+				872C28BCCB6C4D80926FBF22,
 				3CC87EFDB95C6B77A956A849,
 				EB827E8CEA8A04A2D039D654,
 				3A6CF704850810923C7F9021,
@@ -589,6 +600,7 @@ sourceTree = "<group>"
 				E66D6BF8D7E76CB3153EFB86,
 				865C9E50E97E0D2EA8D53700,
 				AD6813466606742FD4DC49FB,
+				7192B66A6F34AE53096318ED,
 				31C8E445B938D8533C1D3EE8,
 				A59E8BEF51CE9CACB339510E,
 				C7E17EE10ACE4D64FD7CB386,

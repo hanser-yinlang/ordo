@@ -13,8 +13,8 @@
 
 ```
 ordo/
-├── docs/                     ← 工程文档(00–08),契约以 03/04 为准
-├── shared/core/              ← KMP 共享核心(唯一业务实现,含 53 个单元测试)
+├── docs/                     ← 工程文档(00–10),契约以 03/04 为准
+├── shared/core/              ← KMP 共享核心(唯一业务实现,含 69 个单元测试)
 ├── apps/
 │   ├── android/              ← Kotlin + Jetpack Compose
 │   ├── ios/                  ← Swift + SwiftUI + SwiftData(消费 XCFramework)
@@ -44,14 +44,15 @@ ordo/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 共享核心 `shared/core` | ✅ **已编译 + 59 个单元测试全绿** | JDK 21 + Gradle 8.14 实跑 |
-| Windows 桌面端 | ✅ **已编译 + 118 个测试全绿 + MSI/EXE 打包成功(含应用图标)** | `gradlew :apps:windows:test`;`packageDistributionForCurrentOS` → MSI 99.1 MB |
-| 后端 `server` | ✅ **构建 + 128 个测试 + 10 项端到端冒烟全绿 + 真实 PostgreSQL 53 项断言全过** | `pnpm test`;pg-mem 真实执行迁移 SQL;真库 `127.0.0.1:55432` |
-| Android 端 | ✅ **已编译 + APK 产出 + 71 个测试全绿** | `gradlew :apps:android:app:assembleDebug` → `app-debug.apk` 15.7 MB |
-| 鸿蒙端 | ✅ **已编译 + HAP 产出 + ArkTS 告警清零** | `hvigorw assembleHap` → `entry-default-unsigned.hap` 1.10 MB |
-| iOS 端 | 📦 源码就绪 + 预检 34 项通过 | **本机无 macOS,未编译**;`bash apps/ios/tools/verify_ios.sh` 在 macOS/CI 上一条命令跑通 |
+| 共享核心 `shared/core` | ✅ **已编译 + 69 个单元测试全绿**(含 v1.2 会话层 8 条) | JDK 21 + Gradle 8.14 实跑 |
+| **登录体系(五端一致)** | ✅ **启动登录门禁 + 游客登录 + 数据按 userId 隔离**(契约 §7.6) | 后端 143 用例含 12 条游客/升级用例;真库 94 项断言;四端各有登录页/手势/刷新用例与离屏渲染 |
+| Windows 桌面端 | ✅ **已编译 + 198 个测试全绿 + MSI/EXE 打包成功** | `gradlew :apps:windows:test`(24 类,含 14 张离屏截图:登录页 / 快加号菜单 / 刷新中);`packageDistributionForCurrentOS` → MSI 99.3 MB |
+| 后端 `server` | ✅ **构建 + 143 个测试 + 10 项冒烟 + 24 项游客冒烟全绿 + 真实 PostgreSQL 94 项断言全过** | `pnpm test`;`scripts/verify-guest-smoke.ps1`;真库 `127.0.0.1:55432` |
+| Android 端 | ✅ **已编译 + APK(debug 15.1 MB / **已签名** release 2.17 MB)+ 110 个测试全绿** | `gradlew :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest` |
+| 鸿蒙端 | ✅ **已编译 + HAP 产出 + ArkTS 告警清零 + 宿主 116 用例全绿** | `hvigorw assembleHap` → `entry-default-unsigned.hap` 1.34 MB;`python apps/harmony/_qa/build-harness.py` |
+| iOS 端 | 📦 源码就绪 + 契约交叉核对 0 缺失 + 预检 34 项通过 | **本机无 macOS,未编译**;`bash apps/ios/tools/verify_ios.sh` 在 macOS/CI 上一条命令跑通 |
 
-**合计**:约 330 个文件 / 6.4 万行源码与文档;**379 个自动化测试用例全部通过**(另有真实 PostgreSQL 66 项断言);契约一致性检查 × 6 个代码库全部通过;编码扫描零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
+**合计**:约 480 个文件 / 8.3 万行源码与文档;**520 个应用用例(核心 69 + Windows 198 + Android 110 + 后端 143)全部通过**,另有**鸿蒙本机宿主 116 用例**与**真实 PostgreSQL 94 项断言**;契约一致性检查 35 项 × 6 个代码库全部通过;编码扫描 492 个文件零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
 
 > 环境实情:本仓库的开发机为 Windows(仅有 JDK 21 + Gradle 8.14 + Node/pnpm)。凡标注"未编译"的端,均已在对应 README 给出目标环境的完整构建步骤,并用自动检查器逐条核对了契约字段/规则。
 
@@ -63,17 +64,18 @@ ordo/
 $env:JAVA_HOME="<JDK 21 路径>"
 gradle :shared:core:jvmTest        # 或 .\gradlew
 ```
-预期:4 个测试类 / 53 个用例全部通过。
+预期:5 个测试类 / 69 个用例全部通过。
 
 ### 4.2 跑后端
 
 ```bash
 cd server
 pnpm install
-pnpm test          # 内存仓储,无需数据库
+pnpm test          # 内存仓储,无需数据库(143 用例)
 pnpm dev           # 启动服务(默认 8787)
 ```
 接真实 PostgreSQL:`export DATABASE_URL=postgres://user:pass@host:5432/ordo && pnpm migrate && pnpm start`。
+真库回归:`node --import tsx scripts/pg-real-verify.mts`(94 项断言);游客链路冒烟:`powershell -NoProfile -File scripts/verify-guest-smoke.ps1 -DatabaseUrl $env:DATABASE_URL`(24 项)。
 
 ### 4.3 跑 Windows 桌面端
 
@@ -114,7 +116,9 @@ open apps/ios/Ordo.xcodeproj                  # 详见 apps/ios/README.md
 
 ## 6. 已知限制
 
-- 本机无法编译 Android/iOS/鸿蒙三端(缺 SDK 与 macOS),已提供构建步骤与静态检查结论。
+- **iOS 无法在本机编译**(无 macOS/Xcode):本轮改动经契约交叉核对(59 个公开方法 0 缺失)与预检 34 项通过,新增 XCTest 未执行,需在 macOS 上 `bash apps/ios/tools/verify_ios.sh`。
+- Android/HarmonyOS 产物为 debug 或 unsigned 包,装真机需自备签名证书;两端**均未做真机点击与手感走查**(只有编译级 + 离屏渲染 + 纯逻辑用例)。
+- 多设备真实同步联调未做(单机真实 PostgreSQL 94 项断言已过);鸿蒙 `_qa` 宿主为 Hypium 垫片,不替代设备上的权威测试。
 - 日历集成为只读演示数据,系统日历接入在二期。
 - 提醒在 MVP 为本地通知;后台被杀时的可靠投递依赖各平台机制,已列入风险 R-06。
 - 团队协作、Web 端、端到端加密为明确非目标(见章程 §1.2)。

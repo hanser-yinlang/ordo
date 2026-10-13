@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -50,6 +51,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -422,41 +424,61 @@ private fun OrdoFab(
         label = "quickAddScale"
     )
 
+    // 光晕:参照原型那颗按钮四周的**亮蓝柔光**。
+    // ⚠ 不能用 `Modifier.shadow(ambientColor/spotColor)`:Compose Desktop(Skia)不渲染彩色阴影,
+    // 实测按钮边缘外 4px 就已经是背景色(用户当场指出"应该有亮蓝色柔光"),因此显式画径向渐变。
+    // ⚠ 光晕**不参与布局**:用 requiredSize 让它溢出按钮边界(否则外框会把按钮往窗口里推 24dp,
+    // 按钮就不在右下角了,离屏用例里按坐标点也会全部点空)。
+    val glowOuter = OrdoSize.fab + OrdoSize.fabGlow * 2
+    val glowEdge = OrdoSize.fab / glowOuter   // 按钮边缘在渐变里的相对位置(0=圆心,1=最外圈)
     Box(
         Modifier
             .size(OrdoSize.fab)
             .scale(scale)
-            // 8dp 投影(§5.2)
-            // 光晕:参照原型那颗按钮四周的柔光(用主题里的 fabGlow,颜色与填充同源)
-            .shadow(
-                elevation = OrdoSize.fabGlow,
-                shape = CircleShape,
-                ambientColor = colors.fabGlow,
-                spotColor = colors.fabGlow
-            )
-            .clip(CircleShape)
-            // 填充:用户指定对齐参照原型的亮蓝(fab 令牌;悬停略降透明度)
-            .background(if (hovered) colors.fab.copy(alpha = 0.92f) else colors.fab, CircleShape)
-            .pointerInput(Unit) {
-                detectPressGesture(
-                    onPressedChange = onPressedChange,
-                    onArmedChange = onArmedChange,
-                    // 位置参数用不上:按钮只有一个圆形热点,长按落点即按钮内部
-                    onLongPress = { currentLongPress() },
-                    onClick = { currentClick() }
-                )
-            },
-        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            // 与菜单第一项同一枚圆头「+」(20×20 viewBox,stroke 2.1)—— 展开时旋转 45° 变「×」
-            imageVector = OrdoMenuIcons.Todo,
-            contentDescription = if (menuOpen) "收起新建菜单" else "打开新建菜单",
-            tint = Color.White,
-            modifier = Modifier
-                .size(QuickAddVisual.ICON_SIZE)
-                .rotate(rotation)
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .requiredSize(glowOuter)
+                .background(
+                    Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.0f to colors.fabGlow,                         // 圆心(被按钮盖住)
+                            glowEdge to colors.fabGlow.copy(alpha = 0.62f), // 按钮边缘:光晕最亮处
+                            0.80f to colors.fabGlow.copy(alpha = 0.20f),
+                            1.0f to Color.Transparent
+                        )
+                    )
+                )
         )
+
+        Box(
+            Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                // 填充:用户指定对齐参照原型的亮蓝(fab 令牌;悬停略降透明度)
+                .background(if (hovered) colors.fab.copy(alpha = 0.92f) else colors.fab, CircleShape)
+                .pointerInput(Unit) {
+                    detectPressGesture(
+                        onPressedChange = onPressedChange,
+                        onArmedChange = onArmedChange,
+                        // 位置参数用不上:按钮只有一个圆形热点,长按落点即按钮内部
+                        onLongPress = { currentLongPress() },
+                        onClick = { currentClick() }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                // 与菜单第一项同一枚圆头「+」(20×20 viewBox,stroke 2.1)—— 展开时旋转 45° 变「×」
+                imageVector = OrdoMenuIcons.Todo,
+                contentDescription = if (menuOpen) "收起新建菜单" else "打开新建菜单",
+                tint = Color.White,
+                modifier = Modifier
+                    .size(QuickAddVisual.ICON_SIZE)
+                    .rotate(rotation)
+            )
+        }
     }
 }
 

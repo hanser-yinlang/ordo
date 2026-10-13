@@ -46,7 +46,7 @@
     <string name="subtitle_count">%1$d 项</string>
     <string name="status_counts">共 %1$d 项 · 已完成 %2$d 项</string>
     <!-- 纯本地(v1.4):状态栏右侧标识,不再有同步状态文案 -->
-    <string name="status_local_only">仅本机</string>
+    <string name="status_local_only">本地</string>
 
     <!-- 快找 -->
     <string name="fastfind_hint">搜索待办、项目、区域、标签</string>

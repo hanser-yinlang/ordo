@@ -53,9 +53,9 @@ class QuickAddFabLookTest {
     }
 
     @Test
-    fun `按钮直径与光晕尺寸仍是设计令牌`() {
+    fun `按钮直径与光晕厚度仍是设计令牌`() {
         assertEquals(56.dp, OrdoSize.fab)
-        assertEquals("光晕高度由令牌给出,便于整体调", 14.dp, OrdoSize.fabGlow)
+        assertEquals("光晕厚度由令牌给出(参照原型量得 ≈ 按钮半径)", 24.dp, OrdoSize.fabGlow)
     }
 
     @Test
@@ -66,12 +66,17 @@ class QuickAddFabLookTest {
     // ------------------------------------------------------------ 源码级:外观 + 动效
 
     @Test
-    fun `按钮用 fab 令牌填充并使用带光晕的彩色阴影`() {
+    fun `按钮用 fab 令牌填充,光晕是显式径向渐变`() {
         val src = sourceOf("QuickAdd.kt") ?: return
         assertTrue("填充必须走 colors.fab 令牌", src.contains("colors.fab"))
-        assertTrue("必须使用 fabGlow 作为彩色阴影(参照原型的柔光)", src.contains("ambientColor = colors.fabGlow"))
-        assertTrue(src.contains("spotColor = colors.fabGlow"))
-        assertTrue("阴影高度取令牌", src.contains("OrdoSize.fabGlow"))
+        // Compose Desktop 不渲染彩色阴影:必须自己画径向渐变,否则光晕根本不出现
+        assertTrue("光晕要用 Brush.radialGradient 画", src.contains("Brush.radialGradient"))
+        assertTrue("渐变颜色取 fabGlow 令牌", src.contains("colors.fabGlow"))
+        assertTrue("光晕厚度取 OrdoSize.fabGlow", src.contains("OrdoSize.fabGlow"))
+        assertFalse(
+            "不要依赖彩色阴影(桌面端不生效)",
+            src.contains("ambientColor = ") || src.contains("spotColor = ")
+        )
     }
 
     @Test

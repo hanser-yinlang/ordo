@@ -302,7 +302,7 @@ export struct Sidebar {
           Text('序 · Ordo')
             .fontSize(OrdoFont.micro.size)
             .fontColor(this.c().textTertiary)
-          Text('纯本地')
+          Text('本地')
             .fontSize(OrdoFont.micro.size)
             .fontColor(this.c().textTertiary)
         }

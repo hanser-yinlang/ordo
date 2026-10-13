@@ -11,7 +11,7 @@ import { AppStore } from '../viewmodel/AppStore.ets';
 import { ListPage } from '../view/ListPage.ets';
 import { Sidebar } from '../view/Sidebar.ets';
 import { QuickAddFab, QuickAddPanel } from '../view/QuickAddButton.ets';
-import { FAB_MARGIN_BOTTOM, FAB_MARGIN_RIGHT } from '../viewmodel/FabMenu.ets';
+import { FAB_MARGIN_BOTTOM, FAB_MARGIN_RIGHT, fabVisible } from '../viewmodel/FabMenu.ets';
 import { ScheduleSheet } from '../view/ScheduleSheet.ets';
 import { FastFindSheet } from '../view/FastFindSheet.ets';
 import { SettingsSheet } from './SettingsPage.ets';
@@ -162,6 +162,19 @@ struct Index {
         .hitTestBehavior(HitTestMode.Transparent)
       }
 
+      // 快加号(§5.2:只保留这一个圆形按钮,没有独立的折叠箭头)
+      // 摆放规则(§5.2 v1.5):**底边距 = 底栏高度 + 光晕厚度 + 空隙**(= FAB_MARGIN_BOTTOM,见 FabMenu.ets),
+      // 保证按钮**连同 24vp 光晕**都不压住列表底部状态文案;右下与页面留白一致(OrdoSpace.xl)。
+      // ⚠ 必须声明在下面那些模态浮层**之前**:ArkUI 的 Stack 里后声明的画在上面,
+      //   否则打开设置/快找/排期时按钮会压在面板内容上(真机踩过,用户截图反馈"设置界面严重错乱")。
+      //   另外浮层打开时直接不渲染(fabVisible),双保险。
+      if (fabVisible(this.store.settingsOpen, this.store.fastFindOpen, this.store.scheduleTodoId.length > 0)) {
+        Column() {
+          QuickAddFab({ store: this.store })
+        }
+        .margin({ right: FAB_MARGIN_RIGHT, bottom: FAB_MARGIN_BOTTOM })
+      }
+
       // 排期面板(右侧浮层)
       if (this.store.scheduleTodoId.length > 0) {
         Column() {
@@ -201,14 +214,6 @@ struct Index {
         .alignItems(HorizontalAlign.Center)
         .backgroundColor('#00000033')
       }
-
-      // 快加号(§5.2:只保留这一个圆形按钮,没有独立的折叠箭头)
-      // 摆放规则(§5.2 v1.5):**底边距 = 底栏高度 + 光晕厚度 + 空隙**(= FAB_MARGIN_BOTTOM,见 FabMenu.ets),
-      // 保证按钮**连同 24vp 光晕**都不压住列表底部状态文案;右下与页面留白一致(OrdoSpace.xl)。
-      Column() {
-        QuickAddFab({ store: this.store })
-      }
-      .margin({ right: FAB_MARGIN_RIGHT, bottom: FAB_MARGIN_BOTTOM })
 
       // Toast(左滑删除后带「撤销」动作,04 §4 / §6)
       OrdoToast({

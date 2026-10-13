@@ -171,6 +171,40 @@ export function fabGlowOuterColor(): string {
   return '#00' + FAB_FILL_HEX.substring(1);
 }
 
+/* ------------------------------------------------------------ 悬浮按钮里那枚白色「＋」(2026-10-13 按参照图量测) */
+
+/**
+ * 悬浮按钮里的「＋」画布尺寸(vp)。
+ *
+ * 参照图量测:**跨度 ≈21% 按钮直径、笔画 ≈5%**;56 的按钮 → 跨度 ≈11.8vp、笔画 ≈2.8vp。
+ * 画布 26、内缩 7 → 跨度 = 26 − 2×7 = 12vp(21.4%);笔画 2.8(5.0%)。
+ * (菜单里那枚「＋」仍是长而细的 12/20 跨度,两者刻意不同 —— 按钮上的要"短而粗"。)
+ */
+export const FAB_MARK_SIZE: number = 26;
+export const FAB_MARK_INSET: number = 7;
+export const FAB_MARK_STROKE: number = 2.8;
+
+/** 悬浮按钮里「＋」的跨度(vp)= 画布 − 2×内缩 */
+export function fabMarkSpan(): number {
+  return FAB_MARK_SIZE - FAB_MARK_INSET * 2;
+}
+
+/* ------------------------------------------------------------ 可见性(模态浮层之上不得出现按钮) */
+
+/**
+ * 悬浮按钮是否该显示。
+ *
+ * **硬规则**:设置 / 快找 / 排期 这三个模态浮层打开时,悬浮按钮一律**隐藏**。
+ *
+ * 真机踩坑(用户截图):ArkUI 的 `Stack` 里**后声明的画在上面**,而按钮原先声明在面板之后 →
+ * 打开设置面板时,那颗亮蓝按钮**画在面板之上**,压在「打开详情」等文字上,整个设置页像坏掉了。
+ * 只挪顺序也能解决,但"模态之上不该有悬浮按钮"本身就该由状态决定 —— 所以两条一起做:
+ * 视图里把按钮挪到浮层**之前**声明,同时用这个函数在浮层打开时**不渲染**它。
+ */
+export function fabVisible(settingsOpen: boolean, fastFindOpen: boolean, hasScheduleSheet: boolean): boolean {
+  return !settingsOpen && !fastFindOpen && !hasScheduleSheet;
+}
+
 /* ------------------------------------------------------------ 位置避让(§5.2 v1.5 硬约束) */
 
 /** 状态栏/底栏高度(vp):列表底部那行统计文案的高度上限(与 `ListPage.statusBar()` 的 padding + micro 字号一致) */

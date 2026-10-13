@@ -446,8 +446,8 @@ private fun OrdoFab(
                     Brush.radialGradient(
                         colorStops = arrayOf(
                             0.0f to colors.fabGlow,                         // 圆心(被按钮盖住)
-                            glowEdge to colors.fabGlow.copy(alpha = 0.62f), // 按钮边缘:光晕最亮处
-                            0.80f to colors.fabGlow.copy(alpha = 0.20f),
+                            glowEdge to colors.fabGlow.copy(alpha = 0.40f), // 按钮边缘:光晕最亮处(按参照图量测 ≈+44)
+                            0.80f to colors.fabGlow.copy(alpha = 0.16f),
                             1.0f to Color.Transparent
                         )
                     )
@@ -472,8 +472,9 @@ private fun OrdoFab(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                // 与菜单第一项同一枚圆头「+」(20×20 viewBox,stroke 2.1)—— 展开时旋转 45° 变「×」
-                imageVector = OrdoMenuIcons.Todo,
+                // 悬浮按钮专用的「＋」:比菜单那枚**短而粗**(按用户参照图量测:跨度 ≈21%、笔画 ≈5% 按钮直径)
+                // —— 展开时旋转 45° 变「×」
+                imageVector = OrdoMenuIcons.FabMark,
                 contentDescription = if (menuOpen) "收起新建菜单" else "打开新建菜单",
                 tint = Color.White,
                 modifier = Modifier

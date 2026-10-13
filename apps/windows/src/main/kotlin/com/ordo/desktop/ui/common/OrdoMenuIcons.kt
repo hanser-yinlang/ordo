@@ -32,12 +32,36 @@ object OrdoMenuIcons {
 
     /** §5.2:＋ 的 stroke = 2.1 */
     private const val PLUS_STROKE = 2.1f
+    /** 悬浮按钮那枚「＋」的笔画(比菜单版粗:按参照图量得占按钮直径 ≈5%) */
+    private const val FAB_MARK_STROKE = 2.65f
 
     /** §5.2:H 与 ≡ 的 stroke = 1.7 */
     private const val HEADING_STROKE = 1.7f
 
     /** §5.2:区域方框的 stroke = 1.5 */
     private const val AREA_STROKE = 1.5f
+
+    /**
+     * **悬浮按钮专用**的「＋」(展开时旋转 45° 变「×」)。
+     *
+     * 与菜单里的 [Todo] 刻意不同(2026-10-13 按用户给的参照图量测):
+     * 参照图的标记是**短而粗**——跨度 ≈18% 按钮直径、笔画 ≈5%;菜单那枚是长而细(24% / 4%)。
+     * 换算到本 20×20 viewBox、按 22dp 渲染:跨度 10.7 单位(≈21%)、笔画 2.65 单位(≈5.2%)。
+     */
+    val FabMark: ImageVector = ImageVector.Builder(
+        name = "OrdoFabMark",
+        defaultWidth = 20.dp,
+        defaultHeight = 20.dp,
+        viewportWidth = 20f,
+        viewportHeight = 20f
+    ).apply {
+        strokePath(FAB_MARK_STROKE) {
+            moveTo(10f, 4.65f)
+            verticalLineTo(15.35f)
+            moveTo(4.65f, 10f)
+            horizontalLineTo(15.35f)
+        }
+    }.build()
 
     /** 新建待办:＋(`(4,10)-(16,10)` 与 `(10,4)-(10,16)`,stroke 2.1 圆头) */
     val Todo: ImageVector = ImageVector.Builder(

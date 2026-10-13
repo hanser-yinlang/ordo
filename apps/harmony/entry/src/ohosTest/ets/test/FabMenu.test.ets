@@ -24,6 +24,10 @@ import {
   FAB_GLOW_INNER_STOP,
   FAB_GLOW_OUTER_STOP,
   FAB_GLOW_RENDER_MODE,
+  FAB_MARK_INSET,
+  FAB_MARK_SIZE,
+  FAB_MARK_STROKE,
+  fabMarkSpan,
   FAB_GLOW_THICKNESS,
   FAB_MARGIN_BOTTOM,
   FAB_MARGIN_RIGHT,
@@ -59,6 +63,7 @@ import {
   fabGlowDiameter,
   fabGlowInnerColor,
   fabGlowOuterColor,
+  fabVisible,
   fabMenuItems
 } from '../../../main/ets/viewmodel/FabMenu.ets';
 
@@ -230,6 +235,28 @@ export default function fabMenuTest() {
       expect(FAB_MARGIN_RIGHT).assertEqual(24);
       // 光晕比按钮每边大 24:底边距必须把这 24 算进去
       expect(fabGlowDiameter() - FAB_SIZE).assertEqual(FAB_GLOW_THICKNESS * 2);
+    });
+
+    it('fab_mark_is_short_and_thick_like_the_reference', 0, () => {
+      // 2026-10-13 按用户参照图量测:按钮里的「＋」跨度 ≈21% 按钮直径、笔画 ≈5%(短而粗)
+      expect(fabMarkSpan()).assertEqual(FAB_MARK_SIZE - FAB_MARK_INSET * 2);
+      const spanRatio: number = fabMarkSpan() / FAB_SIZE;
+      const strokeRatio: number = FAB_MARK_STROKE / FAB_SIZE;
+      expect(spanRatio > 0.19 && spanRatio < 0.24).assertTrue();
+      expect(strokeRatio > 0.04 && strokeRatio < 0.06).assertTrue();
+      // 必须与菜单里那枚"长而细"的「＋」区分开(菜单跨度 12/20)
+      expect(FAB_MARK_SIZE - FAB_MARK_INSET * 2).assertEqual(12);
+      expect(FAB_MARK_STROKE > PLUS_STROKE).assertTrue();
+    });
+
+    it('fab_hidden_when_any_modal_sheet_is_open', 0, () => {
+      // 真机踩坑(用户截图):按钮原先声明在模态浮层之后 → ArkUI 里后声明者在上,
+      // 打开设置面板时按钮画在面板上、压住文字。规则:任一浮层打开就不渲染按钮。
+      expect(fabVisible(false, false, false)).assertTrue();
+      expect(fabVisible(true, false, false)).assertFalse();
+      expect(fabVisible(false, true, false)).assertFalse();
+      expect(fabVisible(false, false, true)).assertFalse();
+      expect(fabVisible(true, true, true)).assertFalse();
     });
   });
 }

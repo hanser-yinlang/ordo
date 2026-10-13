@@ -134,4 +134,20 @@ class QuickAddFabStyleTest {
             shell.contains(".padding(OrdoSpace.xl)"),
         )
     }
+
+    @Test
+    fun `按钮里的加号是短而粗`() {
+        // 2026-10-13 用户给参照图:按钮里的「＋」跨度 ≈21% 按钮直径、笔画 ≈5%(短而粗);
+        // 菜单里那枚是长而细(22dp / 2.1),两者刻意不同 —— 别把 FAB 改回菜单那套参数。
+        val source = TestSource.readCode("java/com/ordo/android/ui/quickadd/QuickAdd.kt")
+
+        assertTrue("FAB 的「＋」画布应为 20dp", source.contains("size = 20.dp"))
+        assertTrue("FAB 的「＋」笔画应为 2.65", source.contains("strokeWidth = 2.65f"))
+        assertFalse("FAB 不得回退成长而细的菜单参数(22dp)", source.contains("size = 22.dp"))
+        assertFalse("FAB 不得回退成菜单笔画 2.1", source.contains("strokeWidth = 2.1f"))
+        val spanRatio = 12.0 / 56.0          // 20dp 画布 × 12/20 跨度 = 12dp
+        val strokeRatio = 2.65 / 56.0
+        assertTrue("跨度占按钮直径应在 19%~24%:$spanRatio", spanRatio > 0.19 && spanRatio < 0.24)
+        assertTrue("笔画占按钮直径应在 4%~6%:$strokeRatio", strokeRatio > 0.04 && strokeRatio < 0.06)
+    }
 }

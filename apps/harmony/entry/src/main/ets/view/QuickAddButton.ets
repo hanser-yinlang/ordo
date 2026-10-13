@@ -57,6 +57,9 @@ import {
   FAB_GLOW_INNER_STOP,
   FAB_GLOW_OUTER_STOP,
   FAB_GLOW_THICKNESS,
+  FAB_MARK_INSET,
+  FAB_MARK_SIZE,
+  FAB_MARK_STROKE,
   fabGlowDiameter,
   fabGlowInnerColor,
   fabGlowOuterColor,
@@ -72,10 +75,7 @@ import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoMotion, OrdoRadius, OrdoSize
  */
 const QUICK_ADD_INPUT_ID: string = 'ordo_quick_add_input';
 
-/** 快加号里那个白色「+」的画布与线宽(矢量,不用字体字符) */
-const FAB_PLUS_SIZE: number = 26;
-const FAB_PLUS_INSET: number = 5;
-const FAB_PLUS_STROKE: number = 2.6;
+// 悬浮按钮里那枚白色「＋」的画布/内缩/线宽来自 `viewmodel/FabMenu.ets`(单一事实来源,宿主用例可测)
 
 @Component
 export struct QuickAddFab {
@@ -388,14 +388,14 @@ export struct QuickAddFab {
           .height(OrdoSize.quickAdd)
           .fill(this.c().fab)
         Line()
-          .width(FAB_PLUS_SIZE).height(FAB_PLUS_SIZE)
-          .startPoint([FAB_PLUS_INSET, FAB_PLUS_SIZE / 2]).endPoint([FAB_PLUS_SIZE - FAB_PLUS_INSET, FAB_PLUS_SIZE / 2])
-          .stroke('#FFFFFF').strokeWidth(FAB_PLUS_STROKE)
+          .width(FAB_MARK_SIZE).height(FAB_MARK_SIZE)
+          .startPoint([FAB_MARK_INSET, FAB_MARK_SIZE / 2]).endPoint([FAB_MARK_SIZE - FAB_MARK_INSET, FAB_MARK_SIZE / 2])
+          .stroke('#FFFFFF').strokeWidth(FAB_MARK_STROKE)
           .strokeLineCap(LineCapStyle.Round)
         Line()
-          .width(FAB_PLUS_SIZE).height(FAB_PLUS_SIZE)
-          .startPoint([FAB_PLUS_SIZE / 2, FAB_PLUS_INSET]).endPoint([FAB_PLUS_SIZE / 2, FAB_PLUS_SIZE - FAB_PLUS_INSET])
-          .stroke('#FFFFFF').strokeWidth(FAB_PLUS_STROKE)
+          .width(FAB_MARK_SIZE).height(FAB_MARK_SIZE)
+          .startPoint([FAB_MARK_SIZE / 2, FAB_MARK_INSET]).endPoint([FAB_MARK_SIZE / 2, FAB_MARK_SIZE - FAB_MARK_INSET])
+          .stroke('#FFFFFF').strokeWidth(FAB_MARK_STROKE)
           .strokeLineCap(LineCapStyle.Round)
       }
       .width(OrdoSize.quickAdd)

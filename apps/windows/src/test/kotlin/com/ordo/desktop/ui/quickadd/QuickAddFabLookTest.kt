@@ -82,7 +82,7 @@ class QuickAddFabLookTest {
     @Test
     fun `按钮里的白色加号与菜单同一套圆头几何`() {
         val src = sourceOf("QuickAdd.kt") ?: return
-        assertTrue("按钮图标应为菜单同款圆头「+」(OrdoMenuIcons.Todo)", src.contains("imageVector = OrdoMenuIcons.Todo"))
+        assertTrue("按钮用悬浮按钮专用「＋」几何(OrdoMenuIcons.FabMark)", src.contains("imageVector = OrdoMenuIcons.FabMark"))
         assertTrue("图标必须是白色", src.contains("tint = Color.White"))
         assertTrue("展开时旋转 45°", src.contains("rotate(rotation)"))
     }

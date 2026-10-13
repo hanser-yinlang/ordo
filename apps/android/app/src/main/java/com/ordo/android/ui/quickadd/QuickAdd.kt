@@ -198,9 +198,12 @@ fun QuickAddFab(
         ) {
             OrdoIcon(
                 kind = OrdoIconKind.Plus,
-                size = 22.dp,
+                // 2026-10-13 按用户参照图量测:按钮里的「＋」要**短而粗** —— 跨度 ≈21% 按钮直径、
+                // 笔画 ≈5%。20dp 画布下:跨度 12/20×20 = 12dp(21.4%)、笔画 2.65/20×20 ≈ 2.65dp(4.7%)。
+                // (菜单里那枚仍是 22dp / 2.1,长而细,两者刻意不同。)
+                size = 20.dp,
                 tint = colors.onAccent,
-                strokeWidth = 2.1f,
+                strokeWidth = 2.65f,
                 modifier = Modifier.rotate(rotation),
             )
         }

@@ -1,5 +1,5 @@
 /**
- * Ordo · ohosTest 测试入口(聚合十组用例)
+ * Ordo · ohosTest 测试入口(聚合十一组用例)
  * 运行:DevEco Studio → 右键 entry/src/ohosTest → Run 'OhosTest'
  */
 
@@ -13,6 +13,7 @@ import pressGestureTest from './PressGesture.test';
 import localWorkspaceTest from './LocalWorkspace.test';
 import relationalStoreTest from './RelationalStore.test';
 import fabMenuTest from './FabMenu.test';
+import sheetMetricsTest from './SheetMetrics.test';
 
 export default function testsuite() {
   naturalDateParserTest();
@@ -26,4 +27,5 @@ export default function testsuite() {
   localWorkspaceTest();
   relationalStoreTest();
   fabMenuTest();
+  sheetMetricsTest();
 }

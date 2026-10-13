@@ -16,6 +16,11 @@ import { ScheduleSheet } from '../view/ScheduleSheet.ets';
 import { FastFindSheet } from '../view/FastFindSheet.ets';
 import { SettingsSheet } from './SettingsPage.ets';
 import { OrdoToast } from '../view/Common/OrdoToast.ets';
+import {
+  SCHEDULE_SHEET_DESIGN_MAX,
+  SETTINGS_SHEET_DESIGN_MAX,
+  sheetMaxHeight
+} from '../viewmodel/SheetMetrics.ets';
 import { OrdoColors, OrdoMotion, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 
 @Entry
@@ -23,6 +28,8 @@ import { OrdoColors, OrdoMotion, OrdoSize, OrdoSpace } from '../theme/Tokens.ets
 struct Index {
   @State store: AppStore = AppStore.instance();
   @State viewWidth: number = 1280;
+  /** 窗口高度(vp):浮层上限要用它算,别在组件里写死(见 viewmodel/SheetMetrics.ets) */
+  @State viewHeight: number = 800;
   /** 主界面进入动效(登录成功:卡片淡出 160ms → 主界面淡入 220ms,§5.1) */
   @State private mainIn: boolean = false;
   /** EntryAbility 写入的深链序号,变化即消费一次 */
@@ -179,7 +186,10 @@ struct Index {
       // 排期面板(右侧浮层)
       if (this.store.scheduleTodoId.length > 0) {
         Column() {
-          ScheduleSheet({ store: this.store })
+          ScheduleSheet({
+            store: this.store,
+            maxHeight: sheetMaxHeight(this.viewHeight, SCHEDULE_SHEET_DESIGN_MAX)
+          })
         }
         .width('100%')
         .height('100%')
@@ -207,7 +217,10 @@ struct Index {
       // 设置
       if (this.store.settingsOpen) {
         Column() {
-          SettingsSheet({ store: this.store })
+          SettingsSheet({
+            store: this.store,
+            maxHeight: sheetMaxHeight(this.viewHeight, SETTINGS_SHEET_DESIGN_MAX)
+          })
         }
         .width('100%')
         .height('100%')
@@ -250,6 +263,10 @@ struct Index {
       if (!isNaN(w)) {
         this.viewWidth = w;
         this.store.narrow = w < OrdoSize.breakpointMedium;
+      }
+      const h: number = Number(newValue.height);
+      if (!isNaN(h)) {
+        this.viewHeight = h;
       }
     })
   }

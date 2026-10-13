@@ -7,11 +7,21 @@ import { ParsedInput, parseNaturalNow } from '../core/nlp/NaturalDateParser.ets'
 import { Todo } from '../core/model/Entities.ets';
 import { addDays, fmtMonthDay, isValidISODate, lastDayOfMonth, pad2, todayISO, weekdayIndex } from '../core/util/DateUtil.ets';
 import { AppStore } from '../viewmodel/AppStore.ets';
+import {
+  SCHEDULE_SHEET_CHROME,
+  SCHEDULE_SHEET_DESIGN_MAX,
+  sheetScrollMaxHeight
+} from '../viewmodel/SheetMetrics.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoRadius, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 
 @Component
 export struct ScheduleSheet {
   @ObjectLink store: AppStore;
+  /**
+   * 面板允许的最大高度(vp),由**当前窗口高度**算出(见 `viewmodel/SheetMetrics.ets`)。
+   * 不能写死:这块内容含整张月历,约 740vp,矮屏/分屏上会溢出面板(ArkUI 不裁剪 → 画到面板外)。
+   */
+  @Prop maxHeight: number = SCHEDULE_SHEET_DESIGN_MAX;
   @State private draft: string = '';
   @State private year: number = 0;
   @State private month: number = 0;
@@ -231,86 +241,101 @@ export struct ScheduleSheet {
       }
       .width('100%')
 
-      // 自然语言输入(契约 §5)
-      TextInput({ placeholder: '试试「明天」「周五」「18:00」「3 天后」', text: this.draft })
-        .height(40)
-        .fontSize(OrdoFont.body.size)
-        .backgroundColor(this.c().chipBg)
-        .borderRadius(OrdoRadius.row)
-        .onChange((value: string) => {
-          this.draft = value;
-        })
-        .onSubmit(() => {
-          this.applyParsed();
-        })
+      /*
+       * 内容区:含整张月历,约 740vp —— 矮屏/分屏必然超出面板高度。
+       * 必须内部滚动 + clip:ArkUI 默认不裁剪溢出子组件,否则多出来的行会画到面板外面
+       * (与设置面板同一个坑,见 SheetMetrics.ets 顶部注释)。
+       */
+      Scroll() {
+        Column({ space: OrdoSpace.s }) {
+          // 自然语言输入(契约 §5)
+          TextInput({ placeholder: '试试「明天」「周五」「18:00」「3 天后」', text: this.draft })
+            .height(40)
+            .fontSize(OrdoFont.body.size)
+            .backgroundColor(this.c().chipBg)
+            .borderRadius(OrdoRadius.row)
+            .onChange((value: string) => {
+              this.draft = value;
+            })
+            .onSubmit(() => {
+              this.applyParsed();
+            })
 
-      if (this.draft.trim().length > 0) {
-        Text(this.previewText())
-          .fontSize(OrdoFont.micro.size)
-          .fontColor(this.c().accentPrimary)
+          if (this.draft.trim().length > 0) {
+            Text(this.previewText())
+              .fontSize(OrdoFont.micro.size)
+              .fontColor(this.c().accentPrimary)
+              .width('100%')
+          }
+
+          Row() {
+            Text('应用')
+              .fontSize(OrdoFont.caption.size)
+              .fontColor('#FFFFFF')
+              .backgroundColor(this.c().accentPrimary)
+              .height(32)
+              .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+              .borderRadius(OrdoRadius.pill)
+              .onClick(() => {
+                this.applyParsed();
+              })
+            Blank()
+          }
           .width('100%')
-      }
 
-      Row() {
-        Text('应用')
-          .fontSize(OrdoFont.caption.size)
-          .fontColor('#FFFFFF')
-          .backgroundColor(this.c().accentPrimary)
-          .height(32)
-          .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
-          .borderRadius(OrdoRadius.pill)
-          .onClick(() => {
-            this.applyParsed();
+          Divider().color(this.c().lineHairline)
+
+          this.quickItem('★', '今天', (): void => {
+            this.applyWhen('today', '');
           })
-        Blank()
-      }
-      .width('100%')
+          this.quickItem('☾', '今晚', (): void => {
+            this.applyWhen('evening', '');
+          })
+          this.quickItem('▦', '明天', (): void => {
+            this.applyWhen('date', addDays(todayISO(), 1));
+          })
+          this.quickItem('▤', '本周末', (): void => {
+            const cur: number = weekdayIndex(todayISO());
+            let delta: number = (6 - cur + 7) % 7;
+            if (delta === 0) {
+              delta = 7;
+            }
+            this.applyWhen('date', addDays(todayISO(), delta));
+          })
+          this.quickItem('◇', '某天', (): void => {
+            this.applyWhen('someday', '');
+          })
 
-      Divider().color(this.c().lineHairline)
+          Divider().color(this.c().lineHairline)
 
-      this.quickItem('★', '今天', (): void => {
-        this.applyWhen('today', '');
-      })
-      this.quickItem('☾', '今晚', (): void => {
-        this.applyWhen('evening', '');
-      })
-      this.quickItem('▦', '明天', (): void => {
-        this.applyWhen('date', addDays(todayISO(), 1));
-      })
-      this.quickItem('▤', '本周末', (): void => {
-        const cur: number = weekdayIndex(todayISO());
-        let delta: number = (6 - cur + 7) % 7;
-        if (delta === 0) {
-          delta = 7;
+          this.calendar()
+
+          Divider().color(this.c().lineHairline)
+
+          Row({ space: OrdoSpace.s }) {
+            Text('✕')
+              .fontSize(OrdoFont.caption.size)
+              .fontColor(this.c().stateDanger)
+            Text(this.isDeadline() ? '清除截止日期' : '清除时间')
+              .fontSize(OrdoFont.body.size)
+              .fontColor(this.c().stateDanger)
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .height(OrdoSize.minTouchTarget)
+          .onClick(() => {
+            this.applyWhen('anytime', '');
+          })
         }
-        this.applyWhen('date', addDays(todayISO(), delta));
-      })
-      this.quickItem('◇', '某天', (): void => {
-        this.applyWhen('someday', '');
-      })
-
-      Divider().color(this.c().lineHairline)
-
-      this.calendar()
-
-      Divider().color(this.c().lineHairline)
-
-      Row({ space: OrdoSpace.s }) {
-        Text('✕')
-          .fontSize(OrdoFont.caption.size)
-          .fontColor(this.c().stateDanger)
-        Text(this.isDeadline() ? '清除截止日期' : '清除时间')
-          .fontSize(OrdoFont.body.size)
-          .fontColor(this.c().stateDanger)
-          .layoutWeight(1)
+        .width('100%')
       }
       .width('100%')
-      .height(OrdoSize.minTouchTarget)
-      .onClick(() => {
-        this.applyWhen('anytime', '');
-      })
+      .constraintSize({ maxHeight: sheetScrollMaxHeight(this.maxHeight, SCHEDULE_SHEET_CHROME) })
+      .scrollBar(BarState.Auto)
+      .clip(true)
     }
     .width(OrdoSize.sheetWidth)
+    .constraintSize({ maxHeight: this.maxHeight })
     .padding(OrdoSpace.l)
     .backgroundColor(this.c().bgSurface)
     .borderRadius(OrdoRadius.sheet)

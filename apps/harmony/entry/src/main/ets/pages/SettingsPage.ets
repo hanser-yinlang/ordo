@@ -9,11 +9,22 @@
  */
 
 import { AppStore } from '../viewmodel/AppStore.ets';
+import {
+  SETTINGS_SHEET_CHROME,
+  SETTINGS_SHEET_DESIGN_MAX,
+  sheetMaxHeight,
+  sheetScrollMaxHeight
+} from '../viewmodel/SheetMetrics.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoRadius, OrdoSize, OrdoSpace, OrdoTheme, ThemeMode } from '../theme/Tokens.ets';
 
 @Component
 export struct SettingsSheet {
   @ObjectLink store: AppStore;
+  /**
+   * 面板允许的最大高度(vp),由**当前窗口高度**算出(见 `viewmodel/SheetMetrics.ets`)。
+   * 不要再写死数字:矮屏/分屏上写死会让内容溢出面板、画到底部状态栏上。
+   */
+  @Prop maxHeight: number = SETTINGS_SHEET_DESIGN_MAX;
 
   private c(): OrdoColorTokens {
     return OrdoColors.of(this.store.isDark());
@@ -106,54 +117,69 @@ export struct SettingsSheet {
       }
       .width('100%')
 
-      this.sectionTitle('外观')
-      Row({ space: OrdoSpace.s }) {
-        this.themeChip('auto')
-        this.themeChip('light')
-        this.themeChip('dark')
+      /*
+       * 内容区:比面板高时**在面板内部滚动**。
+       * 真机踩坑:原先这一段直接摊在 Column 里,面板 `maxHeight: 640` 而内容约 900+,
+       * ArkUI 又默认不裁剪 —— 多出来的行就画到了面板外面,压住列表底部状态栏
+       * (用户截图反馈「设置界面底部有严重问题」)。现在:滚动容器 + 明确 clip。
+       */
+      Scroll() {
+        Column({ space: OrdoSpace.xs }) {
+          this.sectionTitle('外观')
+          Row({ space: OrdoSpace.s }) {
+            this.themeChip('auto')
+            this.themeChip('light')
+            this.themeChip('dark')
+          }
+          .width('100%')
+
+          this.sectionTitle('数据与存储')
+          this.row('存储方式', this.store.storageText())
+          this.row('设备 ID', this.store.deviceText())
+          this.row('统计', this.store.statsText())
+
+          this.sectionTitle('本地数据')
+          // 契约 §7.6.6:工作区标识 = 本机稳定 id,数据落在 <databaseDir>/rdb/<标识>/ordo.db
+          this.rowId('工作区标识', this.store.accountDirText(), 'ordo_settings_session')
+          this.rowId('数据目录', this.store.userDirText(), 'ordo_settings_userdir')
+          this.row('库文件', this.store.dataPathText())
+
+          this.sectionTitle('键盘与手势(鸿蒙)')
+          this.row('新建待办', '快加号 / 长按')
+          this.row('快找', '顶部搜索图标')
+          this.row('打开详情', '点击待办行')
+          this.row('切换完成', '点击复选框 / 右滑')
+          this.row('删除', '左滑删除')
+          this.row('排期', '行右滑 / 行内日历按钮')
+          this.row('切换深色', '设置项 / 侧栏主题按钮')
+          this.row('关闭浮层', '返回键')
+
+          this.sectionTitle('示例数据')
+          Row({ space: OrdoSpace.s }) {
+            Text('恢复默认示例数据')
+              .fontSize(OrdoFont.caption.size)
+              .fontColor(this.c().stateDanger)
+              .height(32)
+              .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+              .borderRadius(OrdoRadius.pill)
+              .backgroundColor(this.c().chipBg)
+              .textAlign(TextAlign.Center)
+              .onClick(() => {
+                this.store.resetToSeedData();
+              })
+            Blank()
+          }
+          .width('100%')
+        }
+        .width('100%')
       }
       .width('100%')
-
-      this.sectionTitle('数据与存储')
-      this.row('存储方式', this.store.storageText())
-      this.row('设备 ID', this.store.deviceText())
-      this.row('统计', this.store.statsText())
-
-      this.sectionTitle('本地数据')
-      // 契约 §7.6.6:工作区标识 = 本机稳定 id,数据落在 <databaseDir>/rdb/<标识>/ordo.db
-      this.rowId('工作区标识', this.store.accountDirText(), 'ordo_settings_session')
-      this.rowId('数据目录', this.store.userDirText(), 'ordo_settings_userdir')
-      this.row('库文件', this.store.dataPathText())
-
-      this.sectionTitle('键盘与手势(鸿蒙)')
-      this.row('新建待办', '快加号 / 长按')
-      this.row('快找', '顶部搜索图标')
-      this.row('打开详情', '点击待办行')
-      this.row('切换完成', '点击复选框 / 右滑')
-      this.row('删除', '左滑删除')
-      this.row('排期', '行右滑 / 行内日历按钮')
-      this.row('切换深色', '设置项 / 侧栏主题按钮')
-      this.row('关闭浮层', '返回键')
-
-      this.sectionTitle('示例数据')
-      Row({ space: OrdoSpace.s }) {
-        Text('恢复默认示例数据')
-          .fontSize(OrdoFont.caption.size)
-          .fontColor(this.c().stateDanger)
-          .height(32)
-          .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
-          .borderRadius(OrdoRadius.pill)
-          .backgroundColor(this.c().chipBg)
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.store.resetToSeedData();
-          })
-        Blank()
-      }
-      .width('100%')
+      .constraintSize({ maxHeight: sheetScrollMaxHeight(this.maxHeight, SETTINGS_SHEET_CHROME) })
+      .scrollBar(BarState.Auto)
+      .clip(true)
     }
     .width('100%')
-    .constraintSize({ maxWidth: 520, maxHeight: 640 })
+    .constraintSize({ maxWidth: 520, maxHeight: this.maxHeight })
     .padding(OrdoSpace.xl)
     .backgroundColor(this.c().bgSurface)
     .borderRadius(OrdoRadius.sheet)
@@ -166,15 +192,26 @@ export struct SettingsSheet {
 @Component
 struct SettingsPage {
   @State store: AppStore = AppStore.instance();
+  /** 窗口高度(vp):独立打开这一页时也要用真实高度收敛面板,别写死 */
+  @State private viewHeight: number = 0;
 
   build() {
     Column() {
-      SettingsSheet({ store: this.store })
+      SettingsSheet({
+        store: this.store,
+        maxHeight: sheetMaxHeight(this.viewHeight, SETTINGS_SHEET_DESIGN_MAX)
+      })
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .alignItems(HorizontalAlign.Center)
     .backgroundColor(OrdoColors.of(this.store.isDark()).bgCanvas)
+    .onAreaChange((oldValue: Area, newValue: Area) => {
+      const h: number = Number(newValue.height);
+      if (!isNaN(h)) {
+        this.viewHeight = h;
+      }
+    })
   }
 }

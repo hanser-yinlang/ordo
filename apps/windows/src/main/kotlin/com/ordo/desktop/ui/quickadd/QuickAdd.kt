@@ -125,7 +125,9 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
 
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
         Column(
-            Modifier.padding(end = OrdoSpace.xl, bottom = OrdoSpace.xl),
+            // 底部留出「状态栏高度 + 光晕厚度」:悬浮按钮(含柔光)**整体浮在状态栏之上**,
+            // 否则按钮与光晕会压住状态栏文案(用户实测:亮蓝光晕洗到右下角「本地」上)
+            Modifier.padding(end = OrdoSpace.xl, bottom = OrdoSize.statusBar + OrdoSize.fabGlow),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(OrdoSpace.s)
         ) {

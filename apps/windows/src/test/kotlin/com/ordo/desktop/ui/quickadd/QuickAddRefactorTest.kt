@@ -125,11 +125,12 @@ class QuickAddRefactorTest {
         }
     }
 
-    /** 加号圆心:与 QuickAdd 的布局对齐(xl 边距 + fab 直径) */
+    /** 加号圆心:与 QuickAdd 的布局对齐(右 xl;底 = 状态栏高度 + 光晕厚度 + 按钮半径) */
     private fun fabCenter(width: Int, height: Int): Offset {
         val margin = OrdoSpace.xl.value
+        val bottom = OrdoSize.statusBar.value + OrdoSize.fabGlow.value
         val size = OrdoSize.fab.value
-        return Offset(width - margin - size / 2f, height - margin - size / 2f)
+        return Offset(width - margin - size / 2f, height - bottom - size / 2f)
     }
 
     @Test

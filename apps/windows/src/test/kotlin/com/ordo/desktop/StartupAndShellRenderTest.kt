@@ -12,6 +12,7 @@ import com.ordo.core.storage.InMemoryStorage
 import com.ordo.core.store.OrdoEngine
 import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
+import com.ordo.desktop.ui.theme.OrdoSize
 import com.ordo.desktop.ui.shell.OrdoApp
 import com.ordo.desktop.ui.theme.OrdoTheme
 import java.io.File
@@ -124,6 +125,46 @@ class StartupAndShellRenderTest {
         } finally {
             scene.close()
         }
+    }
+
+    /**
+     * 悬浮按钮(含亮蓝柔光)**不得压到底部状态栏**。
+     *
+     * 用户实测截图:光晕把右下角的「本地」洗成一片蓝。这条用真像素把布局钉死 ——
+     * 状态栏那一条(底部 [OrdoSize.statusBar] 高)里不允许出现任何明显偏蓝的像素。
+     */
+    @Test
+    fun `悬浮按钮与光晕不得压到状态栏`() {
+        val vm = viewModel()
+        val width = 1440
+        val height = 900
+        val bytes = renderBytes(width, height) { OrdoApp(vm) }
+
+        val image = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes))
+        assertTrue("截图应能解码", image != null && image.width == width)
+
+        val statusBarTop = height - OrdoSize.statusBar.value.toInt()
+        var bluish = 0
+        var sample: Pair<Int, Int>? = null
+        for (y in statusBarTop until height) {
+            for (x in 0 until width) {
+                val rgb = image.getRGB(x, y)
+                val r = (rgb shr 16) and 0xFF
+                val g = (rgb shr 8) and 0xFF
+                val b = rgb and 0xFF
+                // 明显偏蓝(悬浮按钮的填充或光晕)都算越界;状态栏只有灰色文字与 1px 边线
+                if (b > 170 && b - r > 40) {
+                    bluish += 1
+                    if (sample == null) sample = x to y
+                }
+            }
+        }
+        assertEquals(
+            "状态栏区域(y ≥ $statusBarTop)不该出现蓝/淡蓝像素,否则就是悬浮按钮或光晕压上去了;" +
+                "首个越界像素: $sample",
+            0,
+            bluish
+        )
     }
 
     @Test

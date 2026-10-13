@@ -148,6 +148,14 @@ object OrdoSize {
 
     /** 快加号光晕的**厚度**(从按钮边缘向外渐隐;参照原型的量测值 ≈ 按钮半径) */
     val fabGlow: Dp = 24.dp
+
+    /**
+     * 底部状态栏高度:1px 上边线 + 上下各 8dp 内边距 + 18sp 行高 ≈ 34dp(量自离屏渲染)。
+     *
+     * 悬浮按钮要**整体(含光晕)浮在它上面** —— 否则按钮和光晕会压住状态栏里的文案
+     * (用户实测截图:光晕洗到右下角「本地」上)。
+     */
+    val statusBar: Dp = 34.dp
     val iconSm: Dp = 14.dp
     val icon: Dp = 18.dp
     val touchTarget: Dp = 32.dp

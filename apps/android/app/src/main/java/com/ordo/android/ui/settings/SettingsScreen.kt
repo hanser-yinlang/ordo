@@ -36,9 +36,8 @@ import com.ordo.android.vm.UiState
 /**
  * 设置（04 文档 §6）。
  *
- * v1.3（不再需要登录）：**已删除「账号 / 退出登录 / 服务器地址」区块** ——
- * 会话由后台静默匿名建号维护（`auth/SilentSession.kt`），用户无需也无法在这里管理账号；
- * 服务器地址改为**隐藏覆盖**（仍读引导库 kv `ordo.serverUrl`，默认值不变，见 apps/android/README.md）。
+ * v1.4（彻底删除云同步）：应用是**纯本地**的 —— 没有账号、没有服务器地址、没有同步操作，
+ * 设置页只保留外观 / 数据（重置为示例数据）/ 关于。
  */
 @Composable
 fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
@@ -70,7 +69,7 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
             }
         }
 
-        /* 数据 */
+        /* 数据（纯本地：v1.4 起没有「立即同步」这类同步操作） */
         SectionCard(
             stringResource(R.string.settings_data),
             stringResource(R.string.settings_data_desc, state.totalCount),
@@ -80,10 +79,6 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
                     label = stringResource(R.string.settings_reset),
                     onClick = { confirmReset = true },
                     danger = true,
-                )
-                OrdoButton(
-                    label = stringResource(R.string.settings_sync_now),
-                    onClick = { vm.syncNow() },
                 )
             }
             if (confirmReset) {

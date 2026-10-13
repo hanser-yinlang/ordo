@@ -7,7 +7,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import { Heading, Op, Project, Todo } from '../../../main/ets/core/model/Entities.ets';
 import { OrdoEngine } from '../../../main/ets/core/store/OrdoEngine.ets';
 import { MemoryOrdoStore } from '../../../main/ets/core/storage/MemoryStore.ets';
-import { ApplyResult } from '../../../main/ets/core/sync/SyncTypes.ets';
+import { ApplyResult } from '../../../main/ets/core/store/ApplyTypes.ets';
 import { todayISO } from '../../../main/ets/core/util/DateUtil.ets';
 import { makeTodo, TodoOverrides } from './Fixtures.ets';
 

@@ -84,17 +84,10 @@
         ]
       }
     ],
+    // v1.5 纯本地应用:**不再申请 INTERNET 权限**(已删除),因为代码里已没有任何网络调用
+    // (SyncApi/SyncEngine/RealtimeClient/会话全部移除)。其余权限与网络无关:
+    // NOTIFICATION_CONTROLLER 用于本地提醒通知,PUBLISH_AGENT_REMINDER 用于 reminderAgentManager。
     "requestPermissions": [
-      {
-        "name": "ohos.permission.INTERNET",
-        "reason": "$string:reason_internet",
-        "usedScene": {
-          "abilities": [
-            "EntryAbility"
-          ],
-          "when": "always"
-        }
-      },
       {
         "name": "ohos.permission.NOTIFICATION_CONTROLLER",
         "reason": "$string:reason_notification",

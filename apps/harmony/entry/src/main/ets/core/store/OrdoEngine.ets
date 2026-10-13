@@ -7,8 +7,8 @@
  * 职责边界:
  *  - 本文件是**唯一**的实体读写入口;所有写操作先改内存、立即通知 UI,再异步落库(本地优先)
  *  - 每次写操作产出一条 Op 进入 outbox(契约 §7.1)
- *  - 实现 OpSink(applyRemoteOp)与 OpSource(exportSnapshot / takePendingOps / …),
- *    使 SyncEngine 与本引擎之间不产生循环依赖
+ *  - 本地合并(applyRemoteOp)与快照/待办读写(exportSnapshot / takePendingOps / …)
+ *    类型定义在 core/store/ApplyTypes.ets(v1.5 起与同步模块完全解耦)
  *  - 派生清单查询本身在 core/query/ListQuery.ets,本文件只暴露数据与统计
  */
 
@@ -47,7 +47,7 @@ import { todayISO } from '../util/DateUtil.ets';
 import { newChecklistItemId, newId, newOpId, nowMillis } from '../util/Ids.ets';
 import { ParsedInput, parseNaturalNow } from '../nlp/NaturalDateParser.ets';
 import { RepeatCompletion, completeWithRepeat, sanitizeRepeatRule } from '../repeat/RepeatEngine.ets';
-import { ApplyResult, OpSink, OpSource, applyResult } from '../sync/SyncTypes.ets';
+import { ApplyResult, applyResult } from './ApplyTypes.ets';
 
 /** 引擎变更通知(UI 订阅后重新渲染) */
 export type EngineListener = () => void;
@@ -71,7 +71,7 @@ export interface CompletionFeedback {
 const DEFAULT_AREA_COLOR: string = '#5B5BD6';
 const DEFAULT_TAG_COLOR: string = '#7A776F';
 
-export class OrdoEngine implements OpSink, OpSource {
+export class OrdoEngine {
   private store: OrdoStore;
   private state: OrdoState;
   private outbox: Op[];

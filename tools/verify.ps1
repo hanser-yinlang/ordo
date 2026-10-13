@@ -6,7 +6,8 @@
 #   powershell -File tools/verify.ps1 -WithAndroid     # also verify the Android logic layer (no SDK needed)
 #   powershell -File tools/verify.ps1 -All             # all of the above + encoding scan
 #
-# Android/iOS/HarmonyOS full builds need their own SDKs (see README section 4).
+# Android/HarmonyOS full builds need their own SDKs (see README section 4).
+# NOTE: the iOS app was removed on 2026-10-13, so there is no iOS step any more.
 #
 # NOTE: ASCII-only on purpose - Windows PowerShell 5.1 reads BOM-less UTF-8 .ps1 files as ANSI
 #       and corrupts non-ASCII string literals at parse time.

@@ -1,22 +1,19 @@
 package com.ordo.android.data
 
-import com.ordo.core.sync.OrdoSessionStore
 import java.io.File
 
 /**
- * 本地数据按**本机稳定账号标识**隔离（契约 §7.6.3 + §7.6.6 硬约束）。
+ * 本地数据按**本机稳定标识**隔离（契约 §7.6.3 + §7.6.6 硬约束）。
  *
  * ```
- * filesDir/ordo-bootstrap.db      ← 引导库：session / 服务器地址 / 设备标识 / 本机目录 id（先于账号读到）
- * filesDir/<dirId>/ordo.db        ← 该工作区的实体、outbox、墓碑、同步游标
+ * filesDir/ordo-bootstrap.db      ← 本机 kv：数据目录 id / 设备标识 / 外观（打开工作区前就要读到）
+ * filesDir/<dirId>/ordo.db        ← 该工作区的实体、outbox、墓碑、本地游标
  * ```
  *
  * **绝不允许两个工作区共用同一份本地数据目录** —— 否则 A 的待办会出现在 B 的界面里。
- * 目录名由 [OrdoSessionStore.userDataDirName] 统一生成（四端一致），这里只把它落成真实路径。
  *
- * v1.3（不再有登录界面，契约 §7.6.6）：`dirId` 是**本机钉住的标识**（[LocalAccount]），
- * 首次运行生成 `local-<16hex>` 并持久化，**永不因会话重建而改变**；升级前已在用的
- * `<服务端 userId>` 目录继续沿用（不做迁移）。服务端 userId 只用于鉴权与同步。
+ * v1.4（纯本地）：`dirId` 是本机钉住的标识（[LocalAccount]），首次运行生成 `local-<16hex>`
+ * 并持久化，**永不改变**；升级前已在用的目录继续沿用（不做迁移）。
  */
 object UserDataDir {
 
@@ -26,8 +23,15 @@ object UserDataDir {
     /** 引导库文件名（放在 filesDir 根下，不放在任何工作区目录里） */
     const val BOOTSTRAP_DB_NAME = "ordo-bootstrap.db"
 
-    /** 目录名（已做防御性清洗；dirId 为空时返回空串，调用方必须拒绝） */
-    fun dirName(dirId: String): String = OrdoSessionStore.userDataDirName(dirId)
+    /**
+     * 目录名：把 dirId 里可能破坏路径的字符统一替换为下划线（空串由调用方拒绝）。
+     *
+     * 规则与旧实现（共享核心 `OrdoSessionStore.userDataDirName`）**逐字一致** ——
+     * 纯本地后不再需要引用共享的 sync 包，但升级前已生成的目录名必须仍解析到同一路径，
+     * 因此这里保持同样的"只替换、不裁剪、不改大小写"。
+     */
+    fun dirName(dirId: String): String =
+        dirId.map { ch -> if (ch.isLetterOrDigit() || ch == '-' || ch == '_') ch else '_' }.joinToString("")
 
     /** `filesDir/<dirId>/` */
     fun dirFor(baseDir: File, dirId: String): File = File(baseDir, dirName(dirId))

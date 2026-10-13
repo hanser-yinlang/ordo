@@ -5,12 +5,16 @@
 > `assembleHap` 与 ohosTest 编译均 BUILD SUCCESSFUL、**ArkTS 告警 0**(见 §3「本机构建」与 §8「编译告警」)。
 > 尚未签名、未上真机(见 §3.3 签名配置缺失)。
 
-## 0. v1.4 变更速览(登录移除)
+## 0. v1.5 变更速览:纯本地、不联网
 
-- **不再需要登录**:登录界面与门禁整体删除,启动即主界面;会话改为**后台静默匿名会话**(POST /v1/auth/guest),离线也照常可用、后台退避重试。
-- **保留云同步**:同步 / 实时通道逻辑不变;遇 401 静默重建匿名会话。
-- **设置页**:删掉账号 / 退出登录 / 服务器地址;服务器地址改隐藏覆盖(见 §6.6)。
-- 详细时序见 §6.1,移除清单见 §6 开头的引用块,变更记录见 §11。
+- **彻底删除云同步**:`core/sync/**`(SyncApi / SyncEngine / RealtimeClient / SyncTypes)、会话与令牌存储、
+  outbox push/pull、WebSocket 通道、`AppStore` 里的同步装配与状态**全部移除**;应用变成**纯本地应用**。
+- **删除同步 UI**:刷新控件(`RefreshControl`/`RefreshState`)、状态栏同步指示与「同步中 / 已同步 / 同步失败」
+  文案、设置页「同步」区块;侧栏底部改为「纯本地」。
+- **启动**:读本机稳定工作区标识 → 开本地库 → 本地引擎 → 直接渲染主界面;**不发任何网络请求**。
+- **权限**:`module.json5` 已移除 `ohos.permission.INTERNET`(依据见 §6.7)。
+- **保留**:本地存储(含 §7.0.1 的 RDB 引号写盘修复)、本地业务引擎与除同步外的全部界面。
+- 工作区标识见 §6.1.1;变更记录见 §11。
 
 ## 1. 关键架构决策
 
@@ -28,13 +32,12 @@ UI(ArkUI 声明式)          view/** · pages/** · theme/Tokens.ets
    ├── core/nlp/NaturalDateParser.ets  契约 §5
    ├── core/repeat/RepeatEngine.ets    契约 §6
    ├── core/storage/**                 §8:RelationalStore(RDB) / MemoryStore(测试与降级)
-   └── core/sync/**                    §7:SyncApi(HTTP) · SyncEngine · RealtimeClient(WS)
+   └── (v1.5 起无 core/sync:纯本地,没有任何网络层)
 ```
 
-- **本地优先**:所有写操作先改内存并立即 `bump()` 通知 UI,再异步落库与入 outbox(契约 §7.1)。
+- **本地优先**:所有写操作先改内存并立即 `bump()` 通知 UI,再异步落库(契约 §7.1;v1.5 起没有远端,草稿 op 只作本地记账)。
 - **单一事实来源**:`Project.headings` 为规范存放处,`headings` 表单独持久化,装载时装配。
-- **无循环依赖**:`OpSink`/`OpSource` 两个接口把引擎与同步引擎解耦;`RealtimeCallbacks` 由
-  `NoopRealtimeCallbacks` 占位、构造完成后再 `setCallbacks()` 注入真正的桥。
+- **无循环依赖**:引擎的合并类型独立在 `core/store/ApplyTypes.ets`,不依赖任何网络模块。
 - **渲染驱动**:`AppStore` 标 `@Observed`,任何状态变化 `changeSeq + 1`,子组件用 `@ObjectLink` 重新渲染;
   派生查询另有版本号缓存,避免同一次渲染内重复全量重算(见 §7.2)。
 

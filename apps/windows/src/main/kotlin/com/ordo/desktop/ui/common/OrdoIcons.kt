@@ -28,11 +28,9 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Notes
 import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Repeat
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
-import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Undo
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -70,10 +68,6 @@ object OrdoIcons {
     val ChevronRight: ImageVector = Icons.Outlined.ChevronRight
     val ChevronLeft: ImageVector = Icons.Outlined.ChevronLeft
     val ExpandMore: ImageVector = Icons.Outlined.ExpandMore
-    val Sync: ImageVector = Icons.Outlined.Sync
-
-    /** 状态栏刷新控件(04-UI规范 §5.3):点一下连续旋转到同步结束 */
-    val Refresh: ImageVector = Icons.Outlined.Refresh
 
     val Edit: ImageVector = Icons.Outlined.Edit
     val Restore: ImageVector = Icons.Outlined.Undo

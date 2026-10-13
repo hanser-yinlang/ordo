@@ -18,9 +18,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,8 +65,7 @@ private data class DragSessionUi(
     val rowHeightPx: Float,
 )
 
-/** 列表区：大标题下的内容（日程 / 分组 / 待办行 / 空状态） */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 列表区：大标题下的内容（日程 / 分组 / 待办行 / 空状态）；v1.4 起无下拉刷新（纯本地） */
 @Composable
 fun ListScreen(
     state: UiState,
@@ -84,24 +81,19 @@ fun ListScreen(
     // 拖拽中按返回键 = 取消（行回原位，不写库）
     BackHandler(enabled = session != null) { session = null }
 
-    // 下拉刷新与状态栏刷新键共用同一状态机，表现必须一致（UI §5.3）
-    PullToRefreshBox(
-        isRefreshing = state.refresh.spinning,
-        onRefresh = vm::refresh,
-        modifier = Modifier.fillMaxSize(),
+    // v1.4（纯本地）：同步与下拉刷新已删除，列表直接渲染本地数据
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .widthIn(max = OrdoLayout.contentMaxWidth),
+        contentPadding = PaddingValues(
+            start = OrdoSpace.l,
+            end = OrdoSpace.l,
+            top = OrdoSpace.s,
+            bottom = 96.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .widthIn(max = OrdoLayout.contentMaxWidth),
-            contentPadding = PaddingValues(
-                start = OrdoSpace.l,
-                end = OrdoSpace.l,
-                top = OrdoSpace.s,
-                bottom = 96.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
             if (state.routeKey.startsWith("tag/")) {
                 item(key = "tag-toggle") {
                     Row(
@@ -300,7 +292,6 @@ fun ListScreen(
                 }
             }
         }
-    }
 }
 
 @Composable

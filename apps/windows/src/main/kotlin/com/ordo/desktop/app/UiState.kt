@@ -13,9 +13,6 @@ import com.ordo.core.query.SidebarCounts
 /** 外观模式(04-UI规范 §6:Ctrl+D 循环 自动 / 浅色 / 深色) */
 enum class ThemeMode { AUTO, LIGHT, DARK }
 
-/** 同步状态(§3 状态栏) */
-enum class SyncStatus { LOCAL, SYNCING, SYNCED, OFFLINE, ERROR }
-
 /** 提示条(§4 Toast) */
 data class ToastMessage(val text: String, val id: Long)
 
@@ -90,8 +87,6 @@ data class UiState(
     val highlightId: String? = null,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val dark: Boolean = false,
-    val syncStatus: SyncStatus = SyncStatus.LOCAL,
-    val syncDetail: String? = null,
     val fastFindOpen: Boolean = false,
     val settingsOpen: Boolean = false,
     val scheduleTargetId: String? = null,

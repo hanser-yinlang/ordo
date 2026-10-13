@@ -27,29 +27,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ordo.desktop.app.OrdoViewModel
-import com.ordo.desktop.app.SyncStatus
 import com.ordo.desktop.app.ThemeMode
 import com.ordo.desktop.app.UiState
-import com.ordo.desktop.sync.SyncDiagnostics
 import com.ordo.desktop.ui.common.OrdoDivider
 import com.ordo.desktop.ui.common.OrdoTextButton
 import com.ordo.desktop.ui.theme.OrdoRadius
 import com.ordo.desktop.ui.theme.OrdoSpace
 import com.ordo.desktop.ui.theme.OrdoType
 import com.ordo.desktop.ui.theme.ordoColors
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 /**
  * 设置浮层(04-UI规范 §4 组件规范 + §6 快捷键表)。
- * 四段:外观与启动 / 同步 / 同步诊断 / 数据 / 快捷键。
+ * 三段:外观与启动 / 数据 / 快捷键。
  *
- * 产品决策「不再需要登录」后,这里**没有**账号、退出登录与服务器地址:
- * 会话在后台静默维护,服务器地址是隐藏覆盖(改 `%APPDATA%\Ordo\kv.json` 的 `ordo.serverUrl`)。
+ * 纯本地版本:这里**没有**账号、登录、服务器地址、同步与同步诊断 —— 应用不联网,
+ * 只剩"外观与启动 / 数据 / 快捷键"这些本机设置。
  */
 @Composable
 fun SettingsView(state: UiState, vm: OrdoViewModel) {
@@ -57,18 +51,12 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
     val scrim = remember { MutableInteractionSource() }
     val inner = remember { MutableInteractionSource() }
 
-    var message by remember { mutableStateOf<String?>(null) }
-
     var autoStartOn by remember { mutableStateOf(vm.isAutoStartEnabled()) }
     var autoStartMessage by remember { mutableStateOf<String?>(null) }
     var closeToTray by remember { mutableStateOf(vm.closeToTray()) }
     var followSelection by remember { mutableStateOf(vm.followSelection()) }
     var protocolRegistered by remember { mutableStateOf(vm.isProtocolRegistered()) }
     var protocolMessage by remember { mutableStateOf<String?>(null) }
-    var diagnosticsTick by remember { mutableStateOf(0) }
-    val diagnostics = remember(diagnosticsTick, state.syncDetail, state.syncStatus, vm.pendingOpCount()) {
-        vm.syncDiagnostics()
-    }
 
     Box(
         Modifier
@@ -198,92 +186,16 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
 
             SectionDivider()
 
-            /* ---------------- 同步 ---------------- */
-            // 产品决策:不再需要登录 —— 这里没有账号 / 退出登录 / 服务器地址。
-            // 会话在后台静默维护(见 SilentSessionKeeper);服务器地址是隐藏覆盖,改 %APPDATA%\Ordo\kv.json。
-            SectionTitle("同步")
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(OrdoSpace.m)
-            ) {
-                OrdoTextButton(text = "立即同步", onClick = { vm.syncNow() })
-            }
-
-            message?.let {
-                Spacer(Modifier.height(OrdoSpace.s))
-                Text(it, style = OrdoType.caption, color = if (it.contains("成功")) colors.success else colors.danger)
-            }
-
-            Spacer(Modifier.height(OrdoSpace.s))
-            Text(
-                text = syncSummary(state, vm),
-                style = OrdoType.caption,
-                color = colors.textTertiary
-            )
-
-            SectionDivider()
-
-            /* ---------------- 同步诊断 ---------------- */
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SectionTitle("同步诊断")
-                Spacer(Modifier.width(OrdoSpace.s))
-                OrdoTextButton(text = "刷新", onClick = { diagnosticsTick += 1 })
-            }
-            Text(
-                text = "待推送 ${diagnostics.pendingCount} 条 · 服务端序号 ${diagnostics.lastServerSeq} · " +
-                    "上次错误:${diagnostics.lastError ?: "无"}",
-                style = OrdoType.caption,
-                color = colors.textSecondary
-            )
-            Spacer(Modifier.height(OrdoSpace.s))
-            if (diagnostics.recent.isEmpty()) {
-                Text("outbox 为空,本地改动都已推送。", style = OrdoType.micro, color = colors.textTertiary)
-            } else {
-                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                    Text("实体", style = OrdoType.micro, color = colors.textTertiary, modifier = Modifier.width(96.dp))
-                    Text("opId", style = OrdoType.micro, color = colors.textTertiary, modifier = Modifier.weight(1f))
-                    Text("clientTs", style = OrdoType.micro, color = colors.textTertiary, modifier = Modifier.width(96.dp))
-                }
-                diagnostics.recent.forEach { row ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                        Text(row.label, style = OrdoType.micro, color = colors.textSecondary, modifier = Modifier.width(96.dp))
-                        Text(
-                            text = row.opId,
-                            style = OrdoType.micro,
-                            color = colors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = diagnosticsTime(row.clientTs),
-                            style = OrdoType.micro,
-                            color = colors.textTertiary,
-                            modifier = Modifier.width(96.dp)
-                        )
-                    }
-                }
-                if (diagnostics.truncated) {
-                    Text(
-                        text = "仅显示前 ${SyncDiagnostics.DEFAULT_LIMIT} 条(共 ${diagnostics.pendingCount} 条)",
-                        style = OrdoType.micro,
-                        color = colors.textTertiary
-                    )
-                }
-            }
-
-            SectionDivider()
-
             /* ---------------- 数据 ---------------- */
             SectionTitle("数据")
             Row(horizontalArrangement = Arrangement.spacedBy(OrdoSpace.m)) {
-                OrdoTextButton(text = "重置为示例数据", onClick = { vm.resetDemoData(); diagnosticsTick += 1 })
-                OrdoTextButton(text = "清空本地数据", onClick = { vm.clearAllData(); diagnosticsTick += 1 }, danger = true)
+                OrdoTextButton(text = "重置为示例数据", onClick = { vm.resetDemoData() })
+                OrdoTextButton(text = "清空本地数据", onClick = { vm.clearAllData() }, danger = true)
             }
             Spacer(Modifier.height(OrdoSpace.xs))
             Text(
                 text = "本地数据位于 %APPDATA%\\Ordo\\<数据目录 id>\\;" +
-                    "清空只影响本机这份数据，云端数据需重新同步。",
+                    "清空只影响本机这份数据（纯本地应用，不联网、没有云端副本）。",
                 style = OrdoType.micro,
                 color = colors.textTertiary
             )
@@ -320,29 +232,9 @@ private fun SectionDivider() {
     Spacer(Modifier.height(OrdoSpace.l))
 }
 
-private fun syncSummary(state: UiState, vm: OrdoViewModel): String {
-    val status = when (state.syncStatus) {
-        SyncStatus.LOCAL -> "本地模式"
-        SyncStatus.SYNCING -> "同步中"
-        SyncStatus.SYNCED -> "已同步"
-        SyncStatus.OFFLINE -> "离线"
-        SyncStatus.ERROR -> "同步失败"
-    }
-    return "同步状态:$status · 待推送 ${vm.pendingOpCount()} 条 · 服务端序号 ${vm.lastServerSeq()}"
-}
-
-/** outbox 明细的时间列:本地时区的 `MM-dd HH:mm:ss` */
-private val DIAG_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
-
-private fun diagnosticsTime(clientTs: Long): String =
-    runCatching {
-        Instant.ofEpochMilli(clientTs).atZone(ZoneId.systemDefault()).format(DIAG_TIME)
-    }.getOrDefault(clientTs.toString())
-
 private val SHORTCUTS = listOf(
     "Ctrl + N" to "新建待办",
     "Ctrl + K" to "快速查找(FastFind)",
-    "Ctrl + R" to "立即同步(等同于点状态栏右侧的刷新控件)",
     "Ctrl + D" to "切换外观(自动 / 浅色 / 深色)",
     "1 – 6" to "收件箱 / 今天 / 计划 / 随时 / 某天 / 日志簿",
     "↑ ↓" to "移动选中行",

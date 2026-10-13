@@ -3,7 +3,7 @@
  * 契约来源:docs/04-UI设计规范.md §3(布局骨架)、§4(组件);docs/03-数据模型与同步协议.md §4(派生清单)
  *
  * 职责:
- *  - 组装本地存储(RDB,失败降级内存)、业务引擎(OrdoEngine)、同步引擎(SyncEngine)、实时通道(RealtimeClient)
+ *  - 组装本地存储(RDB,失败降级内存)与业务引擎(OrdoEngine);**v1.5 纯本地,没有任何网络层**
  *  - 持有导航状态与浮层状态,向视图暴露"查询 + 动作"两类 API
  *  - 任何状态变化都 bump() 一次 changeSeq,配合 @Observed + @ObjectLink 驱动 ArkUI 重新渲染
  */
@@ -14,7 +14,6 @@ import {
   Area,
   CalendarEvent,
   ListKind,
-  MAX_PUSH_OPS,
   Project,
   RepeatFreq,
   RepeatRule,
@@ -27,11 +26,6 @@ import { MemoryOrdoStore } from '../core/storage/MemoryStore.ets';
 import { KvKeys, OrdoStore } from '../core/storage/OrdoStore.ets';
 import { RdbOrdoStore } from '../core/storage/RelationalStore.ets';
 import { buildSeedState } from '../core/SeedData.ets';
-import { AuthResult, SyncApi } from '../core/sync/SyncApi.ets';
-import { NoopRealtimeCallbacks, RealtimeClient } from '../core/sync/RealtimeClient.ets';
-import { SyncEngine } from '../core/sync/SyncEngine.ets';
-import { AuthTokens, ERR_NETWORK, OrdoApiError, SyncPhase, SyncStatus, WsReminder, errorText, idleStatus, phaseLabel } from '../core/sync/SyncTypes.ets';
-import { OrdoSession, OrdoSessionHelper, OrdoSessionStore, SessionAuthResponse } from '../core/session/OrdoSession.ets';
 import { parseNaturalNow, ParsedInput } from '../core/nlp/NaturalDateParser.ets';
 import {
   DayGroup,
@@ -51,8 +45,7 @@ import {
 import { fmtShortDate, todayISO } from '../core/util/DateUtil.ets';
 import { newDeviceId, nowMillis } from '../core/util/Ids.ets';
 import { containerKeyOf, sameContainer } from './ReorderMath.ets';
-import { RefreshMachine, RefreshTone, REFRESH_HOLD_MS } from './RefreshState.ets';
-import { SilentAuthMachine, SessionStartupPlan, newLocalAccountId, planAccountDirId, planStartup } from './SilentAuth.ets';
+import { newLocalAccountId, planAccountDirId } from './LocalWorkspace.ets';
 import { ReminderAgent } from '../core/notify/ReminderAgent.ets';
 import { DeepLinkTarget, parseDeepLink } from '../core/deeplink/DeepLink.ets';
 import { OrdoColorTokens, OrdoColors, OrdoTheme, ThemeMode } from '../theme/Tokens.ets';
@@ -83,8 +76,6 @@ export interface ToastState {
   action: string;
 }
 
-export const DEFAULT_BASE_URL: string = 'https://api.ordo.app';
-export const DEFAULT_WS_URL: string = 'wss://api.ordo.app';
 
 /**
  * 首次启动时建立匿名会话的等待预算(毫秒)。
@@ -124,16 +115,12 @@ export class AppStore {
    * 会话必须先于"用哪个账号目录"被读出来,因此它不能待在账号目录里。
    */
   private metaStore: OrdoStore | null = null;
-  api: SyncApi | null = null;
-  sync: SyncEngine | null = null;
-  private realtime: RealtimeClient | null = null;
   private context: common.UIAbilityContext | null = null;
 
   /* ------------------------------------------------------------ 身份与会话 */
   /** 启动阶段(视图据此决定渲染启动页还是主界面;v1.4 已无登录页) */
   authPhase: AuthPhase = 'booting';
   /** 当前会话(契约 §7.6.1);null = 尚未建立(离线首启期间) */
-  session: OrdoSession | null = null;
   /** 当前账号的本地数据目录名(设置页展示;契约 §7.6.3) */
   userDir: string = '';
 
@@ -141,19 +128,15 @@ export class AppStore {
   ready: boolean = false;
   storageDegraded: boolean = false;
   changeSeq: number = 0;
-  syncStatus: SyncStatus = idleStatus();
   deviceId: string = '';
   /** 服务端地址(隐藏覆盖:启动时从应用级 kv 读,默认不动,界面无输入框 —— 见 README) */
-  baseUrl: string = DEFAULT_BASE_URL;
   /**
    * 静默匿名会话状态机(退避节奏 / 该不该重试)。纯逻辑、可被宿主用例覆盖。
    * 网络调用在 AppStore,这里只管"什么时候试、试了几次、下次什么时候"。
    */
-  silent: SilentAuthMachine = new SilentAuthMachine();
   /**
    * 静默建会话的定时器句柄(-1 = 无)。失败后退避重试,**不阻塞界面**。
    */
-  private anonTimer: number = -1;
   /**
    * **本机稳定账号目录标识**(契约 §7.6.6):`local-<16hex>` 或"升级前沿用的老目录名"。
    * 启动时钉住并持久化到 kv `ordo.localAccountId`;此后**永不因会话重建而改变**。
@@ -169,9 +152,7 @@ export class AppStore {
    * 刷新控件状态机(04 §5.3):同步中转圈、成功转 success 320ms + 「已同步」1.4s 后回落、
    * 失败转 danger 并常驻「同步失败,点击重试」。
    */
-  private refresh: RefreshMachine = new RefreshMachine();
   /** 成功态回落到常态的定时器句柄(-1 = 无) */
-  private refreshTimer: number = -1;
   /** 日历事件:设备本地只读数据,不参与同步(契约 §2.8) */
   private localEvents: CalendarEvent[] = [];
 
@@ -245,7 +226,7 @@ export class AppStore {
     this.context = context;
     this.applySystemColorMode(context);
 
-    // 1) 应用级存储(会话 / 设备 id / 服务器地址 / 外观)
+    // 1) 应用级存储:只放设备 id / 工作区标识 / 外观(v1.5 纯本地:没有会话、令牌、服务器地址)
     let meta: OrdoStore;
     try {
       const metaRdb: RdbOrdoStore = new RdbOrdoStore(context, '', true);
@@ -259,7 +240,7 @@ export class AppStore {
     }
     this.metaStore = meta;
 
-    // 2) 设备 id(首次安装生成;属于设备而非账号,退出登录也不清)
+    // 2) 设备 id(首次安装生成)
     let deviceId: string | null = await meta.getKv(KvKeys.DEVICE_ID);
     if (deviceId === null || deviceId.length === 0) {
       deviceId = newDeviceId();
@@ -267,85 +248,36 @@ export class AppStore {
     }
     this.deviceId = deviceId;
 
-    // 3) 外观与服务端地址(**隐藏覆盖**:地址只从 kv 读,界面没有输入框 —— 见 README §6.6)
+    // 3) 外观
     this.themeMode = OrdoTheme.parse(await meta.getKv(KvKeys.THEME_MODE));
-    let baseUrl: string | null = await meta.getKv(KvKeys.BASE_URL);
-    if (baseUrl === null || baseUrl.length === 0) {
-      baseUrl = DEFAULT_BASE_URL;
-    }
-    this.baseUrl = baseUrl;
 
-    // 4) 网络层:启动就要用(静默建匿名会话走它;此刻还没有会话,令牌为空)
-    const api: SyncApi = new SyncApi(baseUrl, deviceId);
-    this.api = api;
-    this.realtime = new RealtimeClient(
-      this.wsUrlOf(baseUrl),
-      deviceId,
-      (): string | null => {
-        const t = api.getTokens();
-        return t === null ? null : t.accessToken;
-      },
-      new NoopRealtimeCallbacks()
-    );
-
-    // 5) 读会话 → 决定走哪条路。v1.4:**没有登录页**,三条分支最终都进主界面。
-    const session: OrdoSession | null = await new OrdoSessionStore(meta).load();
-    const loaded: OrdoSession | null = session;
-
-    // 5.1) **钉住本机稳定目录标识**(契约 §7.6.6):首次生成 `local-<16hex>` 并持久化,
-    //      此后永不因会话重建而改变;升级前老版本按 userId 建的目录继续沿用(不做迁移)。
+    // 4) 钉住本地工作区标识(契约 §7.6.6):首次生成 local-<16hex> 并持久化,此后永不改变
     const storedId: string | null = await meta.getKv(KvKeys.LOCAL_ACCOUNT_ID);
-    const legacyUserId: string = loaded === null ? '' : loaded.userId;
-    const planned: string = planAccountDirId(storedId === null ? '' : storedId, legacyUserId);
+    const planned: string = planAccountDirId(storedId === null ? '' : storedId);
     this.accountDirId = planned.length > 0
       ? planned
       : newLocalAccountId(this.deviceId + ':' + nowMillis().toString());
     await meta.setKv(KvKeys.LOCAL_ACCOUNT_ID, this.accountDirId);
 
+    // 5) 打开本地工作区(**纯本地:不建网络层、不读会话、不发任何请求**)
     this.ready = true;
-    const plan: SessionStartupPlan = planStartup(
-      loaded !== null,
-      loaded !== null && OrdoSessionHelper.isExpired(loaded as OrdoSession, nowMillis())
-    );
-    // 先打开工作区(会话可以为 null —— 目录不再依赖会话,所以离线也能立刻可用)
-    try {
-      await this.enterSession(loaded, true);
-    } catch (e) {
-      // 打开失败(库损坏 / 磁盘异常…):**不要白屏**,用空会话重试一次(目录标识不变)
-      console.error('[AppStore] 打开工作区失败,以空会话重试');
-      await this.enterSession(null, false);
-    }
-    // 契约 §7.6.4:启动的终点就是主界面。这里必须显式切阶段,否则 authPhase 会一直停在
-    // booting → 白屏卡在「序」页(第六轮真机暴露过同类缺陷)。
+    await this.openWorkspace();
+
+    // 6) 直接进主界面
     this.setAuthPhase('ready');
     this.bump();
-
-    // 5.2) 没有会话 → **后台**静默建匿名账号(不 await:进主界面不等网络)。
-    if (plan === 'create') {
-      this.tryCreateAnonymousSession(0);
-    }
-  }
-
-  /** 是否已完成初始化 */
-  isReady(): boolean {
-    return this.ready;
   }
 
   /**
-   * 打开工作区:按**本机稳定目录标识**(§7.6.6)开本地库 → 引擎 →(有令牌才)同步。
-   *
-   * v1.4 起没有"登录页",也没有任何失败分支会退回登录界面;唯一要处理的两种情形:
-   *  1. **无会话/无令牌**(离线首启):先把本地库/引擎立起来让应用可用,
-   *     **不启动同步**(没有令牌,起了只会白跑 401);会话到达后由 `bindTokens()` 接上;
-   *  2. **有令牌**:正常启动同步,`atStartup = true` 时过期就后台静默 refresh。
+   * 打开本地工作区(v1.5 纯本地):按**本机稳定目录标识**(契约 §7.6.6)开本地库 → 本地引擎 →
+   * 演示数据 → 本地提醒。整个过程**不发任何网络请求**。
    */
-  private async enterSession(session: OrdoSession | null, atStartup: boolean): Promise<void> {
+  private async openWorkspace(): Promise<void> {
     const context: common.UIAbilityContext | null = this.context;
     if (context === null) {
       console.error('[AppStore] 缺少 UIAbilityContext,无法打开本地库');
       return;
     }
-    // 目录名:**本机稳定账号标识**(契约 §7.6.6),与会话/服务端 userId 无关
     const dirName: string = this.accountDirId;
     this.userDir = dirName;
 
@@ -355,258 +287,35 @@ export class AppStore {
       await rdb.init();
       store = rdb;
     } catch (e) {
-      console.error('[AppStore] 账号 RDB 初始化失败,降级为内存存储');
+      console.error('[AppStore] 工作区 RDB 初始化失败,降级为内存存储');
       this.storageDegraded = true;
       store = new MemoryOrdoStore(undefined, dirName, false);
       await store.init();
     }
     this.ordoStore = store;
 
-    // 令牌落在本账号的 kv 里(同步引擎 start() 从这里恢复)
-    const accessToken: string = session === null ? '' : session.accessToken;
-    const refreshToken: string = session === null ? '' : session.refreshToken;
-    await store.setKv(KvKeys.ACCESS_TOKEN, accessToken);
-    await store.setKv(KvKeys.REFRESH_TOKEN, refreshToken);
-
     const engine: OrdoEngine = new OrdoEngine(store);
     this.engine = engine;
     await engine.init(this.deviceId);
-
-    const api: SyncApi | null = this.api;
-    const realtime: RealtimeClient | null = this.realtime;
-    if (api === null || realtime === null) {
-      console.error('[AppStore] 网络层尚未就绪');
-      return;
-    }
-    this.session = session;
-    // 日程区块是**设备本地**的只读日历事件(契约 §2.8),不属于任何账号的数据,故每次进入都取本机种子
-    this.localEvents = buildSeedState(todayISO()).events;
-
-    const hasTokens: boolean = accessToken.length > 0;
-    if (hasTokens) {
-      api.setTokens({ accessToken: accessToken, refreshToken: refreshToken, expiresIn: 0 });
-      this.wireSync(api, realtime, engine, store, true);
-      await this.syncNow();
-    } else {
-      api.setTokens(null);
-    }
-
-    await this.seedDemoDataIfServerEmpty();
-    this.refreshReminders();
-    this.invalidateDerived();
-    this.bump();
-
-    if (atStartup && hasTokens && session !== null && OrdoSessionHelper.isExpired(session, nowMillis())) {
-      // 有但 accessToken 过期 → 后台静默 refresh(见 refreshSessionQuietly 的失败分支)
-      this.refreshSessionQuietly();
-    }
-  }
-
-  /**
-   * 建好同步引擎 + 实时通道并(可选)启动。
-   * `start = false` 时只装配不启动(占位会话先不联);后续 `bindTokens()` 会调它启动。
-   */
-  private wireSync(
-    api: SyncApi,
-    realtime: RealtimeClient,
-    engine: OrdoEngine,
-    store: OrdoStore,
-    start: boolean
-  ): void {
-    const sync: SyncEngine = new SyncEngine(api, realtime, engine, engine, store);
-    this.sync = sync;
-    realtime.setCallbacks(sync.buildRealtimeCallbacks());
     engine.addListener((): void => {
       this.invalidateDerived();
       this.bump();
     });
-    sync.setListener((s: SyncStatus): void => {
-      this.syncStatus = s;
-      this.applyRefreshPhase(s.phase);
-      if (s.phase === 'authRequired') {
-        // 401:静默重建匿名会话,绝不弹界面(v1.4)
-        this.silentRebuildAnonymous();
-      }
-      this.bump();
-    });
-    sync.onReminder((r: WsReminder): void => {
-      this.onFastlaneReminder(r);
-    });
-    if (start) {
-      sync.start();
-    }
-  }
 
-  /* ------------------------------------------------------------ 静默匿名会话(v1.4) */
+    // 日程区块是**设备本地**的只读日历事件(契约 §2.8)
+    this.localEvents = buildSeedState(todayISO()).events;
 
-  /** 当前实际使用的目录标识(契约 §7.6.6;设置页「本地数据」展示) */
-  accountDirText(): string {
-    return this.accountDirId.length === 0 ? '—' : this.accountDirId;
-  }
-
-  /**
-   * 静默建匿名会话(契约 §7.6.2 POST /v1/auth/guest)。
-   *
-   * @param budgetMs 最多等多久(0 = 不等,结果在后台采纳)
-   * @returns 预算内是否已经拿到并采纳
-   */
-  private async tryCreateAnonymousSession(budgetMs: number): Promise<boolean> {
-    const api: SyncApi | null = this.api;
-    if (api === null || this.silent.getPhase() === 'creating') {
-      return false;
-    }
-    this.silent.begin(nowMillis());
-    const call: Promise<AuthResult | null> = api.guest(this.deviceId, this.deviceId, 'harmony') as Promise<AuthResult | null>;
-    if (budgetMs <= 0) {
-      this.watchAnonymousCall(call);
-      return false;
-    }
-    let timer: number = -1;
-    const guard: Promise<AuthResult | null> = new Promise<AuthResult | null>((resolve: (v: AuthResult | null) => void): void => {
-      timer = setTimeout((): void => {
-        resolve(null);
-      }, budgetMs);
-    });
-    const raced: AuthResult | null = await Promise.race([call, guard]);
-    if (timer >= 0) {
-      clearTimeout(timer);
-      timer = -1;
-    }
-    if (raced !== null) {
-      await this.onAnonymousArrived(raced);
-      return true;
-    }
-    // 预算用尽:请求继续在后台跑,拿到就采纳(不取消、不弹界面)
-    this.watchAnonymousCall(call);
-    return false;
-  }
-
-  /** 让后台那次 guest 请求自己有归宿:成功采纳、失败排退避 */
-  private watchAnonymousCall(call: Promise<AuthResult | null>): void {
-    call.then((r: AuthResult | null): void => {
-      if (r !== null) {
-        this.onAnonymousArrived(r);
-      }
-    }).catch((): void => {
-      this.onAnonymousFailed();
-    });
-  }
-
-  /** 拿到匿名会话:存会话 → 决定目录(切/留)→ 接上令牌与同步 */
-  private async onAnonymousArrived(result: AuthResult): Promise<void> {
-    const response: SessionAuthResponse = {
-      user: { id: result.user.id, email: result.user.email, isGuest: result.user.isGuest },
-      tokens: {
-        accessToken: result.tokens.accessToken,
-        refreshToken: result.tokens.refreshToken,
-        expiresIn: result.tokens.expiresIn
-      }
-    };
-    const session: OrdoSession = OrdoSessionHelper.from(response, nowMillis());
-    if (session.userId.length === 0) {
-      this.onAnonymousFailed();
-      return;
-    }
-    const meta: OrdoStore | null = this.metaStore;
-    if (meta !== null) {
-      await new OrdoSessionStore(meta).save(session);
-    }
-    this.session = session;
-    this.silent.succeed();
-
-    // 契约 §7.6.6:目录标识是本机稳定 id,**不随会话变** —— 这里只接令牌,不换目录、不搬数据。
-    await this.bindTokens(session);
-    this.bump();
-    if (this.localEvents.length === 0) {
-      this.localEvents = buildSeedState(todayISO()).events;
-    }
-    this.showToast('已连接云端(匿名会话)');
-  }
-
-  /** 把会话令牌接到已打开的工作区上,并把同步(重新)启动起来;目录/数据完全不动 */
-  private async bindTokens(session: OrdoSession): Promise<void> {
-    const store: OrdoStore | null = this.ordoStore;
-    const api: SyncApi | null = this.api;
-    const engine: OrdoEngine | null = this.engine;
-    const realtime: RealtimeClient | null = this.realtime;
-    if (store === null || api === null || engine === null || realtime === null) {
-      return;
-    }
-    await store.setKv(KvKeys.ACCESS_TOKEN, session.accessToken);
-    await store.setKv(KvKeys.REFRESH_TOKEN, session.refreshToken);
-    api.setTokens({ accessToken: session.accessToken, refreshToken: session.refreshToken, expiresIn: 0 });
-    if (this.sync === null) {
-      this.wireSync(api, realtime, engine, store, true);
-    } else {
-      this.sync.onTokensUpdated();
-    }
-    await this.syncNow();
-  }
-
-  /** 建会话失败:排下一次退避重试(不阻塞、不弹界面) */
-  private onAnonymousFailed(): void {
-    const wait: number = this.silent.fail(nowMillis());
-    this.scheduleAnonymousRetry(wait);
+    await this.seedDemoDataIfEmpty();
+    this.refreshReminders();
+    this.invalidateDerived();
     this.bump();
   }
 
-  /** 排一次重试定时器(重复排定只保留最后一个) */
-  private scheduleAnonymousRetry(delayMs: number): void {
-    if (this.anonTimer >= 0) {
-      clearTimeout(this.anonTimer);
-      this.anonTimer = -1;
-    }
-    const wait: number = delayMs > 0 ? delayMs : 0;
-    this.anonTimer = setTimeout((): void => {
-      this.anonTimer = -1;
-      if (this.session !== null && this.session.accessToken.length > 0) {
-        return;
-      }
-      if (!this.silent.canRetry(nowMillis())) {
-        this.scheduleAnonymousRetry(this.silent.remainingMs(nowMillis()));
-        return;
-      }
-      this.tryCreateAnonymousSession(0);
-    }, wait);
-  }
-
   /**
-   * 会话被服务端否认(同步报 authRequired / refresh 被拒):**静默重建匿名会话**。
-   * 不弹界面、不回到任何"登录页";旧账号目录留在磁盘上(§7.6.3 的保留语义)。
+   * 首次进入该工作区时的演示数据(契约 §7.6.3 的本地化版本):
+   * v1.5 没有服务端可比对,判据就是"本地为空且没写过种子标记"。
    */
-  private async silentRebuildAnonymous(): Promise<void> {
-    if (this.silent.getPhase() === 'creating') {
-      return;
-    }
-    console.error('[AppStore] 会话被拒,静默重建匿名会话');
-    const meta: OrdoStore | null = this.metaStore;
-    if (meta !== null) {
-      await new OrdoSessionStore(meta).clear();
-    }
-    const api: SyncApi | null = this.api;
-    if (api !== null) {
-      api.setTokens(null);
-    }
-    const sync: SyncEngine | null = this.sync;
-    if (sync !== null) {
-      sync.stop();
-    }
-    this.sync = null;
-    this.session = null;
-    // 当前目录与数据保持不变(离线可用),只是换一个匿名账号的令牌
-    this.silent.reset();
-    this.tryCreateAnonymousSession(0);
-  }
-
-  /**
-   * 首次进入某个账号目录时的演示数据(契约 §7.6.3):
-   * 「首次进入某账号且服务端无数据时才写入演示数据」。
-   *
-   * v1.4 起多一种情形:**离线首启**(还没有匿名会话/令牌)。这种时候拉不到服务端快照,
-   * 但应用必须"打开就有东西"(本地优先),所以直接写本地演示数据 —— 等匿名会话建好后,
-   * 这些实体作为本地 op 正常推上去,不会丢。
-   */
-  private async seedDemoDataIfServerEmpty(): Promise<void> {
+  private async seedDemoDataIfEmpty(): Promise<void> {
     const store: OrdoStore | null = this.ordoStore;
     const engine: OrdoEngine | null = this.engine;
     if (store === null || engine === null) {
@@ -616,17 +325,6 @@ export class AppStore {
     if (seeded === '1') {
       return;
     }
-    const sync: SyncEngine | null = this.sync;
-    const api: SyncApi | null = this.api;
-    const online: boolean = sync !== null && api !== null && api.hasToken();
-    if (online) {
-      try {
-        await (sync as SyncEngine).resyncSnapshot();
-      } catch (e) {
-        // 服务端不可达:此刻无法判断"服务端有没有数据",不写演示数据,等下次同步再判定
-        return;
-      }
-    }
     if (engine.todos().length === 0 && engine.projects().length === 0) {
       const seed = buildSeedState(todayISO());
       await engine.persistAll(seed);
@@ -635,7 +333,6 @@ export class AppStore {
     await store.setKv(KvKeys.SEEDED, '1');
   }
 
-  /** 切换启动阶段,并把序号写进 AppStorage(Index 用 @StorageLink + @Watch 消费,见字段注释) */
   private setAuthPhase(phase: AuthPhase): void {
     this.authPhase = phase;
     this.authPhaseSeq = this.authPhaseSeq + 1;
@@ -660,66 +357,6 @@ export class AppStore {
    *  - 网络不可达 → **留在主界面离线可用**(会话不清,目录不动),状态栏走 §5.3 的失败态;
    *  - 服务端拒绝 → **静默重建匿名会话**(不再回任何"登录页")。
    */
-  private async refreshSessionQuietly(): Promise<void> {
-    const api: SyncApi | null = this.api;
-    if (api === null) {
-      return;
-    }
-    try {
-      const tokens: AuthTokens = await api.refresh();
-      await this.persistRefreshedTokens(tokens);
-      const sync: SyncEngine | null = this.sync;
-      if (sync !== null) {
-        sync.onTokensUpdated();
-      }
-      // 续期成功后立刻补一次增量同步,把离线期间的改动推上去
-      await this.syncNow();
-    } catch (e) {
-      const err: OrdoApiError = e as OrdoApiError;
-      const code: string = err !== null && err.code !== undefined ? err.code : ERR_NETWORK;
-      if (code === ERR_NETWORK) {
-        return;
-      }
-      console.error('[AppStore] 续期被拒,静默重建匿名会话:' + errorText(code));
-      await this.silentRebuildAnonymous();
-    }
-  }
-
-  /** refresh 成功:会话(应用级)与令牌(账号级)一起更新,过期时刻按服务端 expiresIn 重算 */
-  private async persistRefreshedTokens(tokens: AuthTokens): Promise<void> {
-    const meta: OrdoStore | null = this.metaStore;
-    const current: OrdoSession | null = this.session;
-    if (current !== null) {
-      const next: OrdoSession = {
-        userId: current.userId,
-        email: current.email,
-        isGuest: current.isGuest,
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: tokens.expiresIn > 0 ? nowMillis() + tokens.expiresIn * 1000 : 0
-      };
-      this.session = next;
-      if (meta !== null) {
-        await new OrdoSessionStore(meta).save(next);
-      }
-    }
-    const store: OrdoStore | null = this.ordoStore;
-    if (store !== null) {
-      await store.setKv(KvKeys.ACCESS_TOKEN, tokens.accessToken);
-      await store.setKv(KvKeys.REFRESH_TOKEN, tokens.refreshToken);
-    }
-  }
-
-  private wsUrlOf(baseUrl: string): string {
-    if (baseUrl.indexOf('https://') === 0) {
-      return 'wss://' + baseUrl.substring(8) + '/v1/ws';
-    }
-    if (baseUrl.indexOf('http://') === 0) {
-      return 'ws://' + baseUrl.substring(7) + '/v1/ws';
-    }
-    return DEFAULT_WS_URL + '/v1/ws';
-  }
-
   /** 系统深浅色(跟随系统的依据) */
   applySystemColorMode(context: common.UIAbilityContext): void {
     try {
@@ -1733,14 +1370,19 @@ export class AppStore {
     this.bump();
   }
 
-  /* ------------------------------------------------------------ 账号与会话(v1.4:无登录) */
+  /* ------------------------------------------------------------ 本地工作区(v1.5 纯本地) */
 
-  /** 当前匿名账号的本地数据目录名(§7.6.3;设置页「本地数据」展示) */
+  /** 当前工作区的本地目录名(契约 §7.6.6;设置页「本地数据」展示) */
   userDirText(): string {
     return this.userDir.length === 0 ? '—' : this.userDir;
   }
 
-  /** 当前账号库文件的完整沙箱路径 */
+  /** 本机稳定工作区标识(契约 §7.6.6) */
+  accountDirText(): string {
+    return this.accountDirId.length === 0 ? '—' : this.accountDirId;
+  }
+
+  /** 工作区库文件的完整沙箱路径 */
   dataPathText(): string {
     const store: OrdoStore | null = this.ordoStore;
     if (store === null) {
@@ -1749,70 +1391,9 @@ export class AppStore {
     return store.pathText();
   }
 
-  /** 当前服务端地址(隐藏覆盖;界面不展示,供调试/日志用) */
-  serverText(): string {
-    return this.baseUrl;
-  }
-
-  /** 静默会话状态一行文案(离线首启时状态栏用;不弹窗) */
-  sessionStateText(): string {
-    return this.silent.label();
-  }
-
-  /** 是否已经拿到可用令牌(离线首启期间为 false) */
-  hasCloudSession(): boolean {
-    const s: OrdoSession | null = this.session;
-    return s !== null && s.accessToken.length > 0;
-  }
-
-  /**
-   * 修改服务端地址:写应用级 kv → 换掉 SyncApi/实时通道的地址 → 触发一次同步探活。
-   * 地址不合法时不改任何状态,直接返回 false,由 UI 提示。
-   */
-  async setBaseUrl(url: string): Promise<boolean> {
-    const clean: string = url.trim();
-    if (!isValidHttpUrl(clean)) {
-      this.showToast('服务器地址需以 http:// 或 https:// 开头');
-      return false;
-    }
-    if (clean === this.baseUrl) {
-      return true;
-    }
-    this.baseUrl = clean;
-    const store: OrdoStore | null = this.metaStore;
-    if (store !== null) {
-      await store.setKv(KvKeys.BASE_URL, clean);
-    }
-    const api: SyncApi | null = this.api;
-    if (api !== null) {
-      api.setBaseUrl(clean);
-    }
-    const realtime: RealtimeClient | null = this.realtime;
-    if (realtime !== null) {
-      realtime.setUrl(this.wsUrlOf(clean));
-    }
-    this.invalidateDerived();
-    this.showToast('服务器地址已更新');
-    this.bump();
-    // 按新地址重新握手(重连实时通道 + 一次增量同步探活)
-    const sync: SyncEngine | null = this.sync;
-    if (sync !== null) {
-      await sync.restart();
-    }
-    return true;
-  }
-
-  /**
-   * v1.4:登录 / 注册 / 游客 / 验证码 / 游客升级 / 退出登录 的入口**已整体移除**(产品决策不再需要登录),
-   * 会话改由上面的"静默匿名会话"负责(启动即建、失败退避重试、401 静默重建)。
-   */
   /* ------------------------------------------------------------ 同步动作 */
 
   private afterWrite(t: Todo | null): void {
-    const sync: SyncEngine | null = this.sync;
-    if (sync !== null) {
-      sync.enqueueAndSync();
-    }
     if (t !== null && t.reminder !== null) {
       ReminderAgent.refresh(t);
     }
@@ -1830,102 +1411,6 @@ export class AppStore {
   }
 
   /** Fastlane 提醒到达(契约 §7.5) */
-  private onFastlaneReminder(r: WsReminder): void {
-    const e: OrdoEngine | null = this.engine;
-    if (e === null) {
-      return;
-    }
-    const t: Todo | null = e.findTodo(r.todoId);
-    if (t !== null) {
-      ReminderAgent.refresh(t);
-    }
-    this.showToast('提醒:' + r.title);
-  }
-
-  async syncNow(): Promise<void> {
-    const sync: SyncEngine | null = this.sync;
-    if (sync === null) {
-      return;
-    }
-    await sync.syncNow();
-    this.bump();
-  }
-
-  /* ------------------------------------------------------------ 刷新控件(04 §5.3) */
-
-  /**
-   * 同步引擎状态变化 → 刷新控件状态。
-   * 成功态要在 1.4s 后自动回落到常态:这里排一个定时器,到点调 tick() 并按需 bump()。
-   */
-  private applyRefreshPhase(phase: SyncPhase): void {
-    this.refresh.applySyncPhase(phase, nowMillis());
-    if (this.refreshTimer >= 0) {
-      clearTimeout(this.refreshTimer);
-      this.refreshTimer = -1;
-    }
-    if (this.refresh.getPhase() === 'success') {
-      this.refreshTimer = setTimeout((): void => {
-        this.refreshTimer = -1;
-        if (this.refresh.tick(nowMillis())) {
-          this.bump();
-        }
-      }, REFRESH_HOLD_MS);
-    }
-  }
-
-  /** 状态栏文案:同步中… / 已同步 / 同步失败,点击重试 */
-  refreshLabel(): string {
-    return this.refresh.label();
-  }
-
-  /** 图标与文字色调:normal / success / danger */
-  refreshTone(): RefreshTone {
-    return this.refresh.tone();
-  }
-
-  /** 是否连续旋转(同步中) */
-  refreshSpinning(): boolean {
-    return this.refresh.isSpinning();
-  }
-
-  /** 是否可点击(同步中禁用;成功后 1.4s 内防抖禁用) */
-  refreshEnabled(): boolean {
-    return this.refresh.canTap(nowMillis());
-  }
-
-  /** 无障碍朗读文案(§8:状态不只靠颜色表达) */
-  refreshA11y(): string {
-    return this.refresh.accessibilityText();
-  }
-
-  /** 点击刷新控件(或 Ctrl+R):立刻转圈,再触发一次同步 */
-  async tapRefresh(): Promise<void> {
-    if (!this.refresh.canTap(nowMillis())) {
-      return;
-    }
-    this.refresh.beginManual(nowMillis());
-    this.bump();
-    await this.syncNow();
-  }
-
-  syncText(): string {
-    return phaseLabel(this.syncStatus.phase);
-  }
-
-  /** 待推送条数(状态栏展示) */
-  pendingText(): string {
-    const n: number = this.syncStatus.pendingCount;
-    if (n <= 0) {
-      return '';
-    }
-    return '· 待同步 ' + n.toString();
-  }
-
-  /** 长度上限提醒(契约 §7.4:单次 push ≤ 500) */
-  pushBudget(): number {
-    return MAX_PUSH_OPS;
-  }
-
   /* ------------------------------------------------------------ 快找 */
 
   /** 快找结果:清单 + 项目 + 标签 + 待办 */
@@ -1967,7 +1452,7 @@ export class AppStore {
   }
 }
 
-/** 实时回调占位已由 RealtimeClient.NoopRealtimeCallbacks 提供 */
+
 
 /* ------------------------------------------------------------------ 无状态工具 */
 

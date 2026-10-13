@@ -1,25 +1,18 @@
 package com.ordo.desktop
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.InternalComposeUiApi
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.Density
 import com.ordo.core.storage.InMemoryStorage
 import com.ordo.core.store.OrdoEngine
-import com.ordo.core.sync.OrdoSession
 import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
-import com.ordo.desktop.app.SyncStatus
-import com.ordo.desktop.net.TokenStore
 import com.ordo.desktop.ui.shell.OrdoApp
-import com.ordo.desktop.ui.shell.StatusBar
 import com.ordo.desktop.ui.theme.OrdoTheme
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -32,22 +25,21 @@ import org.junit.Test
 /**
  * 启动落点 + 外壳的离屏渲染(不创建窗口、不抢鼠标)。
  *
- * 产品决策「不再需要登录」后,这里的头等大事变成**反向断言**:
- * 应用启动后直接是主界面,任何视图(含全新安装、无会话、设置页)都**不得**再出现登录相关入口。
+ * 纯本地应用(2026-10-13:云同步彻底删除)的头等大事是**反向断言**:
+ * 应用启动后直接是主界面,且任何视图都**不得**再出现登录 / 同步 / 服务器相关入口。
  *
  * 截图产物(`<buildDir>/reports/`):
- *  - `ordo-startup-main.png`          启动即主界面(本次交付)
+ *  - `ordo-startup-main.png`          启动即主界面(纯本地)
  *  - `ordo-quickadd-menu.png`         快加号 + 展开的菜单(§5.2)
  *  - `ordo-quickadd-menu-closeup.png` 菜单放大视图(核对四个图标)
- *  - `ordo-refresh-syncing.png`       刷新按钮旋转中(§5.3)
- *  - `ordo-refresh-control.png`       刷新控件放大视图
  */
 @OptIn(ExperimentalComposeUiApi::class, InternalComposeUiApi::class)
 class StartupAndShellRenderTest {
 
-    /** 登录界面一旦复活,这些字眼必然出现在语义树里 —— 反向断言用它们当哨兵 */
-    private val loginSignatures = listOf(
-        "邮箱",            // 登录页输入区
+    /** 登录 / 同步界面一旦复活,这些字眼必然出现在语义树里 —— 反向断言用它们当哨兵 */
+    private val forbiddenSignatures = listOf(
+        // 登录时代
+        "邮箱",
         "口令",
         "验证码",
         "口令登录",
@@ -57,7 +49,17 @@ class StartupAndShellRenderTest {
         "已有账号",
         "退出登录",
         "账号与同步",
-        "服务器地址"
+        // 云同步时代
+        "同步中",
+        "已同步",
+        "同步失败",
+        "同步诊断",
+        "立即同步",
+        "服务器地址",
+        "服务端序号",
+        "待推送",
+        "离线重连",
+        "正在同步"
     )
 
     private fun viewModel(): OrdoViewModel {
@@ -93,82 +95,60 @@ class StartupAndShellRenderTest {
         node.children.forEach { collectText(it, out) }
     }
 
-    /** 登录哨兵:返回命中的登录相关字眼(空 = 干净) */
-    private fun loginLeaks(labels: List<String>): List<String> =
-        labels.filter { label -> loginSignatures.any { label.contains(it) } }
+    /** 哨兵:返回命中的登录 / 同步字眼(空 = 干净) */
+    private fun leaks(labels: List<String>): List<String> =
+        labels.filter { label -> forbiddenSignatures.any { label.contains(it) } }
 
-    // ------------------------------------------------------------ 启动即主界面
+    // ------------------------------------------------------------ 启动即主界面(纯本地)
 
     @Test
-    fun `启动即主界面_且没有任何登录入口`() {
+    fun `启动即主界面_没有任何登录或同步入口_并产出截图`() {
         val vm = viewModel()
 
         val bytes = renderBytes(1440, 900) { OrdoApp(vm) }
         val out = saveBytes(bytes, "ordo-startup-main.png")
 
-        // 同一次渲染里顺便把"没有任何登录入口"钉死(离屏场景与截图完全同源)
         val scene = ImageComposeScene(width = 1280, height = 800, density = Density(1f)) { OrdoApp(vm) }
         try {
             scene.render(0L)
             scene.render(16_000_000L)
             val labels = texts(scene)
-            assertTrue("启动后必须是主界面(六个清单都在):$labels", labels.containsAll(
-                listOf("收件箱", "今天", "计划", "随时", "某天", "日志簿")
-            ))
+            assertTrue(
+                "启动后必须是主界面(六个清单都在):$labels",
+                labels.containsAll(listOf("收件箱", "今天", "计划", "随时", "某天", "日志簿"))
+            )
             assertTrue("截图为本次交付物", out.length() > 5_000)
-            assertEquals("不得出现任何登录相关字眼", emptyList<String>(), loginLeaks(labels))
+            assertEquals("不得出现任何登录 / 同步字眼", emptyList<String>(), leaks(labels))
+            assertTrue("状态栏应写明纯本地:$labels", labels.any { it.contains("纯本地") })
         } finally {
             scene.close()
         }
     }
 
     @Test
-    fun `全新安装_没有会话也直接进主界面(离线首启)`() {
-        // 一个 token 都没有:过去会停在登录页,现在必须照常进主界面(本地数据立刻可用)
+    fun `全新安装_空数据目录也直接进主界面`() {
+        // 空目录 + 没有任何会话/令牌概念:启动就该能用(先播种演示数据,本地读写立刻可用)
         val storage = InMemoryStorage()
         val engine = OrdoEngine(storage)
         engine.seedDemoData(force = true)
         val vm = OrdoViewModel(engine = engine, storage = storage, scope = CoroutineScope(Dispatchers.Unconfined))
-        vm.tokens = TokenStore(storage)
 
         val scene = ImageComposeScene(width = 1280, height = 800, density = Density(1f)) { OrdoApp(vm) }
         try {
             scene.render(0L)
             scene.render(16_000_000L)
             val labels = texts(scene)
-            assertTrue("没有会话也必须能用:$labels", labels.contains("今天") && labels.any { it == "收件箱" })
-            assertEquals("没有会话时更没有登录页", emptyList<String>(), loginLeaks(labels))
+            assertTrue("空目录也必须能用:$labels", labels.contains("今天") && labels.any { it == "收件箱" })
+            assertEquals("更不该有登录 / 同步界面", emptyList<String>(), leaks(labels))
         } finally {
             scene.close()
         }
     }
 
-    @Test
-    fun `有会话时同样直接进主界面`() {
-        val vm = viewModel()
-        val storage = InMemoryStorage()
-        val tokens = TokenStore(storage)
-        tokens.saveSession(
-            OrdoSession("u-1", null, isGuest = true, accessToken = "at", refreshToken = "rt", expiresAt = 0L)
-        )
-        vm.tokens = tokens
-
-        val scene = ImageComposeScene(width = 1280, height = 800, density = Density(1f)) { OrdoApp(vm) }
-        try {
-            scene.render(0L)
-            scene.render(16_000_000L)
-            val labels = texts(scene)
-            assertTrue("有会话也是同一个主界面:$labels", labels.contains("今天"))
-            assertEquals("登录界面不该再存在", emptyList<String>(), loginLeaks(labels))
-        } finally {
-            scene.close()
-        }
-    }
-
-    // ------------------------------------------------------------ 设置页:登录相关入口已删除
+    // ------------------------------------------------------------ 设置页:登录与同步入口已删除
 
     @Test
-    fun `设置页不再有账号_退出登录_服务器地址`() {
+    fun `设置页只剩外观与启动_数据_快捷键`() {
         val vm = viewModel()
         vm.openSettings()
         assertTrue("设置页应处于打开状态", vm.state.value.settingsOpen)
@@ -179,11 +159,13 @@ class StartupAndShellRenderTest {
             scene.render(16_000_000L)
             val labels = texts(scene)
 
-            for (section in listOf("外观与启动", "同步", "同步诊断", "数据", "快捷键")) {
+            for (section in listOf("外观与启动", "数据", "快捷键")) {
                 assertTrue("设置页应保留「$section」:$labels", labels.contains(section))
             }
-            assertTrue("同步入口还在:$labels", labels.contains("立即同步"))
-            assertEquals("账号 / 退出登录 / 服务器地址必须删干净", emptyList<String>(), loginLeaks(labels))
+            for (gone in listOf("同步", "同步诊断", "账号与同步")) {
+                assertFalse("设置页不该再有「$gone」:$labels", labels.contains(gone))
+            }
+            assertEquals("账号 / 退出登录 / 服务器地址 / 同步都要删干净", emptyList<String>(), leaks(labels))
         } finally {
             scene.close()
         }
@@ -250,8 +232,7 @@ class StartupAndShellRenderTest {
      * §5.2「新建标题」的可用性:heading 必属 project,所以**只在项目视图**出现这一项,
      * 其余三项所有视图可用(菜单在项目视图下才是完整的 4 项)。
      *
-     * 这里断言的是语义树里有没有这一项,与淡入动画的 alpha 无关(节点在面板可见时就已经组合),
-     * 因此不需要等动画。
+     * 这里断言的是语义树里有没有这一项,与淡入动画的 alpha 无关(节点在面板可见时就已经组合)。
      */
     @Test
     fun `非项目视图的菜单只有三项,新建标题只在项目视图出现`() {
@@ -305,62 +286,6 @@ class StartupAndShellRenderTest {
             Thread.sleep(12L)
         }
         return bytes
-    }
-
-    // ------------------------------------------------------------ 截图:刷新控件
-
-    @Test
-    fun `刷新按钮旋转中可离屏渲染并产出截图`() {
-        val vm = viewModel()
-        vm.setSyncStatus(SyncStatus.SYNCING)
-
-        val scene = ImageComposeScene(width = 1440, height = 900, density = Density(1f)) { OrdoApp(vm) }
-        try {
-            scene.render(0L)
-            scene.render(16_000_000L)
-            val labels = texts(scene)
-            assertTrue("状态栏应显示『同步中…』:$labels", labels.any { it == "同步中…" })
-
-            // 连续旋转:相隔 1/4 圈的两次渲染必须不同(图标真的在转,而不是静态)
-            val quarterTurn = scene.render(241_000_000L).encodeToData()!!.bytes
-            val halfTurn = scene.render(466_000_000L).encodeToData()!!.bytes
-            assertFalse("图标必须连续旋转", quarterTurn.contentEquals(halfTurn))
-
-            val out = File(reportDir(), "ordo-refresh-syncing.png")
-            out.writeBytes(halfTurn)
-            assertTrue(out.length() > 5_000)
-            println("[StartupAndShellRenderTest] 已输出截图:${out.absolutePath} (${out.length()} 字节)")
-        } finally {
-            scene.close()
-        }
-    }
-
-    /** 放大版:只画状态栏,让 28dp 的刷新控件与"同步中…"看得清 */
-    @Test
-    fun `刷新控件放大视图可离屏渲染`() {
-        val vm = viewModel()
-        vm.setSyncStatus(SyncStatus.SYNCING)
-        val state = vm.state.value
-
-        val scene = ImageComposeScene(width = 760, height = 56, density = Density(1f)) {
-            OrdoTheme(dark = false) { StatusBar(state = state, vm = vm) }
-        }
-        try {
-            scene.render(0L)
-            scene.render(16_000_000L)
-            var now = 16_000_000L
-            var bytes: ByteArray? = null
-            repeat(14) {
-                now += 16_000_000L
-                bytes = scene.render(now).encodeToData()!!.bytes
-            }
-            val out = File(reportDir(), "ordo-refresh-control.png")
-            out.writeBytes(bytes!!)
-            assertTrue(out.length() > 1_000)
-            println("[StartupAndShellRenderTest] 已输出截图:${out.absolutePath} (${out.length()} 字节)")
-        } finally {
-            scene.close()
-        }
     }
 
     private fun renderBytes(width: Int, height: Int, content: @Composable () -> Unit): ByteArray {

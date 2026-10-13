@@ -1,8 +1,5 @@
 package com.ordo.android.ui.shell
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,10 +36,6 @@ import androidx.navigation.compose.rememberNavController
 import com.ordo.android.R
 import com.ordo.android.nav.OrdoNavHost
 import com.ordo.android.nav.Routes
-import com.ordo.android.sync.RefreshController
-import com.ordo.android.sync.RefreshLabel
-import com.ordo.android.sync.RefreshTone
-import com.ordo.android.sync.RefreshUiState
 import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconButton
 import com.ordo.android.ui.common.OrdoIconKind
@@ -183,7 +176,7 @@ private fun MainShell(
                         )
                     }
                 }
-                StatusBar(state = state, onRefresh = vm::refresh)
+                StatusBar(state = state)
             }
 
             if (wide && state.detail != null) {
@@ -289,16 +282,13 @@ private fun MainHeader(
 }
 
 /**
- * 状态栏（UI §5.3）：左侧计数 + 右侧**刷新控件**（28dp 圆形图标按钮 + 状态文字）。
+ * 状态栏：左侧计数 + 右侧**本机存储标识**。
  *
- * 看到的行为：
- *  - 同步中：图标**连续旋转**（每圈 900ms，linear，持续到同步结束）+「同步中…」；
- *  - 成功：停转 + 图标转 success 色（320ms 过渡）+「已同步」，1.4s 后回常态；
- *  - 失败：图标 danger 色 +「同步失败，点击重试」（常驻，直到重试）；
- *  - 同步进行中与结束后 1.4s 内按钮禁用（防抖）。
+ * v1.4（彻底删除云同步）起这里不再有同步指示与刷新控件：应用是纯本地的，
+ * 「同步中 / 已同步 / 同步失败」这些状态与文案都已删除。
  */
 @Composable
-private fun StatusBar(state: UiState, onRefresh: () -> Unit) {
+private fun StatusBar(state: UiState) {
     val colors = OrdoTheme.colors
     Row(
         Modifier
@@ -313,83 +303,11 @@ private fun StatusBar(state: UiState, onRefresh: () -> Unit) {
             color = colors.textSecondary,
         )
         Spacer(Modifier.weight(1f))
-        RefreshControl(state = state.refresh, onRefresh = onRefresh)
-    }
-}
-
-@Composable
-private fun RefreshControl(state: RefreshUiState, onRefresh: () -> Unit) {
-    val colors = OrdoTheme.colors
-
-    val tint by animateColorAsState(
-        targetValue = when (state.tone) {
-            RefreshTone.NEUTRAL -> colors.textTertiary
-            RefreshTone.ACCENT -> colors.accent
-            RefreshTone.SUCCESS -> colors.success
-            RefreshTone.DANGER -> colors.danger
-        },
-        animationSpec = tween(RefreshController.SUCCESS_FLASH_MILLIS),
-        label = "refresh-tint",
-    )
-
-    // 连续旋转：每圈 900ms、linear，直到同步结束（spinning=false 时停转并归零）
-    val rotation = remember { Animatable(0f) }
-    val stopMillis = OrdoTheme.fast
-    LaunchedEffect(state.spinning) {
-        if (!state.spinning) {
-            rotation.animateTo(0f, tween(stopMillis))
-            return@LaunchedEffect
-        }
-        while (true) {
-            rotation.snapTo(0f)
-            rotation.animateTo(
-                targetValue = 360f,
-                animationSpec = tween(RefreshController.ROTATION_PERIOD_MILLIS, easing = LinearEasing),
-            )
-        }
-    }
-
-    val label = stringResource(
-        when (state.label) {
-            RefreshLabel.SYNCING -> R.string.sync_syncing_ellipsis
-            RefreshLabel.SYNCED -> R.string.sync_idle
-            RefreshLabel.IDLE -> R.string.sync_idle
-            RefreshLabel.FAILED -> R.string.sync_failed_retry
-            RefreshLabel.OFFLINE -> R.string.sync_offline_retry
-            RefreshLabel.NEVER -> R.string.sync_never
-            RefreshLabel.UNSYNCED -> R.string.sync_unsynced
-        },
-    )
-    val labelColor = when (state.tone) {
-        RefreshTone.DANGER -> colors.danger
-        RefreshTone.SUCCESS -> colors.success
-        else -> colors.textSecondary
-    }
-
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(OrdoRadius.pill))
-            .clickable(enabled = state.enabled, onClick = onRefresh)
-            .padding(horizontal = OrdoSpace.xs)
-            .height(OrdoLayout.touchTarget),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(28.dp)
-                .clip(CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            OrdoIcon(
-                kind = OrdoIconKind.Refresh,
-                size = 16.dp,
-                tint = tint,
-                strokeWidth = 1.6f,
-                modifier = Modifier.rotate(rotation.value),
-            )
-        }
-        Spacer(Modifier.width(OrdoSpace.xs))
-        Text(text = label, style = OrdoTheme.type.caption, color = labelColor)
+        Text(
+            text = stringResource(R.string.status_local_only),
+            style = OrdoTheme.type.caption,
+            color = colors.textTertiary,
+        )
     }
 }
 

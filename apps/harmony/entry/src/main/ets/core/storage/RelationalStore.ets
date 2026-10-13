@@ -115,7 +115,7 @@ export class RdbOrdoStore implements OrdoStore {
   private rdb: relationalStore.RdbStore | null;
   /**
    * 账号数据目录名(契约 §7.6.3 硬约束)。
-   * 取值必须来自 `OrdoSessionHelper.userDataDirName(session.userId)`,**绝不允许**两个账号传同一个值;
+   * 取值必须来自本机稳定工作区标识(契约 §7.6.6,`viewmodel/LocalWorkspace.ets`),**绝不允许**两个工作区传同一个值;
    * 空串表示这是"应用级元数据库",只用来存会话 / 设备 id / 服务器地址 / 外观,不存任何实体。
    */
   private dirName: string;

@@ -51,7 +51,7 @@ fun OrdoApp(vm: OrdoViewModel) {
                         .background(ordoColors.canvas)
                 ) {
                     ListPane(state = state, vm = vm, modifier = Modifier.weight(1f))
-                    StatusBar(state = state, vm = vm)
+                    StatusBar(state = state)
                 }
             }
 

@@ -1,7 +1,5 @@
 package com.ordo.android.vm
 
-import com.ordo.android.sync.RefreshUiState
-import com.ordo.android.sync.SyncState
 import com.ordo.android.ui.theme.ThemeMode
 import com.ordo.core.model.CalendarEvent
 import com.ordo.core.model.RepeatFreq
@@ -161,9 +159,6 @@ data class UiState(
     val selectedTodoId: String? = null,
     val detail: DetailUi? = null,
     val themeMode: ThemeMode = ThemeMode.AUTO,
-    val syncState: SyncState = SyncState.IDLE,
-    /** 状态栏刷新控件（UI §5.3）：同步中连续旋转、成功 1.4s 后回常态、失败常驻 */
-    val refresh: RefreshUiState = RefreshUiState(),
     val searchQuery: String = "",
     val searchResults: List<SearchResultUi> = emptyList(),
     val fastFindOpen: Boolean = false,

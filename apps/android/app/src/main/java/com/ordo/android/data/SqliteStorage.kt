@@ -235,16 +235,13 @@ class SqliteStorage(
         const val DB_NAME = "ordo.db"
         const val DB_VERSION = 1
 
-        /** kv 键（契约 §8）。会话键统一用共享核心的常量 [com.ordo.core.sync.OrdoSessionStore.KEY_SESSION] */
+        /**
+         * kv 键。v1.4（纯本地）后只剩**本地**用得到的键：
+         * schemaVersion / serverSeq（本地游标）/ deviceId（本地生成，用于 Op 记录）。
+         * 会话、令牌、服务器地址等键已随云同步一起删除。
+         */
         const val KEY_SCHEMA_VERSION = "schemaVersion"
         const val KEY_SERVER_SEQ = "serverSeq"
-        const val KEY_ACCESS_TOKEN = "accessToken"
-        const val KEY_REFRESH_TOKEN = "refreshToken"
-        const val KEY_USER_EMAIL = "userEmail"
-        const val KEY_SERVER_URL = "serverUrl"
-
-        /** 默认服务端地址(可在「设置 → 账号 → 服务器地址」改成本地后端) */
-        const val DEFAULT_SERVER_URL = "https://api.ordo.app"
     }
 }
 

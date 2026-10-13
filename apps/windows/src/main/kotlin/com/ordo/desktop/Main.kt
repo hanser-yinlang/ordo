@@ -39,18 +39,10 @@ import com.ordo.core.platform.SystemOrdoClock
 import com.ordo.core.store.OrdoEngine
 import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
-import com.ordo.desktop.app.SilentSession
-import com.ordo.desktop.app.SilentSessionKeeper
 import com.ordo.desktop.app.SharedSelection
 import com.ordo.desktop.app.UiState
 import com.ordo.desktop.data.JsonFileStorage
 import com.ordo.desktop.data.UserDataDirs
-import com.ordo.desktop.net.KtorAuthApi
-import com.ordo.desktop.net.KtorRealtimeChannel
-import com.ordo.desktop.net.KtorSyncApi
-import com.ordo.desktop.net.OrdoHttp
-import com.ordo.desktop.net.TokenStore
-import com.ordo.desktop.sync.SyncCoordinator
 import com.ordo.desktop.system.DeepLink
 import com.ordo.desktop.system.DeepLinkInbox
 import com.ordo.desktop.system.LockResult
@@ -61,7 +53,6 @@ import com.ordo.desktop.system.WindowsAutoStart
 import com.ordo.desktop.system.WindowsProtocolRegistrar
 import com.ordo.desktop.ui.common.OrdoInputFocus
 import com.ordo.desktop.ui.shell.OrdoApp
-import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -159,87 +150,52 @@ private fun selfTestReport(file: File?, line: String) {
 private fun ApplicationScope.desktopApp(args: Array<String>, baseDir: File, selfTest: File? = null) {
     val appScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
-    /* ---------------- 引导层:会话与隐藏的服务器地址(与数据目录无关) ---------------- */
-    // 产品决策:不再需要登录 —— 启动即主界面,会话在后台静默拿(见 SilentSessionKeeper)。
-    // 会话仍旧住在基目录 %APPDATA%\Ordo 的 kv[ordo.session]:它属于"这台机器",不属于某份数据。
-    selfTestReport(selfTest, "step=base-dir dir=${baseDir.absolutePath}")
+    /* ---------------- 纯本地:只读本机基目录,不建任何网络对象 ---------------- */
+    // 产品决策(2026-10-13):云同步彻底删除 —— 本端是纯本地应用,启动到退出**一个网络请求都不发**,
+    // 类路径上也没有任何 HTTP / WebSocket 客户端(见 NoNetworkTest 的三重断言)。
+    selfTestReport(selfTest, "step=base-dir dir=${baseDir.absolutePath} mode=local-only")
     val bootstrap = remember { JsonFileStorage(baseDir) }
-    val client = remember { OrdoHttp.create() }
-    val tokens = remember { TokenStore(bootstrap) }
-    val authApi = remember { KtorAuthApi(client, tokens) }
-
-    // 静默匿名会话:读会话 → 有效直接用;过期先 refresh;失败或没有 → 静默建匿名账号;
-    // 网络不可达**照常进主界面**(离线可用),后台按退避重试直到拿到会话。全程不弹任何界面。
-    val session = remember {
-        SilentSessionKeeper(
-            api = authApi,
-            tokens = tokens,
-            scope = appScope,
-            onSession = { selfTestReport(selfTest, "step=session ready ${SilentSession.describe(it)}") }
-        )
-    }
-    LaunchedEffect(Unit) { session.start() }
 
     // 数据目录 id:**本机稳定标识**(契约 §7.6.6),首次启动即钉进 kv,之后**永不变**:
-    // 老用户升级沿用原会话 userId 的目录(不改名、不迁移);v1.3 里退出过登录的机器沿用遗留目录;
-    // 全新离线首启则生成一个本地匿名 id —— 这样"会话还没到手"也能立刻读写,而且会话到手后目录不会改名。
+    // 老机器沿用已在用的目录(不改名、不迁移),全新安装生成一个本地 id。
     val dataDirId = remember {
-        val id = UserDataDirs.resolveDataDirId(bootstrap, tokens.currentSession()?.userId, baseDir)
-        selfTestReport(
-            selfTest,
-            "step=data-dir id=$id session=${SilentSession.describe(tokens.currentSession())}"
-        )
+        val id = UserDataDirs.resolveDataDirId(bootstrap, baseDir)
+        selfTestReport(selfTest, "step=data-dir id=$id")
         id
     }
 
-    selfTestReport(selfTest, "step=startup ui=main(no-login session=${if (session.hasSession) "cached" else "pending"})")
+    selfTestReport(selfTest, "step=startup ui=main(local-only)")
 
     AppWindows(
         args = args,
         baseDir = baseDir,
         bootstrap = bootstrap,
-        tokens = tokens,
-        session = session,
-        client = client,
         scope = appScope,
         dataDirId = dataDirId,
         selfTest = selfTest
     )
-
-    DisposableEffect(Unit) {
-        onDispose {
-            runCatching { session.stop() }
-            runCatching { client.close() }
-        }
-    }
 }
 
 /**
- * 主界面:一个数据目录 = N 个窗口(产品决策:不再需要登录,启动即进这里)。
+ * 主界面:一个数据目录 = N 个窗口。
  *
- * `key(dataDirId)` 保证数据目录切换时整棵树(引擎 / 窗口 / 托盘 / 同步)重建 ——
- * 数据目录 id 是**钉住**的,所以后台重建匿名会话不会触发重建,用户无感。
+ * `key(dataDirId)` 保证数据目录切换时整棵树(引擎 / 窗口 / 托盘)重建 ——
+ * 数据目录 id 是**本机钉住**的,所以正常运行期间它不会变。
  */
 @Composable
 private fun ApplicationScope.AppWindows(
     args: Array<String>,
     baseDir: File,
     bootstrap: JsonFileStorage,
-    tokens: TokenStore,
-    session: SilentSessionKeeper,
-    client: HttpClient,
     scope: CoroutineScope,
     dataDirId: String,
     selfTest: File?
 ) {
     key(dataDirId) {
-        AccountApp(
+        LocalApp(
             args = args,
             baseDir = baseDir,
             bootstrap = bootstrap,
-            tokens = tokens,
-            session = session,
-            client = client,
             scope = scope,
             dataDirId = dataDirId,
             selfTest = selfTest
@@ -248,13 +204,10 @@ private fun ApplicationScope.AppWindows(
 }
 
 @Composable
-private fun ApplicationScope.AccountApp(
+private fun ApplicationScope.LocalApp(
     args: Array<String>,
     baseDir: File,
     bootstrap: JsonFileStorage,
-    tokens: TokenStore,
-    session: SilentSessionKeeper,
-    client: HttpClient,
     scope: CoroutineScope,
     dataDirId: String,
     selfTest: File?
@@ -263,11 +216,7 @@ private fun ApplicationScope.AccountApp(
     val dataDir = remember(dataDirId) { UserDataDirs.userDir(baseDir, dataDirId) }
     val storage = remember(dataDir) { JsonFileStorage(dataDir) }
     val engine = remember(storage) { OrdoEngine(storage, SystemOrdoClock) }
-
-    /* ---------------- 网络与同步(契约 §7.4 / §7.5) ---------------- */
-    val syncApi = remember(client, tokens) { KtorSyncApi(client, tokens, engine.deviceId) }
-    val realtime = remember(client, tokens) { KtorRealtimeChannel(client, tokens) }
-    selfTestReport(selfTest, "step=engine+net ready todos=${engine.snapshot.todos.size}")
+    selfTestReport(selfTest, "step=engine ready todos=${engine.snapshot.todos.size} (no network)")
 
     /* ---------------- 窗口列表(多窗口:每个 id = 一份独立路由的窗口) ---------------- */
     val windowIds = remember { mutableStateListOf(FIRST_WINDOW_ID) }
@@ -320,19 +269,6 @@ private fun ApplicationScope.AccountApp(
         )
     }
 
-    val coordinator = remember {
-        SyncCoordinator(
-            engine = engine,
-            syncApi = syncApi,
-            tokens = tokens,
-            realtime = realtime,
-            scope = scope,
-            // 同步遇 401:静默重建匿名会话后继续,不弹界面
-            sessionRecovery = session,
-            onRemoteReminder = { push -> tray.notify(push.todoId, push.title, push.at) }
-        )
-    }
-
     val reminderScheduler = remember {
         ReminderScheduler(
             engine = engine,
@@ -351,7 +287,6 @@ private fun ApplicationScope.AccountApp(
             val registrar = WindowsProtocolRegistrar()
             if (!registrar.isRegistered()) registrar.register()
         }
-        coordinator.start()
         tray.install()
         reminderJob.value = reminderScheduler.start()
     }
@@ -359,10 +294,8 @@ private fun ApplicationScope.AccountApp(
     DisposableEffect(Unit) {
         onDispose {
             runCatching { reminderJob.value?.cancel() }
-            runCatching { coordinator.stop() }
-            runCatching { realtime.close() }
             runCatching { tray.remove() }
-            // 注意:不在这里关闭 HttpClient / 取消 appScope —— 它们属于整个进程(退出登录后还要继续用)
+            // 注意:不在这里取消 appScope —— 它属于整个进程
         }
     }
 
@@ -370,7 +303,7 @@ private fun ApplicationScope.AccountApp(
     val deepLink = remember { DeepLink.fromArgs(args) }
     // 跨进程深链转交:第二个实例把链接写进 .ordo.inbox,这里轮询消费
     // (命名管道要 JNI、本地 socket 要占端口,文件转交零依赖且可单测)
-    // 信箱放在**基目录**:第二个实例启动时还不知道 userId,必须放在账号无关的位置
+    // 信箱放在**基目录**(与数据目录无关) —— 纯本地文件,不涉及任何网络
     val linkInbox = remember { DeepLinkInbox.of(baseDir) }
     LaunchedEffect(Unit) {
         linkInbox.cleanupTemp()
@@ -433,8 +366,6 @@ private fun ApplicationScope.AccountApp(
                 engine = engine,
                 storage = storage,
                 scope = scope,
-                coordinator = coordinator,
-                tokens = tokens,
                 selectionBus = selectionBus,
                 savedLayout = savedLayout,
                 cascadeIndex = index,
@@ -473,8 +404,6 @@ private fun ApplicationScope.DesktopWindow(
     engine: OrdoEngine,
     storage: JsonFileStorage,
     scope: CoroutineScope,
-    coordinator: SyncCoordinator,
-    tokens: TokenStore,
     selectionBus: SharedSelection,
     savedLayout: WindowLayout,
     cascadeIndex: Int,
@@ -508,13 +437,10 @@ private fun ApplicationScope.DesktopWindow(
     }
 
     LaunchedEffect(Unit) {
-        // 会话只被同步链路静默使用(产品决策:界面没有账号概念)
-        vm.tokens = tokens
-        // 系统集成:开机自启与 ordo:// 协议(拿不到 exe 路径时自动退化为不可用)
+        // 纯本地:没有会话 / 令牌 / 同步可挂,只做系统集成与路由
         vm.autoStart = WindowsAutoStart()
         vm.protocol = WindowsProtocolRegistrar()
         vm.onNewWindow = onRequestNewWindow
-        vm.attachSync(coordinator)
         vm.attachSelectionBus(selectionBus)
         if (initialRoute != OrdoRoute.Today) vm.navigate(initialRoute)
         deepLink?.let { target ->
@@ -687,8 +613,6 @@ private fun handleShortcut(event: KeyEvent, vm: OrdoViewModel, onNewWindow: () -
         return when (event.key) {
             Key.N -> { vm.openComposer(); true }
             Key.K -> { vm.openFastFind(); true }
-            // Ctrl+R:立即同步(04-UI规范 §6;与状态栏刷新控件同一条链路)
-            Key.R -> { vm.syncNow(); true }
             Key.D -> { vm.cycleTheme(); true }
             Key.One -> { vm.navigate(OrdoRoute.Inbox); true }
             Key.Two -> { vm.navigate(OrdoRoute.Today); true }

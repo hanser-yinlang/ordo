@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- 契约 §7.4：HTTP/WS 同步 -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 契约 §7.5 Fastlane + 本地提醒到点通知 -->
+    <!--
+      v1.4（纯本地）：应用**不联网**，因此没有 INTERNET / ACCESS_NETWORK_STATE 权限。
+      依据：全部网络客户端（Ktor/OkHttp/WebSocket）、同步调度器、实时通道、会话与令牌都已删除，
+      代码里不存在任何 socket / HTTP 调用（见 README「纯本地证明」），
+      移除 INTERNET 后即使未来误引入网络调用，系统也会直接抛 SecurityException。
+    -->
+    <!-- 本地提醒到点通知 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- 开机后重排提醒（WorkManager） -->
+    <!-- 开机后重排提醒（WorkManager，纯本地） -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- SyncScheduler 监听「网络恢复」触发（registerDefaultNetworkCallback 必需） -->
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:name=".OrdoApp"

@@ -1,6 +1,9 @@
 // Ordo · Windows 桌面端应用模块(Compose Multiplatform Desktop)
 // 依赖一律走根 gradle/libs.versions.toml 的别名或 Compose 插件的 compose.* 访问器,不写死版本号。
-// 业务逻辑全部来自冻结的共享核心 :shared:core —— 本模块只做 UI、存储、网络与系统集成。
+// 业务逻辑全部来自冻结的共享核心 :shared:core —— 本模块只做 UI、本地存储与系统集成。
+//
+// **纯本地应用(2026-10-13 产品决策:云同步彻底删除)**:这里**没有任何网络依赖** ——
+// Ktor / WebSocket / 序列化 HTTP 客户端全部移除,类路径上不存在 HTTP 客户端(见 NoNetworkTest 的断言)。
 
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
@@ -8,7 +11,6 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.compose.compiler)
-    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -27,12 +29,6 @@ dependencies {
 
     // —— 协程(Swing 调度器 = Compose Desktop 的 Main 线程)——
     implementation(libs.kotlinx.coroutines.swing)
-
-    // —— 网络(Ktor CIO,契约 §7.4 / §7.5)——
-    implementation(libs.ktor.client.cio)
-    implementation(libs.ktor.client.content.negotiation)
-    implementation(libs.ktor.client.websockets)
-    implementation(libs.ktor.serialization.kotlinx.json)
 
     // —— 测试 ——
     testImplementation(libs.junit)

@@ -60,17 +60,6 @@ class MainActivity : ComponentActivity() {
         parseDeepLink(intent)?.let { pendingDeepLink = it }
     }
 
-    override fun onResume() {
-        super.onResume()
-        // 04 文档 §3 / 契约 §7.1：回到前台触发一次同步
-        vm.onAppForeground()
-    }
-
-    override fun onPause() {
-        vm.onAppBackground()
-        super.onPause()
-    }
-
     /** ordo://list/today · ordo://todo/{id} · ordo://project/{id} */
     private fun parseDeepLink(intent: Intent?): String? {
         val data = intent?.data ?: return null

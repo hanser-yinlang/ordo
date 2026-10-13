@@ -4,15 +4,9 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ordo.android.R
-import com.ordo.android.auth.SessionPlan
-import com.ordo.android.auth.SilentSessionRules
 import com.ordo.android.data.SeedData
 import com.ordo.android.data.whenValue
 import com.ordo.android.di.ServiceLocator
-import com.ordo.android.net.OrdoAuthApi
-import com.ordo.android.sync.RefreshController
-import com.ordo.android.sync.RefreshPhase
-import com.ordo.android.sync.SyncState
 import com.ordo.android.ui.common.OrdoFormatter
 import com.ordo.android.ui.theme.ThemeMode
 import com.ordo.core.model.CalendarEvent
@@ -31,7 +25,6 @@ import com.ordo.core.query.ListSection
 import com.ordo.core.query.SectionKind
 import com.ordo.core.query.SidebarCounts
 import com.ordo.core.store.OrdoEngine
-import com.ordo.core.sync.OrdoSession
 import com.ordo.core.util.OrdoDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -52,30 +45,19 @@ import java.net.URLEncoder
 class OrdoViewModel : ViewModel() {
 
     /**
-     * 当前账号的引擎。**不能**在字段初始化时读成 val：
-     * 数据目录按账号隔离（契约 §7.6.3），登录/退出都会重新绑定，必须每次取当前账号的那一份。
+     * 当前工作区的引擎。**不能**在字段初始化时读成 val：
+     * 数据目录按工作区隔离（契约 §7.6.3），绑定/解绑会切换，必须每次取当前那一份。
      */
     private val engine: OrdoEngine get() = ServiceLocator.engine
     private val settings = ServiceLocator.settings
-    private val tokens = ServiceLocator.tokens
-    private val sessions = ServiceLocator.sessions
-    private val scheduler = ServiceLocator.scheduler
-    private val authApi: OrdoAuthApi = ServiceLocator.authApi
     private val context: Context = ServiceLocator.appContext
     private val formatter = OrdoFormatter(context)
-
-    /** 刷新控件状态机（UI §5.3）：状态栏刷新键与下拉刷新共用同一份状态 */
-    private val refreshController = RefreshController()
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var unsubscribe: (() -> Unit)? = null
     private var toastJob: Job? = null
-    private var settleJob: Job? = null
-
-    /** 会话修复（网络抖动 vs 服务端否认）正在判定中，避免并发重复请求 */
-    private var sessionRepairJob: Job? = null
 
     /** 区域折叠是设备本地 UI 偏好（契约 §2.3 的同类本地状态），由界面层持有 */
     private val collapsedAreas = mutableSetOf<String>()
@@ -84,19 +66,7 @@ class OrdoViewModel : ViewModel() {
         viewModelScope.launch {
             settings.themeMode.collect { mode -> _state.update { it.copy(themeMode = mode) } }
         }
-        viewModelScope.launch {
-            scheduler.state.collect { value ->
-                _state.update { it.copy(syncState = value) }
-                applySyncState(value)
-            }
-        }
-        viewModelScope.launch {
-            refreshController.state.collect { value -> _state.update { it.copy(refresh = value) } }
-        }
-        // 静默建号 / 续期成功后：ServiceLocator 已起实时通道，这里重新挂引擎并补一次同步
-        viewModelScope.launch {
-            ServiceLocator.session.collect { session -> if (session != null) onSessionReady() }
-        }
+        // 纯本地启动：直接读本地数据渲染主界面，**不发任何网络请求**
         viewModelScope.launch {
             _state.update {
                 it.copy(
@@ -104,7 +74,7 @@ class OrdoViewModel : ViewModel() {
                     loading = false,
                 )
             }
-            startSilentSession()
+            enterMain()
         }
     }
 
@@ -113,82 +83,20 @@ class OrdoViewModel : ViewModel() {
         super.onCleared()
     }
 
-    /* ======================= 静默会话（v1.3：无登录界面） ======================= */
+    /* ========================= 启动：纯本地读数据 ========================= */
 
     /**
-     * 启动流程（产品决策 v1.3，取代旧的登录门禁）：
-     * ```
-     * 读 session（本地数据目录已由 ServiceLocator 按"钉住的本机 id"挂好，与会话无关）
-     *   ├─ 有且未过期            → 直接进主界面（后台静默 refresh）
-     *   ├─ 有但 accessToken 过期 → 先 refresh；成功用新会话
-     *   │                          失败且是 401（服务端否认）→ 静默重建匿名会话
-     *   │                          失败但不是 401（网络不可达）→ 继续离线用旧会话
-     *   └─ 无                    → 直接进主界面（离线可用），后台静默建匿名账号
-     * ```
-     * 三个分支都**直接进主界面**：不再有登录页，网络不可达也不阻塞启动。
-     */
-    private fun startSilentSession() {
-        val session = runCatching { sessions.load() }.getOrNull()
-        when (val plan = SilentSessionRules.plan(session, System.currentTimeMillis())) {
-            is SessionPlan.UseExisting ->
-                enterMain(sessionReady = true, silentRefresh = plan.silentRefresh)
-
-            is SessionPlan.RefreshFirst -> viewModelScope.launch {
-                val outcome = runCatching { authApi.refresh(plan.session.refreshToken) }
-                when {
-                    // 续期成功：AuthApi 已把新会话写进引导库（本地工作区不变，契约 §7.6.6）
-                    outcome.isSuccess -> enterMain(sessionReady = true, silentRefresh = false)
-
-                    // 服务端否认了旧会话：静默建匿名账号（本地目录不动，用户数据不"消失"）
-                    SilentSessionRules.isSessionDenied(SilentSessionRules.errorCodeOf(outcome.exceptionOrNull())) -> {
-                        enterMain(sessionReady = false, silentRefresh = false)
-                        ServiceLocator.ensureAnonymousSession(replaceExisting = true)
-                    }
-
-                    // 网络不可达 / 5xx：按「暂时同步不上」处理，离线继续用旧会话
-                    else -> enterMain(sessionReady = false, silentRefresh = false)
-                }
-            }
-
-            SessionPlan.CreateAnonymous -> {
-                // 还没有账号：本机工作区立刻可用（离线也能写）；建号成功后 ServiceLocator 通知界面
-                enterMain(sessionReady = false, silentRefresh = false)
-                ServiceLocator.ensureAnonymousSession()
-            }
-        }
-    }
-
-    /**
-     * 进入主界面（唯一入口）：订阅引擎 → 渲染本地数据 → 起实时通道 → 静默同步。
+     * 进入主界面：订阅本地引擎 → 渲染本地数据。
      *
-     * 本地数据目录由 ServiceLocator 在启动时按**钉住的本机 id**（契约 §7.6.6）挂好，
-     * 这里**不切换任何目录**：会话重建（静默建号 / 401）只换令牌，用户数据原地不动。
-     *
-     * @param sessionReady 是否已拿到可用会话（否则只渲染本地数据、不发请求，等静默建号）
+     * v1.4 起云同步与登录全部删除，因此这里**只有本地读取**：
+     * 没有会话、没有令牌、没有网络请求、没有同步调度。
      */
-    private fun enterMain(sessionReady: Boolean, silentRefresh: Boolean) {
+    private fun enterMain() {
         unsubscribe?.invoke()
         unsubscribe = runCatching { engine.subscribe { snapshot -> rebuild(snapshot) } }.getOrNull()
 
         _state.update { it.copy(loading = false) }
         rebuild(runCatching { engine.snapshot }.getOrNull())
-        if (!sessionReady) return
-
-        ServiceLocator.startRealtime()
-        if (silentRefresh) {
-            // 后台静默 refresh：失败也不打断使用（accessToken 仍有效，401 时由网络层兜底）
-            viewModelScope.launch { runCatching { authApi.refreshSaved() } }
-        }
-        viewModelScope.launch { runCatching { scheduler.syncOnce() } }
-    }
-
-    /**
-     * 会话就绪（静默建号成功 / 续期成功）后重新挂引擎并补一次同步。
-     * ServiceLocator 已完成实时通道启动；本地目录不变，所以这里只做界面侧的重新订阅。
-     */
-    private fun onSessionReady() {
-        _state.update { it.copy(loading = false) }
-        enterMain(sessionReady = true, silentRefresh = false)
     }
 
     private fun deviceName(): String =
@@ -882,93 +790,6 @@ class OrdoViewModel : ViewModel() {
         rebuild(runCatching { engine.snapshot }.getOrNull())
         showToast(context.getString(R.string.toast_reset))
     }
-
-    /* ============================== 同步 · 刷新 ============================== */
-
-    /**
-     * 状态栏刷新键（UI §5.3）与下拉刷新共用这一条路径，因此两处表现必然一致。
-     * 同步中、或成功后 1.4s 防抖窗口内的点按是空操作。
-     */
-    fun refresh() {
-        if (!tokens.isLoggedIn()) {
-            refreshController.onNotLoggedIn()
-            return
-        }
-        if (!refreshController.onClick()) return
-        viewModelScope.launch { runCatching { scheduler.syncOnce() } }
-    }
-
-    /** 设置页的「立即同步」：走同一条路径，用户同样能看到图标连续旋转 */
-    fun syncNow() = refresh()
-
-    /**
-     * 同步状态 → 刷新控件（把控制器做成 [SyncScheduler] 状态的**投影**，
-     * 于是轮询 / 回前台 / 网络恢复触发的同步同样有转圈反馈）。
-     */
-    private fun applySyncState(value: SyncState) {
-        val control = refreshController.state.value
-        when (value) {
-            SyncState.SYNCING -> refreshController.requestSync()
-
-            SyncState.IDLE -> when (control.phase) {
-                RefreshPhase.SYNCING -> {
-                    refreshController.onSyncFinished(true)
-                    settleJob?.cancel()
-                    settleJob = viewModelScope.launch {
-                        delay(RefreshController.SETTLE_MILLIS)
-                        refreshController.settle()
-                    }
-                }
-                RefreshPhase.SUCCESS, RefreshPhase.FAILED -> Unit
-                RefreshPhase.IDLE -> refreshController.onIdle()
-            }
-
-            SyncState.FAILED -> if (control.phase == RefreshPhase.SYNCING) refreshController.onSyncFinished(false)
-
-            SyncState.OFFLINE -> refreshController.onOffline()
-
-            SyncState.NOT_LOGGED_IN -> {
-                refreshController.onNotLoggedIn()
-                // 没有会话（首启离线）→ 引导任务已在退避重试；
-                // 有会话却被判为未登录 → 先确认服务端是否真的否认了令牌（见 repairSessionIfDenied）
-                if (tokens.isLoggedIn()) repairSessionIfDenied()
-            }
-        }
-    }
-
-    /**
-     * 同步被判为「未登录」时的**静默**修复（绝不弹登录界面，契约 §7.6.6 下也不会换目录）：
-     *   ① 令牌其实还能续期（刚才只是网络抖动）→ 直接用新会话补一次同步；
-     *   ② 服务端明确否认（401）→ 静默重建匿名会话（本地数据原地不动）；
-     *   ③ 网络不可达 → 什么都不做，保持离线可用，等下次重试。
-     */
-    private fun repairSessionIfDenied() {
-        if (sessionRepairJob?.isActive == true) return
-        val refreshToken = tokens.refreshToken() ?: return
-        sessionRepairJob = viewModelScope.launch {
-            val outcome = runCatching { authApi.refresh(refreshToken) }
-            when {
-                outcome.isSuccess -> enterMain(sessionReady = true, silentRefresh = false)
-
-                SilentSessionRules.isSessionDenied(SilentSessionRules.errorCodeOf(outcome.exceptionOrNull())) ->
-                    ServiceLocator.ensureAnonymousSession(replaceExisting = true)
-
-                else -> Unit // 网络问题：保持会话离线，等下次同步重试
-            }
-        }
-    }
-
-    fun onAppForeground() {
-        scheduler.onForeground()
-        if (!tokens.isLoggedIn()) {
-            // 首启离线（还没有匿名会话）：回前台再试一次建号（幂等，正在重试时是空操作）
-            ServiceLocator.ensureAnonymousSession()
-            return
-        }
-        ServiceLocator.applicationScope.launch { runCatching { scheduler.syncOnce() } }
-    }
-
-    fun onAppBackground() = scheduler.onBackground()
 
     /* ============================== Toast ============================== */
 

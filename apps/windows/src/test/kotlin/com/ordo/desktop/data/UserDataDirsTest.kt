@@ -116,43 +116,38 @@ class UserDataDirsTest {
         assertTrue(UserDataDirs.userDir(parsed, "u-1").absolutePath.endsWith("ordo-prop\\u-1"))
     }
 
-    // ------------------------------------------------------------ 数据目录 id 的"钉住"
+    // ------------------------------------------------------------ 数据目录 id 的"钉住"(契约 §7.6.6)
 
     @Test
-    fun `有会话时数据目录 id 就是会话 userId,并落到 kv`() {
+    fun `首次运行(空基目录)生成本地 id 并落到 kv`() {
         val storage = InMemoryStorage()
+        val base = base("fresh")
+        try {
+            var generated = 0
+            val generate = { generated += 1; "local-test-$generated" }
 
-        val id = UserDataDirs.resolveDataDirId(storage, sessionUserId = "u-old")
+            val first = UserDataDirs.resolveDataDirId(storage, base, generate)
 
-        assertEquals("老用户的目录名与历史行为一致(不需要迁移)", "u-old", id)
-        assertEquals("必须钉住,否则下次启动会换目录", "u-old", storage.kvGet(UserDataDirs.KEY_DATA_DIR_ID))
+            assertEquals("local-test-1", first)
+            assertEquals("只生成一次", 1, generated)
+            assertEquals("钉在 kv 里", first, storage.kvGet(UserDataDirs.KEY_DATA_DIR_ID))
+        } finally {
+            base.deleteRecursively()
+        }
     }
 
     @Test
-    fun `没有会话(全新安装且离线)时生成本地匿名 id 并钉住`() {
+    fun `目录 id 一旦钉住就不再改变 —— 后续启动永远用同一个`() {
         val storage = InMemoryStorage()
-        var generated = 0
-        val generate = { generated += 1; "local-test-$generated" }
+        val local = UserDataDirs.resolveDataDirId(storage) { "local-pinned" }
 
-        val first = UserDataDirs.resolveDataDirId(storage, sessionUserId = null, generate = generate)
-
-        assertEquals("local-test-1", first)
-        assertEquals("只生成一次", 1, generated)
-        assertEquals("钉在 kv 里", first, storage.kvGet(UserDataDirs.KEY_DATA_DIR_ID))
-    }
-
-    @Test
-    fun `会话到手后目录 id 不会改名 —— 后续启动仍然用钉住的那个`() {
-        val storage = InMemoryStorage()
-        val local = UserDataDirs.resolveDataDirId(storage, sessionUserId = null) { "local-pinned" }
-
-        // 静默匿名会话到手了(userId 与服务端分配的一致),但目录 id 依旧钉住:
-        // 否则用户刚写的待办会"看起来消失"(数据其实还在旧目录里)
-        val afterSession = UserDataDirs.resolveDataDirId(storage, sessionUserId = "u-server")
+        // 第二次解析(带/不带基目录都一样):必须原样返回钉住的那个
+        val again = UserDataDirs.resolveDataDirId(storage, generate = { "local-should-not-be-used" })
+        val withBase = UserDataDirs.resolveDataDirId(storage, baseDir = base("ignored")) { "local-nope" }
 
         assertEquals("local-pinned", local)
-        assertEquals("local-pinned", afterSession)
-        assertNotEquals("本地 id 不该被服务端 userId 顶掉", "u-server", afterSession)
+        assertEquals("local-pinned", again)
+        assertEquals("local-pinned", withBase)
     }
 
     @Test
@@ -160,22 +155,22 @@ class UserDataDirsTest {
         val storage = InMemoryStorage()
         storage.kvSet(UserDataDirs.KEY_DATA_DIR_ID, "   ")
 
-        val id = UserDataDirs.resolveDataDirId(storage, sessionUserId = "u-1")
+        val id = UserDataDirs.resolveDataDirId(storage) { "local-fresh" }
 
-        assertEquals("u-1", id)
+        assertEquals("local-fresh", id)
     }
 
     @Test
-    fun `升级前用过、会话却已不在的机器——沿用唯一遗留数据目录(契约 §7_6_6 不做迁移)`() {
+    fun `升级前用过、目录标识还没钉住的机器——沿用唯一遗留数据目录(不做迁移)`() {
         val base = base("adopt-one")
         try {
-            // v1.3 里退出过登录 → 会话被清,但目录与数据都还在
+            // v1.3 的目录(名字是当时的会话 userId),迁移到纯本地版后必须继续沿用
             val legacy = File(base, "550e8400-e29b-41d4-a716-446655440000")
             JsonFileStorage(legacy).kvSet("ordo.demo", "旧数据")
 
             val storage = InMemoryStorage()
             var generated = 0
-            val id = UserDataDirs.resolveDataDirId(storage, sessionUserId = null, baseDir = base) {
+            val id = UserDataDirs.resolveDataDirId(storage, base) {
                 generated += 1
                 "local-new"
             }
@@ -197,7 +192,7 @@ class UserDataDirsTest {
             JsonFileStorage(File(base, "user-b")).kvSet("ordo.demo", "B")
 
             val storage = InMemoryStorage()
-            val id = UserDataDirs.resolveDataDirId(storage, sessionUserId = null, baseDir = base) { "local-new" }
+            val id = UserDataDirs.resolveDataDirId(storage, base) { "local-new" }
 
             assertEquals("多个候选无法判断归属,宁可不迁移", "local-new", id)
         } finally {
@@ -215,7 +210,7 @@ class UserDataDirsTest {
             File(base, "empty-dir").mkdirs()
 
             val storage = InMemoryStorage()
-            val id = UserDataDirs.resolveDataDirId(storage, sessionUserId = null, baseDir = base) { "local-new" }
+            val id = UserDataDirs.resolveDataDirId(storage, base) { "local-new" }
 
             assertEquals("都不算,应该生成新 id", "local-new", id)
         } finally {
@@ -231,9 +226,9 @@ class UserDataDirsTest {
             val storage = InMemoryStorage()
             storage.kvSet(UserDataDirs.KEY_DATA_DIR_ID, "already-pinned")
 
-            val id = UserDataDirs.resolveDataDirId(storage, sessionUserId = "u-other", baseDir = base) { "local-new" }
+            val id = UserDataDirs.resolveDataDirId(storage, base) { "local-new" }
 
-            assertEquals("钉住之后永不改写:会话、遗留目录、生成器都不影响它", "already-pinned", id)
+            assertEquals("钉住之后永不改写:遗留目录与生成器都不影响它", "already-pinned", id)
         } finally {
             base.deleteRecursively()
         }

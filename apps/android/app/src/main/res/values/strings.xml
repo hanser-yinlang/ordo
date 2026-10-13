@@ -45,11 +45,8 @@
     <string name="subtitle_project">完成 %1$d%% · 未完成 %2$d 项</string>
     <string name="subtitle_count">%1$d 项</string>
     <string name="status_counts">共 %1$d 项 · 已完成 %2$d 项</string>
-    <string name="sync_idle">已同步</string>
-    <string name="sync_syncing">同步中</string>
-    <string name="sync_offline">离线</string>
-    <string name="sync_failed">同步失败</string>
-    <string name="sync_never">未连接</string>
+    <!-- 纯本地(v1.4):状态栏右侧标识,不再有同步状态文案 -->
+    <string name="status_local_only">仅本机</string>
 
     <!-- 快找 -->
     <string name="fastfind_hint">搜索待办、项目、区域、标签</string>
@@ -169,7 +166,6 @@
     <string name="settings_data_desc">共 %1$d 项 · 本地 SQLite 数据库</string>
     <string name="settings_reset">重置为示例数据</string>
     <string name="settings_reset_confirm">将清空本地数据并恢复示例内容，确定吗？</string>
-    <string name="settings_sync_now">立即同步</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_desc">序 Ordo · Android 1.0.0 · 把今天理清楚</string>
 
@@ -196,10 +192,7 @@
     <string name="toast_area_created">已新建区域「%1$s」</string>
     <string name="toast_todo_created">已添加「%1$s」</string>
     <string name="toast_reminder_set">提醒已设为 %1$s</string>
-    <string name="toast_sync_done">同步完成</string>
-    <string name="toast_sync_failed">同步失败</string>
     <string name="toast_storage_memory">本地存储不可用，已降级为内存模式</string>
-    <string name="toast_local_dir_failed">本地数据目录不可用，本次运行只在内存中保存</string>
 
     <!-- 通知 -->
     <string name="notif_channel_name">提醒</string>
@@ -210,13 +203,6 @@
     <!-- 日历(只读) -->
     <string name="agenda_empty">今天没有日历事件</string>
     <string name="agenda_calendar">日历</string>
-
-    <!-- 状态栏刷新控件(UI §5.3) -->
-    <string name="refresh_desc">刷新（立即同步）</string>
-    <string name="sync_syncing_ellipsis">同步中…</string>
-    <string name="sync_failed_retry">同步失败，点击重试</string>
-    <string name="sync_offline_retry">离线，点击重试</string>
-    <string name="sync_unsynced">未同步</string>
 
     <!-- 长按拖拽(UI §5.4) -->
     <string name="row_drag_desc">长按拖动排序：%1$s</string>

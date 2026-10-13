@@ -14,17 +14,19 @@
 ```
 ordo/
 ├── docs/                     ← 工程文档(00–10),契约以 03/04 为准
-├── shared/core/              ← KMP 共享核心(唯一业务实现,含 69 个单元测试)
+├── shared/core/              ← KMP 共享核心(唯一业务实现,含 69 个单元测试;jvm + android 两个目标)
 ├── apps/
-│   ├── android/              ← Kotlin + Jetpack Compose
-│   ├── ios/                  ← Swift + SwiftUI + SwiftData(消费 XCFramework)
-│   ├── harmony/              ← ArkTS + ArkUI(按契约独立实现核心)
-│   └── windows/              ← Kotlin + Compose Desktop
-├── server/                   ← TypeScript + Fastify + PostgreSQL + WebSocket
+│   ├── android/              ← Kotlin + Jetpack Compose(**纯本地**)
+│   ├── harmony/              ← ArkTS + ArkUI(按契约独立实现核心,**纯本地**)
+│   └── windows/              ← Kotlin + Compose Desktop(**纯本地**)
+├── server/                   ← TypeScript + Fastify + PostgreSQL + WebSocket(**客户端已不再调用**)
 ├── tools/                    ← 契约检查 / 一键验证 / Android 无 SDK 验证 / 编码扫描
 ├── gradle/libs.versions.toml ← 版本唯一来源
 └── settings.gradle.kts       ← 条件化模块注册(无 SDK 环境也能构建核心)
 ```
+
+> **两处已移除**:① **iOS 端**(`apps/ios` 与核心的 Apple 目标,2026-10-13 按需求整体删除);
+> ② **客户端云同步与登录**(三端现已无任何网络请求,数据只存本机)。服务端代码保留但客户端不再调用。
 
 | 文档 | 内容 |
 |---|---|
@@ -44,15 +46,15 @@ ordo/
 
 | 模块 | 状态 | 验证方式 |
 |---|---|---|
-| 共享核心 `shared/core` | ✅ **已编译 + 69 个单元测试全绿**(含 v1.2 会话层 8 条) | JDK 21 + Gradle 8.14 实跑 |
-| **登录体系(五端一致)** | ✅ **启动登录门禁 + 游客登录 + 邮箱验证码登录 + 数据按 userId 隔离**(契约 §7.6 / §7.6.5) | 后端 174 用例(含游客/升级/验证码);真库 125 项断言;主管黑盒端到端 25 项 |
-| Windows 桌面端 | ✅ **已编译 + 234 个测试全绿 + MSI/EXE 打包成功** | `gradlew :apps:windows:test`(27 类,含登录页 / 快加号菜单 / 刷新中 / **验证码登录** 离屏截图);`packageDistributionForCurrentOS` → MSI 99.3 MB |
-| 后端 `server` | ✅ **构建 + 174 个测试 + 10 项冒烟 + 24 项游客冒烟全绿 + 真实 PostgreSQL 125 项断言全过** | `pnpm test`;`scripts/verify-guest-smoke.ps1`;真库 `127.0.0.1:55432` |
-| Android 端 | ✅ **已编译 + APK(debug 15.15 MB / **已签名** release 2.17 MB)+ 135 个测试全绿** | `gradlew :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest`(本机无设备,未做真机) |
-| 鸿蒙端 | ✅ **已编译 + HAP 产出 + ArkTS 0 错误 + 宿主 134 用例全绿 + 模拟器 `aa test` 134/134** | `hvigorw assembleHap` → `entry-default-unsigned.hap` 1.4 MB;`python apps/harmony/_qa/build-harness.py`;`hdc shell aa test …` |
-| iOS 端 | 📦 源码就绪 + 契约交叉核对 0 缺失 + 预检 34 项通过 | **本机无 macOS,未编译**;`bash apps/ios/tools/verify_ios.sh` 在 macOS/CI 上一条命令跑通 |
+| 共享核心 `shared/core` | ✅ **已编译 + 69 个单元测试全绿**(jvm + android 两个目标;Apple 目标已随 iOS 移除) | JDK 21 + Gradle 8.14 实跑 |
+| **产品形态(2026-10-13 起)** | ✅ **三端纯本地**:无登录、无云同步、无网络请求;数据只存本机 | Windows 有 `NoNetworkTest`(依赖/类路径/源码/行为四层断言);契约检查器不再要求客户端有网络层 |
+| Windows 桌面端 | ✅ **已编译 + 182 个测试全绿 + MSI/EXE 打包成功** | `gradlew :apps:windows:test`(22 类);`packageDistributionForCurrentOS` |
+| 后端 `server` | ✅ **构建 + 174 个测试 + 真库 125 项断言全过**(客户端已不再调用) | `pnpm test`;真库 `127.0.0.1:55432` |
+| Android 端 | ✅ **已编译 + APK(debug / 已签名 release)+ 104 个测试全绿** | `gradlew :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest`(本机无设备,未做真机) |
+| 鸿蒙端 | ✅ **已编译 + HAP 产出 + ArkTS 0 错误 + 宿主 109 用例全绿 + 模拟器 `aa test` 通过** | `hvigorw assembleHap`;`python apps/harmony/_qa/build-harness.py`;`hdc shell aa test …` |
+| ~~iOS 端~~ | ❌ **已于 2026-10-13 整体删除**(`apps/ios` 与核心 Apple 目标) | —— |
 
-**合计**:约 520 个文件 / 9 万行源码与文档;**612 个应用用例(核心 69 + Windows 234 + Android 135 + 后端 174)全部通过**,另有**鸿蒙宿主 134 用例 + 模拟器设备端 `aa test` 134 用例**、**真实 PostgreSQL 125 项断言**与**主管黑盒端到端 25 项**;契约一致性检查 39 项 × 6 个代码库全部通过;编码扫描 511 个文件零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
+**合计**:三端**共 355 个应用用例(核心 69 + Windows 182 + Android 104)全绿**,另有**鸿蒙宿主 109 用例**与**设备端 `aa test`**、后端 **174 用例 + 真实 PostgreSQL 125 项断言**;契约一致性检查 39 项 × **5 个代码库**全部通过;编码扫描零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
 
 > 环境实情:本仓库的开发机为 Windows(仅有 JDK 21 + Gradle 8.14 + Node/pnpm)。凡标注"未编译"的端,均已在对应 README 给出目标环境的完整构建步骤,并用自动检查器逐条核对了契约字段/规则。
 

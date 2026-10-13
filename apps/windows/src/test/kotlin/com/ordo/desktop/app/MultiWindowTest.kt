@@ -1,22 +1,10 @@
 package com.ordo.desktop.app
 
-import com.ordo.core.model.Op
 import com.ordo.core.query.ListQuery
 import com.ordo.core.storage.InMemoryStorage
 import com.ordo.core.store.OrdoEngine
-import com.ordo.core.sync.AuthResponse
-import com.ordo.core.sync.GuestAuthRequest
-import com.ordo.core.sync.PullResponse
-import com.ordo.core.sync.PushRequest
-import com.ordo.core.sync.PushResponse
-import com.ordo.core.sync.SnapshotResponse
-import com.ordo.core.sync.SyncApi
-import com.ordo.desktop.net.SilentAuthApi
-import com.ordo.desktop.net.TokenStore
-import com.ordo.desktop.sync.SyncCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -27,29 +15,10 @@ import org.junit.Test
 /**
  * 多窗口(04-UI规范 §3「每窗口独立路由」)与托盘常驻的视图模型契约。
  *
- * 一个窗口 = 一份 [OrdoViewModel]:路由 / 选中 / 浮层各自独立,但共享同一个引擎 →
- * 任一窗口的写入都会让所有窗口刷新;同步状态则由 [SyncCoordinator] 广播给每个窗口。
+ * 一个窗口 = 一份 [OrdoViewModel]:路由 / 选中 / 浮层各自独立,但共享同一个**本地**引擎 →
+ * 任一窗口的写入都会让所有窗口刷新(数据就在本机,没有"同步"这一步)。
  */
 class MultiWindowTest {
-
-    private class FakeSyncApi : SyncApi {
-        override suspend fun push(request: PushRequest) =
-            PushResponse(serverSeq = request.sinceSeq, accepted = request.ops.map(Op::opId))
-
-        override suspend fun pull(sinceSeq: Long, limit: Int) =
-            PullResponse(serverSeq = sinceSeq, ops = emptyList(), hasMore = false)
-
-        override suspend fun fetchSnapshot() = SnapshotResponse(serverSeq = 0L)
-    }
-
-    /**
-     * 静默匿名会话只需要 guest / refresh(产品决策:不再需要登录)。
-     * 本用例不涉网(同步 API 是假的、会话已塞好),所以这两个方法直接抛错以防误调用。
-     */
-    private class FakeSilentAuthApi : SilentAuthApi {
-        override suspend fun refresh(refreshToken: String): AuthResponse = error("测试不使用刷新")
-        override suspend fun guest(request: GuestAuthRequest): AuthResponse = error("测试不使用匿名会话")
-    }
 
     private fun setup(): Triple<InMemoryStorage, OrdoEngine, CoroutineScope> {
         val storage = InMemoryStorage()
@@ -95,33 +64,22 @@ class MultiWindowTest {
     }
 
     @Test
-    fun `同步结果广播给每个窗口,dispose 后退订`() {
+    fun `多窗口共享同一个本地引擎,但各自独立订阅`() {
         val (storage, engine, scope) = setup()
-        val tokens = TokenStore(storage)
-        val coordinator = SyncCoordinator(
-            engine = engine,
-            syncApi = FakeSyncApi(),
-            tokens = tokens,
-            realtime = null,
-            scope = scope
-        )
         val first = window(engine, storage, scope)
         val second = window(engine, storage, scope)
-        first.attachSync(coordinator)
-        second.attachSync(coordinator)
+        second.navigate(OrdoRoute.Inbox)   // 两个窗口看不同清单,便于验证"共享引擎"
 
-        runBlocking { coordinator.syncOnce() }
+        // 两个窗口读同一份引擎快照:第一处写入两边都能看到(纯本地,没有"同步"这一步)
+        val before = second.state.value.flatTodos.size
+        first.createTodo("本地写入", com.ordo.core.store.TodoOptions(`when` = com.ordo.core.model.When.INBOX))
+        assertEquals("另一窗口立刻看到本地数据", before + 1, second.state.value.flatTodos.size)
 
-        assertEquals("两个窗口都应收到同步结果", SyncStatus.SYNCED, first.state.value.syncStatus)
-        assertEquals(SyncStatus.SYNCED, second.state.value.syncStatus)
-
+        // dispose 只退订自己:另一个窗口照旧
         first.dispose()
-        val before = first.state.value.syncStatus
-        second.setSyncStatus(SyncStatus.SYNCING)
-        runBlocking { coordinator.syncOnce() }
-
-        assertEquals("已 dispose 的窗口不再被回调", before, first.state.value.syncStatus)
-        assertEquals("仍在的窗口继续收到结果", SyncStatus.SYNCED, second.state.value.syncStatus)
+        second.createTodo("第二个窗口的写入", com.ordo.core.store.TodoOptions(`when` = com.ordo.core.model.When.INBOX))
+        assertFalse(first.state.value.flatTodos.any { it.title == "第二个窗口的写入" })
+        assertTrue(second.state.value.flatTodos.any { it.title == "第二个窗口的写入" })
         second.dispose()
     }
 

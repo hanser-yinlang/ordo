@@ -9,8 +9,6 @@ import com.ordo.core.store.OrdoEngine
 import com.ordo.core.store.TodoOptions
 import com.ordo.core.util.OrdoDate
 import com.ordo.desktop.data.LocalAgenda
-import com.ordo.desktop.sync.SyncCoordinator
-import com.ordo.desktop.sync.SyncDiagnostics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,9 +37,7 @@ class OrdoViewModel(
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var unsubscribe: (() -> Unit)? = null
-    private var unsubscribeSync: (() -> Unit)? = null
     private var toastSeq = 0L
-    private var syncCoordinator: SyncCoordinator? = null
 
     init {
         // 首次启动写入演示数据;已有内容时不覆盖(多窗口的后续窗口不参与播种)
@@ -452,51 +448,10 @@ class OrdoViewModel(
         toast("已删除区域")
     }
 
-    // ---------------------------------------------------------------- 同步
+    // ---------------------------------------------------------------- 纯本地
 
-    fun attachSync(coordinator: SyncCoordinator) {
-        syncCoordinator = coordinator
-        // 多窗口:每个窗口各订阅一份,由 SyncCoordinator 广播;dispose 时退订
-        val listener: (com.ordo.core.sync.SyncResult) -> Unit = { result ->
-            scope.launch {
-                _state.update {
-                    it.copy(
-                        syncStatus = if (result.ok) SyncStatus.SYNCED else SyncStatus.OFFLINE,
-                        syncDetail = result.error
-                    )
-                }
-            }
-        }
-        coordinator.addResultListener(listener)
-        unsubscribeSync = { coordinator.removeResultListener(listener) }
-    }
-
-    fun syncNow() {
-        val coordinator = syncCoordinator ?: return
-        _state.update { it.copy(syncStatus = SyncStatus.SYNCING) }
-        coordinator.requestSync(immediate = true)
-    }
-
-    fun setSyncStatus(status: SyncStatus, detail: String? = null) =
-        _state.update { it.copy(syncStatus = status, syncDetail = detail) }
-
-    // ---------------------------------------------------------------- 同步与会话
-
-    /**
-     * 由入口注入:会话(唯一真源是 kv[ordo.session])。
-     *
-     * 产品决策:不再需要登录 —— 界面**没有**任何账号概念,会话只被同步链路静默使用
-     * (状态栏/设置页只看同步状态,不看"当前是谁")。
-     */
-    var tokens: com.ordo.desktop.net.TokenStore? = null
-
+    /** 待写入本地 op 队列的条数(纯本地:仅用于「同步诊断」之外的本地观察;同步已移除) */
     fun pendingOpCount(): Int = engine.pendingOpCount()
-
-    fun lastServerSeq(): Long = engine.lastServerSeq()
-
-    /** 设置页「同步诊断」的数据来源:outbox 条数 / 服务端序号 / 上次错误 / 前 10 条明细 */
-    fun syncDiagnostics(): SyncDiagnostics =
-        SyncDiagnostics.of(engine, _state.value.syncDetail ?: syncCoordinator?.currentError())
 
     // ---------------------------------------------------------------- 系统集成
 
@@ -577,8 +532,6 @@ class OrdoViewModel(
     fun dispose() {
         unsubscribe?.invoke()
         unsubscribe = null
-        unsubscribeSync?.invoke()
-        unsubscribeSync = null
         selectionJob?.cancel()
         selectionJob = null
         selectionBus = null

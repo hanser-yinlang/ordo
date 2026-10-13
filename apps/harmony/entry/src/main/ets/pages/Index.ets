@@ -211,7 +211,7 @@ struct Index {
       OrdoToast({
         toastSeq: this.store.toast.seq,
         toastText: this.store.toast.text,
-        sticky: this.store.syncStatus.phase === 'error',
+        sticky: false,
         actionText: this.store.toast.action,
         onAction: (): void => {
           this.store.undoDelete();

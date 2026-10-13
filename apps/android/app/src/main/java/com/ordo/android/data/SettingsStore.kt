@@ -1,41 +1,35 @@
 package com.ordo.android.data
 
-import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
 import com.ordo.android.ui.theme.ThemeMode
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-
-/** DataStore 实例（进程内单例，由 Application 传入 Context） */
-private val Context.ordoDataStore: DataStore<Preferences> by preferencesDataStore(name = "ordo_settings")
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
 
 /**
- * 应用设置（外观模式、上次同步时刻）。
- * 契约 §8 的 kv 表用于同步状态与令牌；用户偏好这类纯本地设置走 DataStore。
+ * 应用设置（外观模式）。
  *
- * v1.3：服务器地址不再是用户设置（改为引导库 kv `ordo.serverUrl` 的隐藏覆盖，见 README），
- * 因此这里不再有 serverUrl 两份存储。
+ * v1.4（纯本地）后用引导库的 kv 承载（原来走 DataStore，但 DataStore 会带进 okio 这一层
+ * 与套接字相关的传递依赖；纯本地应用没有必要，因此换成一行 kv）。
+ * 服务器地址与"上次同步时刻"已随云同步一起删除，这里只剩外观。
  */
-class SettingsStore(context: Context) {
+class SettingsStore(private val storage: SqliteStorage) {
 
-    private val store = context.applicationContext.ordoDataStore
+    private val _themeMode = MutableStateFlow(readThemeMode())
 
-    private val keyThemeMode = stringPreferencesKey("themeMode")
-    private val keyLastSyncAt = stringPreferencesKey("lastSyncAt")
-
-    val themeMode: Flow<ThemeMode> = store.data.map { ThemeMode.fromKey(it[keyThemeMode]) }
-
-    val lastSyncAt: Flow<Long> = store.data.map { it[keyLastSyncAt]?.toLongOrNull() ?: 0L }
+    /** 外观模式（界面直接 collect；初值即本地已存的值） */
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     suspend fun setThemeMode(mode: ThemeMode) {
-        store.edit { it[keyThemeMode] = mode.storageKey }
+        withContext(Dispatchers.IO) { storage.kvSet(KEY_THEME_MODE, mode.storageKey) }
+        _themeMode.value = mode
     }
 
-    suspend fun setLastSyncAt(epochMillis: Long) {
-        store.edit { it[keyLastSyncAt] = epochMillis.toString() }
+    private fun readThemeMode(): ThemeMode =
+        ThemeMode.fromKey(runCatching { storage.kvGet(KEY_THEME_MODE) }.getOrNull())
+
+    private companion object {
+        const val KEY_THEME_MODE = "ordo.themeMode"
     }
 }

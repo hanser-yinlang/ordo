@@ -168,14 +168,13 @@ class RenderSmokeTest {
         println("[RenderSmokeTest] 已输出拖拽排序截图:${out.absolutePath} (${out.length()} 字节)")
     }
 
-    /** 设置页的两块新内容:开机自启开关 + 同步诊断(outbox 明细) */
+    /** 设置页(纯本地版):外观与启动 / 数据 / 快捷键 —— 已无同步与账号 */
     @Test
-    fun `设置页含开机自启与同步诊断,可离屏渲染`() {
+    fun `设置页可离屏渲染(无同步与账号入口)`() {
         val vm = viewModel()
-        repeat(12) { vm.engine.createTodo("离线待推送 ${it + 1}") }
+        repeat(12) { vm.engine.createTodo("本地待办 ${it + 1}") }
         vm.openSettings()
         assertTrue("设置页应处于打开状态", vm.state.value.settingsOpen)
-        assertEquals("outbox 应有 12 条待推送", 12, vm.pendingOpCount())
 
         val scene = ImageComposeScene(width = 1440, height = 900, density = Density(1f)) {
             OrdoApp(vm)
@@ -187,7 +186,7 @@ class RenderSmokeTest {
         assertEquals(1440, image.width)
         assertTrue("设置页渲染结果不应为空", bytes != null && bytes.size > 5_000)
 
-        val out = File(reportDir(), "ordo-settings-sync.png")
+        val out = File(reportDir(), "ordo-settings.png")
         out.writeBytes(bytes!!)
         assertTrue(out.length() > 5_000)
         println("[RenderSmokeTest] 已输出设置页截图:${out.absolutePath} (${out.length()} 字节)")

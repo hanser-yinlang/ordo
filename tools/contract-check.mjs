@@ -8,10 +8,11 @@
  * 按"该端是否应当自己实现"的适用性矩阵,逐条在源码里检索,输出一致性矩阵。
  *
  * 设计原则:
- *  - iOS / Windows / Android 消费 KMP 共享核心,业务枚举、NLP、实体字段由核心提供,
+ *  - Windows / Android 消费 KMP 共享核心,业务枚举、NLP、实体字段由核心提供,
  *    因此这些项在这些端标为 "–"(不适用),只在鸿蒙(独立实现)与核心自身检查。
  *  - 匹配与引号无关:同时兼容 "inbox" / 'inbox' / `inbox`。
  *  - 它不能替代编译与单元测试,只用于发现"某端漏了某个枚举值/错误码/设计令牌"这类漂移。
+ *  - **iOS 端已于 2026-10-13 整体移除**,矩阵里不再有 ios 列。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,36 +24,41 @@ const PLATFORMS = [
   { key: 'core', label: '共享核心', dir: 'shared/core/src' },
   { key: 'server', label: '后端', dir: 'server/src' },
   { key: 'android', label: 'Android', dir: 'apps/android' },
-  { key: 'ios', label: 'iOS', dir: 'apps/ios' },
   { key: 'harmony', label: '鸿蒙', dir: 'apps/harmony' },
   { key: 'windows', label: 'Windows', dir: 'apps/windows' }
 ];
 
 /**
  * 适用性矩阵:每个检查组在哪些端"应当自己实现"。
- * core = 共享核心负责;iOS/Windows/Android 消费核心,故多数业务组不适用。
+ * core = 共享核心负责;Windows/Android 消费核心,故多数业务组不适用。
  */
 const APPLIES = {
   'field': ['core', 'server', 'android', 'harmony'],          // 实体字段:核心定义;Android/鸿蒙各自映射到本地库;后端存储
   'enum': ['core', 'server', 'harmony'],                       // 枚举 wire 值:核心定义;鸿蒙独立实现;后端要校验
-  'route': ['core', 'android', 'ios', 'harmony', 'windows'],  // 路由:每端 UI 自己的导航
-  'nlp': ['core', 'harmony'],                                  // 中文 NLP:核心实现;iOS/Windows/Android 复用;鸿蒙重写
-  'api': ['core', 'server', 'android', 'ios', 'harmony', 'windows'], // 网络:每端都要实现客户端;核心定义 DTO
-  'store': ['core', 'server', 'android', 'harmony', 'windows'],// 本地/远端存储;iOS 用 SwiftData 亦实现,故也纳入
-  'sec': ['core', 'server', 'android', 'ios', 'harmony', 'windows'],
-  'ui': ['android', 'ios', 'harmony', 'windows']               // 设计令牌:仅客户端
+  'route': ['core', 'android', 'harmony', 'windows'],  // 路由:每端 UI 自己的导航
+  'nlp': ['core', 'harmony'],                                  // 中文 NLP:核心实现;Windows/Android 复用;鸿蒙重写
+  'api': ['core', 'server', 'android', 'harmony', 'windows'], // 网络:每端都要实现客户端;核心定义 DTO
+  'store': ['core', 'server', 'android', 'harmony', 'windows'],// 本地/远端存储
+  'sec': ['core', 'server', 'android', 'harmony', 'windows'],
+  'ui': ['android', 'harmony', 'windows']               // 设计令牌:仅客户端
 };
-// iOS 的本地存储同样要实现 outbox/tombstone/kv,故单独补回
-APPLIES.store.push('ios');
+
 
 /** 逐检查项的适用端覆盖(优先于组矩阵):核心不实现 HTTP/深链,后端不实现深链 */
 const ONLY = {
-  'api:endpoints': ['server', 'android', 'ios', 'harmony', 'windows'],
-  'api:ws': ['server', 'android', 'ios', 'harmony', 'windows'],
-  'api:errors': ['server', 'android', 'ios', 'harmony', 'windows'],
-  'sec:deeplink': ['android', 'ios', 'harmony', 'windows'],
+  'api:endpoints': ['server'],
+  'api:ws': ['server'],
+  'api:errors': ['server'],
+  'sec:deeplink': ['android', 'harmony', 'windows'],
   // §7.6:会话键名是客户端概念(服务端不存它);guest/upgrade 的 URL 路径在客户端,核心只有接口名
-  'session:key': ['core', 'android', 'ios', 'harmony', 'windows'],
+  // v1.5(纯本地):客户端已删除云同步与登录,不再持有会话/令牌/userId ——
+  // 下面这些项只在核心(常量/DTO)与服务端检查,不再要求客户端实现。
+  'session:key': ['core'],
+  'session:guest': ['core', 'server'],
+  'session:upgrade': ['core', 'server'],
+  'session:isguest': ['core', 'server'],
+  'session:userdir': ['core', 'server'],
+  'sec:tokens': ['core', 'server'],
   // §7.6.5 邮箱验证码:契约 v1.4(§7.6.6)已把登录从客户端移除,接口只在**服务端**保留,
   // 因此这几项只对服务端适用;客户端只保留 guest/refresh(见 session:guest / sec:tokens)。
   'session:emailcode': ['server'],
@@ -113,8 +119,7 @@ const CHECKS = [
   { id: 'nlp:time', desc: '时间解析(点/半/时段)', needles: ['半', '下午', '晚上'] },
   { id: 'nlp:tag', desc: '#标签解析', needles: ['tags'] },
 
-  // v1.4(§7.6.6):客户端不再实现 register/login/email-code,只用 guest + refresh ——
-  // 故这里改用 /v1/auth/guest 作为"每端都要有的鉴权端点";login/refresh 由服务端单独覆盖。
+  // v1.5(纯本地):客户端已无任何网络层 —— HTTP 端点 / WebSocket / 网络错误码只在服务端检查。
   { id: 'api:endpoints', desc: 'HTTP 端点', needles: ['/v1/sync/push', '/v1/sync/pull', '/v1/sync/snapshot', '/v1/auth/guest'] },
   { id: 'api:ws', desc: 'WebSocket 实时通道', needles: ['/v1/ws'] },
   { id: 'api:errors', desc: '错误码', needles: ['VALIDATION_FAILED', 'AUTH_REQUIRED', 'AUTH_TOKEN_EXPIRED', 'RATE_LIMITED'] },

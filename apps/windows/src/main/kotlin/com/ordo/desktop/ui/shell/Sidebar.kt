@@ -446,7 +446,6 @@ private fun SidebarFooter(state: UiState, vm: OrdoViewModel) {
             contentDescription = "切换外观",
             onClick = { vm.cycleTheme() }
         )
-        OrdoIconButton(OrdoIcons.Sync, "立即同步", { vm.syncNow() })
         Spacer(Modifier.weight(1f))
         OrdoIconButton(OrdoIcons.Settings, "设置", { vm.openSettings() })
     }

@@ -119,35 +119,11 @@ export struct SettingsSheet {
       this.row('设备 ID', this.store.deviceText())
       this.row('统计', this.store.statsText())
 
-      this.sectionTitle('同步')
-      this.row('状态', this.store.refreshLabel() + this.store.pendingText())
-      this.row('实时通道', this.store.syncStatus.realtimeConnected ? '已连接' : '未连接')
-      this.row('服务端游标', this.store.syncStatus.lastServerSeq.toString())
-      if (this.store.syncStatus.lastErrorText !== null) {
-        this.row('最近错误', this.store.syncStatus.lastErrorText)
-      }
-
-      Row({ space: OrdoSpace.s }) {
-        Text('立即同步')
-          .fontSize(OrdoFont.caption.size)
-          .fontColor('#FFFFFF')
-          .backgroundColor(this.c().accentPrimary)
-          .height(32)
-          .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
-          .borderRadius(OrdoRadius.pill)
-          .textAlign(TextAlign.Center)
-          .onClick(() => {
-            this.store.tapRefresh();
-          })
-        Blank()
-      }
-      .width('100%')
-
       this.sectionTitle('本地数据')
-      // 契约 §7.6.3:每个账号一份本地目录;v1.4 起没有账号概念,这里展示"这台设备用哪个目录"
+      // 契约 §7.6.6:工作区标识 = 本机稳定 id,数据落在 <databaseDir>/rdb/<标识>/ordo.db
+      this.rowId('工作区标识', this.store.accountDirText(), 'ordo_settings_session')
       this.rowId('数据目录', this.store.userDirText(), 'ordo_settings_userdir')
       this.row('库文件', this.store.dataPathText())
-      this.rowId('同步会话', this.store.sessionStateText(), 'ordo_settings_session')
 
       this.sectionTitle('键盘与手势(鸿蒙)')
       this.row('新建待办', '快加号 / 长按')

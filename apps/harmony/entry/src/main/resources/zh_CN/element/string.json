@@ -13,10 +13,6 @@
       "value": "序"
     },
     {
-      "name": "reason_internet",
-      "value": "用于在设备之间同步你的待办"
-    },
-    {
       "name": "reason_notification",
       "value": "用于在你设定的时间提醒待办"
     },

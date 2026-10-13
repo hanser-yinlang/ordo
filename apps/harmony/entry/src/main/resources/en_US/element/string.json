@@ -13,10 +13,6 @@
       "value": "Ordo"
     },
     {
-      "name": "reason_internet",
-      "value": "Used to sync your to-dos across devices"
-    },
-    {
       "name": "reason_notification",
       "value": "Used to remind you at the time you set"
     },

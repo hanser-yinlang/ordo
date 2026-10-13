@@ -99,7 +99,6 @@ class UserDataDirTest {
 
         val resolved = LocalAccount.resolve(
             pinned = null,
-            sessionUserId = null,
             existingDirIds = UserDataDir.existingDirIds(base),
         )
 

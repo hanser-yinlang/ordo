@@ -21,7 +21,6 @@ import { DragHint, ListRow, RowInput, buildRows } from './list/RowModel.ets';
 import { RowDataSource } from './list/RowDataSource.ets';
 import { SwipeActionBar } from './list/SwipeActionBar.ets';
 import { TodoRow } from './list/TodoRow.ets';
-import { RefreshControl } from './Common/RefreshControl.ets';
 import { touchOf } from './Common/GestureUtil.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 import { EmptyState } from './Common/EmptyState.ets';
@@ -632,9 +631,8 @@ export struct ListPage {
   /* ------------------------------------------------------------ 状态栏 */
 
   /**
-   * 状态栏(04 §3 布局骨架 + §5.3 刷新控件)。
-   * 右侧不再是"可点击的文字",而是图标 + 文字的刷新控件:
-   * 同步中连续旋转,成功转 success + 「已同步」,失败转 danger + 「同步失败,点击重试」。
+   * 状态栏(04 §3 布局骨架)。
+   * v1.5 纯本地:不再有同步指示与刷新控件,只显示本地统计与存储方式。
    */
   @Builder
   statusBar() {
@@ -642,24 +640,10 @@ export struct ListPage {
       Text(this.store.statsText())
         .fontSize(OrdoFont.micro.size)
         .fontColor(this.c().textTertiary)
-      Text(this.store.pendingText())
-        .fontSize(OrdoFont.micro.size)
-        .fontColor(this.c().textTertiary)
       Blank()
       Text(this.store.storageText())
         .fontSize(OrdoFont.micro.size)
         .fontColor(this.c().textTertiary)
-      RefreshControl({
-        label: this.store.refreshLabel(),
-        tone: this.store.refreshTone(),
-        spinning: this.store.refreshSpinning(),
-        canTap: this.store.refreshEnabled(),
-        a11yText: this.store.refreshA11y(),
-        dark: this.store.isDark(),
-        onTap: (): void => {
-          this.store.tapRefresh();
-        }
-      })
     }
     .width('100%')
     .padding({ left: OrdoSpace.xl, right: OrdoSpace.xl, top: OrdoSpace.xs, bottom: OrdoSpace.xs })

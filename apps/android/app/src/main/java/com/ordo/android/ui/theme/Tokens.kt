@@ -19,31 +19,23 @@ import androidx.compose.ui.unit.sp
  * ========================================================================== */
 
 /**
- * UI §5.2 v1.5 快加号（FAB）专属令牌：**亮蓝填充 + 同色柔光**。
+ * UI §5.2 v1.5 快加号（FAB）专属令牌：**纯色亮蓝圆钮**。
  *
- * 柔光用**径向渐变**画（不是彩色阴影）：Windows(Compose Desktop/Skia) 实测彩色阴影不渲染，
- * 两端统一用渐变，视觉才一致。
+ * 2026-10-13 用户要求：三端的蓝色圆按钮都**不要柔光** —— 旧的径向渐变柔光与相关令牌已删除。
+ * 历史备注：Compose Desktop(Skia) 不渲染彩色阴影，当时的柔光是显式径向渐变实现的。
  */
 object OrdoFabTokens {
     /** FAB 填充色（浅/深色主题同一色值） */
     val fill = Color(0xFF0A84FF)
 
-    /** 柔光透明度：浅色 35% / 深色 45% */
-    const val GLOW_ALPHA_LIGHT = 0.35f
-    const val GLOW_ALPHA_DARK = 0.45f
-
-    /** 柔光颜色（填充色 + 主题对应透明度） */
-    val glowLight = fill.copy(alpha = GLOW_ALPHA_LIGHT)
-    val glowDark = fill.copy(alpha = GLOW_ALPHA_DARK)
-
-    /** 柔光厚度（向外扩散的宽度，dp） */
-    const val GLOW_THICKNESS_DP = 24
-
     /** App 自己状态栏（StatusBar composable）的实测高度（dp）：它用 touchTarget = 44 */
     const val STATUS_BAR_DP = 44
 
-    /** 窗口坐标下的 FAB 底边距 = 状态栏高度 + 柔光厚度（按钮连同柔光整体浮在状态栏之上） */
-    const val BOTTOM_INSET_DP = STATUS_BAR_DP + GLOW_THICKNESS_DP
+    /** 按钮底边与状态栏之间的留白（dp）：去掉柔光后由它给间距（与 Windows 的 OrdoSpace.l 一致） */
+    const val BOTTOM_GAP_DP = 16
+
+    /** 窗口坐标下的 FAB 底边距 = 状态栏高度 + 留白（按钮整体浮在状态栏之上） */
+    const val BOTTOM_INSET_DP = STATUS_BAR_DP + BOTTOM_GAP_DP
 }
 
 /** §2.1 色彩 */
@@ -69,10 +61,8 @@ data class OrdoColors(
     val hover: Color,
     val selected: Color,
     val scrim: Color,
-    /** UI §5.2 v1.5：快加号填充（亮蓝，浅/深色同一色值） */
+    /** UI §5.2 v1.5：快加号填充（亮蓝，浅/深色同一色值；纯色，无柔光） */
     val fab: Color,
-    /** UI §5.2 v1.5：快加号柔光（同色半透明，浅色 35% / 深色 45%） */
-    val fabGlow: Color,
     val isDark: Boolean,
 )
 
@@ -98,7 +88,6 @@ val OrdoLightColors = OrdoColors(
     selected = Color(0x1F5B5BD6),
     scrim = Color(0x52000000),
     fab = OrdoFabTokens.fill,
-    fabGlow = OrdoFabTokens.glowLight,
     isDark = false,
 )
 
@@ -124,7 +113,6 @@ val OrdoDarkColors = OrdoColors(
     selected = Color(0x2E7C7CF0),
     scrim = Color(0x8C000000),
     fab = OrdoFabTokens.fill,
-    fabGlow = OrdoFabTokens.glowDark,
     isDark = true,
 )
 
@@ -201,25 +189,18 @@ object OrdoLayout {
     /** 按钮高度（UI §5.1：高 44；v1.3 起登录页已移除，令牌保留供后续表单页复用） */
     val buttonHeight: Dp = 44.dp
     val touchTarget: Dp = 44.dp
-    /**
-     * UI §5.2 v1.5：快加号柔光厚度（向外扩散 24dp）。
-     *
-     * 柔光**不参与布局**（用 `requiredSize` 溢出按钮边界），因此这里是"视觉厚度"，
-     * 只在计算 [fabBottomInset] 与 [fabContentInset] 时进入布局。
-     */
-    val fabGlow: Dp = OrdoFabTokens.GLOW_THICKNESS_DP.dp
     /** App 自己状态栏（`StatusBar` composable）的高度：它用 [touchTarget] = 44dp */
     val statusBar: Dp = OrdoFabTokens.STATUS_BAR_DP.dp
-    /** 窗口坐标下的 FAB 底边距 = 状态栏高度 + 柔光厚度（按钮连同柔光整体浮在状态栏之上） */
+    /** 窗口坐标下的 FAB 底边距 = 状态栏高度 + 留白（按钮整体浮在状态栏之上） */
     val fabBottomInset: Dp = OrdoFabTokens.BOTTOM_INSET_DP.dp
     /**
-     * 内容区内的**局部**底边距。
+     * 内容区内的**局部**底边距（= 按钮与状态栏之间的留白）。
      *
      * Android 的 FAB 落在内容区（`Column` 里 `Box(weight=1f)`）内，而 App 状态栏是它的**下一个**兄弟节点，
-     * 因此"内容区底边"本身就是状态栏顶边 —— 窗口坐标下的 `statusBar + fabGlow` 落到这里只剩 `fabGlow`。
+     * 因此"内容区底边"本身就是状态栏顶边 —— 窗口坐标下的 `statusBar + 留白` 落到这里只剩留白。
      * （若把 FAB 提到窗口层，宽屏详情栏会让它压到详情列上，因此保持挂在内容区。）
      */
-    val fabContentInset: Dp = fabGlow
+    val fabContentInset: Dp = OrdoFabTokens.BOTTOM_GAP_DP.dp
     val projectRingSize: Dp = 18.dp
     val sidebarIconSize: Dp = 18.dp
     val metaIconSize: Dp = 14.dp

@@ -60,7 +60,7 @@ class QuickAddRefactorTest {
         assertFalse("折叠箭头按钮必须删除(客户:不要有多余的东西)", text.contains("OrdoQuickAddCaret"))
         assertFalse("折叠箭头图标不该再被引用", text.contains("ExpandMore"))
         assertEquals(
-            "有且只有一个圆形按钮用 fab 直径(只数 size(OrdoSize.fab),不误伤 fabGlow 这类令牌)",
+            "有且只有一个圆形按钮用 fab 直径(只数 size(OrdoSize.fab))",
             1,
             Regex("""size\(OrdoSize\.fab\)""").findAll(text).count()
         )
@@ -125,10 +125,10 @@ class QuickAddRefactorTest {
         }
     }
 
-    /** 加号圆心:与 QuickAdd 的布局对齐(右 xl;底 = 状态栏高度 + 光晕厚度 + 按钮半径) */
+    /** 加号圆心:与 QuickAdd 的布局对齐(右 xl;底 = 状态栏高度 + OrdoSpace.l + 按钮半径) */
     private fun fabCenter(width: Int, height: Int): Offset {
         val margin = OrdoSpace.xl.value
-        val bottom = OrdoSize.statusBar.value + OrdoSize.fabGlow.value
+        val bottom = OrdoSize.statusBar.value + OrdoSpace.l.value
         val size = OrdoSize.fab.value
         return Offset(width - margin - size / 2f, height - bottom - size / 2f)
     }

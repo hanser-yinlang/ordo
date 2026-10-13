@@ -128,13 +128,13 @@ class StartupAndShellRenderTest {
     }
 
     /**
-     * 悬浮按钮(含亮蓝柔光)**不得压到底部状态栏**。
+     * 悬浮按钮**不得压到底部状态栏**。
      *
-     * 用户实测截图:光晕把右下角的「本地」洗成一片蓝。这条用真像素把布局钉死 ——
+     * 用户实测截图:按钮/柔光把右下角的「本地」洗成一片蓝。这条用真像素把布局钉死 ——
      * 状态栏那一条(底部 [OrdoSize.statusBar] 高)里不允许出现任何明显偏蓝的像素。
      */
     @Test
-    fun `悬浮按钮与光晕不得压到状态栏`() {
+    fun `悬浮按钮不得压到状态栏`() {
         val vm = viewModel()
         val width = 1440
         val height = 900
@@ -160,11 +160,54 @@ class StartupAndShellRenderTest {
             }
         }
         assertEquals(
-            "状态栏区域(y ≥ $statusBarTop)不该出现蓝/淡蓝像素,否则就是悬浮按钮或光晕压上去了;" +
+            "状态栏区域(y ≥ $statusBarTop)不该出现蓝/淡蓝像素,否则就是悬浮按钮或柔光压上去了;" +
                 "首个越界像素: $sample",
             0,
             bluish
         )
+    }
+
+    /**
+     * 悬浮按钮**四周不得再有柔光**(用户 2026-10-13:「三端的蓝色圆按钮都不需要柔光了」)。
+     *
+     * 用真像素证明:按钮圆外一圈(半径 +3…+18px)应当全是背景色,不能出现淡蓝(柔光残留)。
+     */
+    @Test
+    fun `悬浮按钮四周没有柔光`() {
+        val vm = viewModel()
+        val width = 1440
+        val height = 900
+        val bytes = renderBytes(width, height) { OrdoApp(vm) }
+        val image = javax.imageio.ImageIO.read(java.io.ByteArrayInputStream(bytes))
+        assertTrue("截图应能解码", image != null)
+
+        val r = OrdoSize.fab.value / 2f
+        val margin = com.ordo.desktop.ui.theme.OrdoSpace.xl.value
+        val bottom = OrdoSize.statusBar.value + com.ordo.desktop.ui.theme.OrdoSpace.l.value
+        val cx = width - margin - r
+        val cy = height - bottom - r
+
+        var bluish = 0
+        var sample: Triple<Int, Int, Int>? = null
+        // 按钮外的环形区域:半径 +3 到 +18px(旧的柔光正是落在这一圈)
+        for (dy in -40..40) {
+            for (dx in -40..40) {
+                val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble())
+                if (dist < r + 3 || dist > r + 18) continue
+                val x = (cx + dx).toInt()
+                val y = (cy + dy).toInt()
+                if (x < 0 || y < 0 || x >= width || y >= height) continue
+                val rgb = image.getRGB(x, y)
+                val red = (rgb shr 16) and 0xFF
+                val green = (rgb shr 8) and 0xFF
+                val blue = rgb and 0xFF
+                if (blue > 200 && blue - red > 12) {
+                    bluish += 1
+                    if (sample == null) sample = Triple(x, y, rgb and 0xFFFFFF)
+                }
+            }
+        }
+        assertEquals("按钮外圈不该有淡蓝柔光残留;首个越界像素: $sample", 0, bluish)
     }
 
     @Test

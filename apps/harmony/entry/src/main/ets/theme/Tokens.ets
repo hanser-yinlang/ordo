@@ -39,8 +39,8 @@ export interface OrdoColorTokens {
   accentPrimary: string;
   /**
    * 快加号(FAB)专用填充色(§5.2 v1.5:亮蓝 `#0A84FF`)。
-   * **独立于 accentPrimary**:品牌靛紫不动,只有这一个圆钮用亮蓝;
-   * 光晕也用它(半透明,见 FabMenu.FAB_GLOW_*)。
+   * **独立于 accentPrimary**:品牌靛紫不动,只有这一个圆钮用亮蓝。
+   * (2026-10-13 用户要求去掉柔光后,这里是**纯色填充**,不再有半透明变体。)
    */
   fab: string;
   accentTonight: string;

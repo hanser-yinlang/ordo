@@ -122,54 +122,14 @@ export const FAB_FILL_HEX: string = '#0A84FF';
 /** 圆钮直径(vp;与 `OrdoSize.quickAdd` 一致) */
 export const FAB_SIZE: number = 56;
 
-/**
- * 柔光**厚度**(vp):光晕圆比圆钮每边多出这么多。
- * 光晕圆直径 = FAB_SIZE + 2 × FAB_GLOW_THICKNESS = 104。
- */
-export const FAB_GLOW_THICKNESS: number = 24;
-
-/** 光晕最亮处的透明度(§5.2 v1.5:浅色 35% / 深色 45%) */
-export const FAB_GLOW_ALPHA_LIGHT: number = 0.35;
-export const FAB_GLOW_ALPHA_DARK: number = 0.45;
-
-/**
- * 光晕的渲染方式:**必须是径向渐变**(`radialGradient`),不是中性 `shadow` ——
- * 普通阴影是灰色的,渲染不出"蓝色光晕"。组件按这个常量实现,用例钉住它。
- */
-export const FAB_GLOW_RENDER_MODE: string = 'radialGradient';
-
-/**
- * 渐变停靠点:从**按钮边缘**最亮(圆钮半径 / 光晕半径 = 28 / 52 ≈ 0.538),向外到 1.0 渐隐为全透明。
- */
-export const FAB_GLOW_INNER_STOP: number = 0.54;
-export const FAB_GLOW_OUTER_STOP: number = 1.0;
-
-/** 光晕圆直径(vp) */
-export function fabGlowDiameter(): number {
-  return FAB_SIZE + FAB_GLOW_THICKNESS * 2;
-}
-
-/**
- * 光晕最亮处的颜色(带 alpha 的 `#0A84FF`)。
+/*
+ * 2026-10-13 用户要求:三端的蓝色圆按钮都**不要柔光**。
+ * 原先的柔光常量(FAB_GLOW_THICKNESS / _ALPHA_LIGHT / _ALPHA_DARK / _RENDER_MODE /
+ * _INNER_STOP / _OUTER_STOP、fabGlowDiameter / fabGlowInnerColor / fabGlowOuterColor)已全部删除。
  *
- * ⚠ **ArkUI 的颜色字符串是 `#AARRGGBB`(alpha 在前,与 Android 一致),不是 CSS 的 `#RRGGBBAA`。**
- * 真机踩坑:`'#0A84FF59'` 这种写法会被解析成"alpha=0x0A(≈4%)、RGB=0x84FF59(黄绿)"——
- * 结果是**光晕几乎看不见,只剩一点灰绿**(逐像素量测:按钮外一圈 `#F6F9EF`,与背景 `#FBFAF6` 几乎无差;
- * 同位置的 Windows 端是 `#AFD4F9`,b-r=+74)。
+ * ⚠ 历史坑(留着,别再踩):ArkUI 的颜色字符串是 `#AARRGGBB`(alpha 在前),
+ * 写成 CSS 的 `#RRGGBBAA` 会被解析成完全不同的颜色(当年真机上一圈光晕只剩灰绿)。
  */
-export function fabGlowInnerColor(dark: boolean): string {
-  const alpha: number = dark ? FAB_GLOW_ALPHA_DARK : FAB_GLOW_ALPHA_LIGHT;
-  let hex: string = Math.round(alpha * 255).toString(16).toUpperCase();
-  if (hex.length < 2) {
-    hex = '0' + hex;
-  }
-  return '#' + hex + FAB_FILL_HEX.substring(1);
-}
-
-/** 光晕外缘:全透明(同一色相,alpha=00,避免出现灰边);同样用 `#AARRGGBB` */
-export function fabGlowOuterColor(): string {
-  return '#00' + FAB_FILL_HEX.substring(1);
-}
 
 /* ------------------------------------------------------------ 悬浮按钮里那枚白色「＋」(2026-10-13 按参照图量测) */
 
@@ -209,15 +169,15 @@ export function fabVisible(settingsOpen: boolean, fastFindOpen: boolean, hasSche
 
 /** 状态栏/底栏高度(vp):列表底部那行统计文案的高度上限(与 `ListPage.statusBar()` 的 padding + micro 字号一致) */
 export const FAB_STATUS_BAR_HEIGHT: number = 32;
-/** 光晕与底栏之间再留一点空隙,避免视觉上"贴住"文字 */
-export const FAB_GLOW_GAP: number = 8;
+/** 按钮与底栏之间的留白(vp):去掉柔光后由它给间距(与 Windows 的 OrdoSpace.l 一致) */
+export const FAB_BOTTOM_GAP: number = 16;
 /**
- * FAB 底边距 = **底栏高度 + 光晕厚度 + 空隙**(vp)。
+ * FAB 底边距 = **底栏高度 + 留白**(vp)。
  *
- * 规则来自 §5.2 v1.5:按钮**连同光晕**都不许压住任何文字,所以底边距必须把光晕算进去:
- * 32(底栏)+ 24(光晕)+ 8(空隙)= 64。`pages/Index.ets` 用这个常量摆放,别写死数字。
+ * 规则来自 §5.2 v1.5:按钮不许压住任何文字。去掉柔光后由"留白"代替原先的"光晕厚度 + 空隙":
+ * 32(底栏)+ 16(留白)= 48。`pages/Index.ets` 用这个常量摆放,别写死数字。
  */
-export const FAB_MARGIN_BOTTOM: number = FAB_STATUS_BAR_HEIGHT + FAB_GLOW_THICKNESS + FAB_GLOW_GAP;
+export const FAB_MARGIN_BOTTOM: number = FAB_STATUS_BAR_HEIGHT + FAB_BOTTOM_GAP;
 
 /** FAB 右边距(vp;= `OrdoSpace.xl`,与页面其它右侧留白一致) */
 export const FAB_MARGIN_RIGHT: number = 24;

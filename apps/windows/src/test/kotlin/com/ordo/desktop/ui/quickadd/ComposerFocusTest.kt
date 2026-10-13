@@ -151,10 +151,10 @@ class ComposerFocusTest {
 
     // ------------------------------------------------------------ 离屏场景脚手架
 
-    /** 加号圆心:与 QuickAdd 的布局对齐(右 xl;底 = 状态栏高度 + 光晕厚度 + 按钮半径) */
+    /** 加号圆心:与 QuickAdd 的布局对齐(右 xl;底 = 状态栏高度 + OrdoSpace.l + 按钮半径) */
     private fun fabCenter(sceneWidth: Int, sceneHeight: Int): Offset {
         val margin = OrdoSpace.xl.value
-        val bottom = OrdoSize.statusBar.value + OrdoSize.fabGlow.value
+        val bottom = OrdoSize.statusBar.value + OrdoSpace.l.value
         val size = OrdoSize.fab.value
         return Offset(sceneWidth - margin - size / 2f, sceneHeight - bottom - size / 2f)
     }

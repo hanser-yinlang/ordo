@@ -54,15 +54,9 @@ import {
   PROJECT_RIGHT_FROM,
   PROJECT_RIGHT_TO,
   PROJECT_STROKE,
-  FAB_GLOW_INNER_STOP,
-  FAB_GLOW_OUTER_STOP,
-  FAB_GLOW_THICKNESS,
   FAB_MARK_INSET,
   FAB_MARK_SIZE,
   FAB_MARK_STROKE,
-  fabGlowDiameter,
-  fabGlowInnerColor,
-  fabGlowOuterColor,
   fabMenuItems
 } from '../viewmodel/FabMenu.ets';
 import { touchOf } from './Common/GestureUtil.ets';
@@ -363,26 +357,11 @@ export struct QuickAddFab {
       // 快加号本体:整个集群**只有这一个圆形按钮**(§5.2「删除独立的折叠箭头按钮」)
       // 白色「+」同样用矢量画(不再用字体字符,避免字体回退把「+」渲染成别的形状)
       Stack() {
-        // §5.2 v1.5:**亮蓝柔光**用径向渐变画(不能用 shadow —— 那是灰的)。
-        // 渐变圆比圆钮每边大 FAB_GLOW_THICKNESS(24),用 position 绝对定位**溢出**按钮边界,
-        // 因此**不影响布局**(父 Stack 仍由下面的圆钮决定 56×56);命中测试设为 None,不吃点击。
-        // 注意:柔光**不能**写成 `Circle().fill()` + `.radialGradient()` —— 形状的 fill 会盖住渐变,
-        // 渲染出来是一整块实心大蓝圆(真机踩过);渐变要挂在**容器**上,配 borderRadius 成圆,
-        // 外缘 alpha=00 自然渐隐,不会出现方角。
-        Column()
-          .width(fabGlowDiameter())
-          .height(fabGlowDiameter())
-          .borderRadius(fabGlowDiameter() / 2)
-          .radialGradient({
-            center: ['50%', '50%'],
-            radius: '50%',
-            colors: [
-              [fabGlowInnerColor(this.store.isDark()), FAB_GLOW_INNER_STOP],
-              [fabGlowOuterColor(), FAB_GLOW_OUTER_STOP]
-            ]
-          })
-          .position({ x: -FAB_GLOW_THICKNESS, y: -FAB_GLOW_THICKNESS })
-          .hitTestBehavior(HitTestMode.None)
+        // §5.2 v1.5(2026-10-13 修订):**纯色圆钮,不做柔光**。
+        // 原先这里有一层用 radialGradient 画的亮蓝柔光(圆比按钮每边大 24vp、position 溢出边界);
+        // 用户当日要求三端都去掉,整层已删除 —— 注意历史上柔光**不能**写成 `Circle().fill()`
+        // + `.radialGradient()`(形状的 fill 会盖住渐变,渲成一块实心大蓝圆,真机踩过),
+        // 如果将来又要加回来,渐变要挂在**容器**上。
         Circle()
           .width(OrdoSize.quickAdd)
           .height(OrdoSize.quickAdd)

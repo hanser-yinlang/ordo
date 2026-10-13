@@ -51,7 +51,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -125,9 +124,8 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
 
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
         Column(
-            // 底部留出「状态栏高度 + 光晕厚度」:悬浮按钮(含柔光)**整体浮在状态栏之上**,
-            // 否则按钮与光晕会压住状态栏文案(用户实测:亮蓝光晕洗到右下角「本地」上)
-            Modifier.padding(end = OrdoSpace.xl, bottom = OrdoSize.statusBar + OrdoSize.fabGlow),
+            // 底部留出「状态栏高度 + 16dp」:悬浮按钮**整体浮在状态栏之上**(去掉柔光后间距改由 OrdoSpace.l 给)
+            Modifier.padding(end = OrdoSpace.xl, bottom = OrdoSize.statusBar + OrdoSpace.l),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(OrdoSpace.s)
         ) {
@@ -426,34 +424,13 @@ private fun OrdoFab(
         label = "quickAddScale"
     )
 
-    // 光晕:参照原型那颗按钮四周的**亮蓝柔光**。
-    // ⚠ 不能用 `Modifier.shadow(ambientColor/spotColor)`:Compose Desktop(Skia)不渲染彩色阴影,
-    // 实测按钮边缘外 4px 就已经是背景色(用户当场指出"应该有亮蓝色柔光"),因此显式画径向渐变。
-    // ⚠ 光晕**不参与布局**:用 requiredSize 让它溢出按钮边界(否则外框会把按钮往窗口里推 24dp,
-    // 按钮就不在右下角了,离屏用例里按坐标点也会全部点空)。
-    val glowOuter = OrdoSize.fab + OrdoSize.fabGlow * 2
-    val glowEdge = OrdoSize.fab / glowOuter   // 按钮边缘在渐变里的相对位置(0=圆心,1=最外圈)
+    // 纯色圆钮:**不做柔光**(用户 2026-10-13 明确要求三端都去掉;此前按参照图做过径向渐变柔光)。
+    // 历史备注:Compose Desktop(Skia)不渲染彩色阴影,当时的柔光是显式径向渐变实现的 —— 现已移除。
     Box(
         Modifier
             .size(OrdoSize.fab)
             .scale(scale)
     ) {
-        Box(
-            Modifier
-                .align(Alignment.Center)
-                .requiredSize(glowOuter)
-                .background(
-                    Brush.radialGradient(
-                        colorStops = arrayOf(
-                            0.0f to colors.fabGlow,                         // 圆心(被按钮盖住)
-                            glowEdge to colors.fabGlow.copy(alpha = 0.40f), // 按钮边缘:光晕最亮处(按参照图量测 ≈+44)
-                            0.80f to colors.fabGlow.copy(alpha = 0.16f),
-                            1.0f to Color.Transparent
-                        )
-                    )
-                )
-        )
-
         Box(
             Modifier
                 .matchParentSize()

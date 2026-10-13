@@ -52,7 +52,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.key.Key
@@ -61,7 +60,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
@@ -162,31 +160,9 @@ fun QuickAddFab(
             },
         contentAlignment = Alignment.Center,
     ) {
-        /*
-         * 亮蓝柔光（UI §5.2 v1.5）：
-         *  - 用**径向渐变**画，不用 `shadow(ambientColor/spotColor)` —— Windows 实测彩色阴影不渲染，
-         *    两端统一用渐变才能保证一致；
-         *  - `requiredSize` 让它溢出按钮边界：外框尺寸由父 Box 的 `size(fabSize)` 固定，
-         *    因此柔光**不参与布局**（不会把按钮往屏里推 [OrdoLayout.fabGlow]）；
-         *  - 渐变从按钮边缘最亮、向外 [OrdoLayout.fabGlow] 渐隐到透明。
-         */
-        val glowTotal = OrdoLayout.fabSize + OrdoLayout.fabGlow * 2
-        val glowRadiusPx = with(LocalDensity.current) { (glowTotal / 2).toPx() }
-        val innerStop = (OrdoLayout.fabSize / 2) / (glowTotal / 2)
-        Box(
-            Modifier
-                .requiredSize(glowTotal)
-                .background(
-                    brush = Brush.radialGradient(
-                        // 0 → 按钮边缘：满透明度；按钮边缘 → 外圈：渐隐到透明
-                        0f to colors.fabGlow,
-                        innerStop to colors.fabGlow,
-                        1f to Color.Transparent,
-                        radius = glowRadiusPx,
-                    ),
-                    shape = CircleShape,
-                ),
-        )
+        // 纯色圆钮：**不做柔光**（用户 2026-10-13：三端的蓝色圆按钮都不需要柔光了）。
+        // 历史备注：此前用径向渐变画过同色柔光（Compose Desktop 不渲染彩色阴影，才用渐变统一两端）。
+        //
         // 按钮本体：亮蓝填充 + 中性投影（投影是灰阶 elevation，不是彩色阴影）
         Box(
             Modifier

@@ -33,8 +33,6 @@ data class OrdoPalette(
     val accentSoft: Color,
     /** 快加号悬浮按钮的填充色(用户指定对齐参照原型:亮蓝 #0A84FF;改回品牌靛紫只需改这一处) */
     val fab: Color,
-    /** 悬浮按钮的光晕(参照原型那颗按钮四周的柔光) */
-    val fabGlow: Color,
     val tonight: Color,
     val danger: Color,
     val success: Color,
@@ -57,7 +55,6 @@ val OrdoLightPalette = OrdoPalette(
     accent = Color(0xFF5B5BD6),
     accentSoft = Color(0x1F5B5BD6),
     fab = Color(0xFF0A84FF),
-    fabGlow = Color(0x590A84FF),
     tonight = Color(0xFFD98324),
     danger = Color(0xFFE5533D),
     success = Color(0xFF2FA36B),
@@ -80,7 +77,6 @@ val OrdoDarkPalette = OrdoPalette(
     accent = Color(0xFF7C7CF0),
     accentSoft = Color(0x3D7C7CF0),
     fab = Color(0xFF0A84FF),
-    fabGlow = Color(0x730A84FF),
     tonight = Color(0xFFE8A13F),
     danger = Color(0xFFF2705C),
     success = Color(0xFF3FBF83),
@@ -146,14 +142,11 @@ object OrdoSize {
     /** 快加号直径(04-UI规范 §5.2:只保留一个 56dp 的蓝色「+」) */
     val fab: Dp = 56.dp
 
-    /** 快加号光晕的**厚度**(从按钮边缘向外渐隐;参照原型的量测值 ≈ 按钮半径) */
-    val fabGlow: Dp = 24.dp
-
     /**
      * 底部状态栏高度:1px 上边线 + 上下各 8dp 内边距 + 18sp 行高 ≈ 34dp(量自离屏渲染)。
      *
-     * 悬浮按钮要**整体(含光晕)浮在它上面** —— 否则按钮和光晕会压住状态栏里的文案
-     * (用户实测截图:光晕洗到右下角「本地」上)。
+     * 悬浮按钮要**整体浮在它上面**(底边距 = 本值 + [OrdoSpace.l])—— 否则按钮会压住状态栏文案
+     * (用户实测截图:按钮/柔光洗到右下角「本地」上)。
      */
     val statusBar: Dp = 34.dp
     val iconSm: Dp = 14.dp

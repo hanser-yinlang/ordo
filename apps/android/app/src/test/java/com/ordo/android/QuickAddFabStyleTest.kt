@@ -11,17 +11,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 快加号视觉（UI §5.2 v1.5：亮蓝填充 + 同色柔光 + 浮在状态栏之上）的纯逻辑与源码级验收。
+ * 快加号视觉（UI §5.2 v1.5：纯色亮蓝圆钮 + 浮在状态栏之上）的纯逻辑与源码级验收。
  *
- * 覆盖：① 颜色/柔光令牌；② "FAB 底边距 ≥ 状态栏高度 + 柔光厚度"的布局断言；
- * ③ 柔和光必须用径向渐变（**禁止**退回 `shadow(ambientColor/spotColor)` 这类彩色阴影，
- *    Windows/Skia 上实测不渲染，两端实现要一致）。
+ * 覆盖：① 颜色令牌与"**不得再有柔光**"；② "FAB 底边距 = 状态栏高度 + 16dp 留白"的布局断言；
+ * ③ 纯色实现（**禁止**退回 `shadow(ambientColor/spotColor)` 彩色阴影或径向渐变柔光）。
+ *
+ * 历史：2026-10-13 之前这里断言"柔光必须用径向渐变"；用户当日要求三端去掉柔光，改为反向断言。
  *
  * ⚠ 本机没有 Android 设备/模拟器：这里只能保证"令牌与实现方式"，**不能**替代真机目视核对。
  */
 class QuickAddFabStyleTest {
 
-    /* ------------------------- ① 颜色 / 柔光令牌 ------------------------- */
+    /* ------------------------- ① 颜色 / 纯色圆钮令牌 ------------------------- */
 
     @Test
     fun `FAB填充是亮蓝且浅深色主题同色`() {
@@ -31,94 +32,77 @@ class QuickAddFabStyleTest {
     }
 
     @Test
-    fun `柔光是同色半透明_浅色三成五深色四成五`() {
-        assertEquals("浅色柔光透明度", 0.35f, OrdoFabTokens.GLOW_ALPHA_LIGHT, 0.0001f)
-        assertEquals("深色柔光透明度", 0.45f, OrdoFabTokens.GLOW_ALPHA_DARK, 0.0001f)
-
-        // Color 内部按 8 位量化，取值比较留一点余量
-        assertEquals("浅色柔光 = 填充色 + 35% 透明度", 0.35f, OrdoLightColors.fabGlow.alpha, 0.01f)
-        assertEquals("深色柔光 = 填充色 + 45% 透明度", 0.45f, OrdoDarkColors.fabGlow.alpha, 0.01f)
-        assertEquals("柔光红通道与填充一致", OrdoFabTokens.fill.red, OrdoLightColors.fabGlow.red, 0.01f)
-        assertEquals("柔光绿通道与填充一致", OrdoFabTokens.fill.green, OrdoLightColors.fabGlow.green, 0.01f)
-        assertEquals("柔光蓝通道与填充一致", OrdoFabTokens.fill.blue, OrdoLightColors.fabGlow.blue, 0.01f)
-        assertTrue("柔光必须是半透明（不能是不透明色块）", OrdoLightColors.fabGlow.alpha < 1f)
+    fun `按钮不再有柔光`() {
+        // 用户 2026-10-13:「三端的蓝色圆按钮都不需要柔光了」→ 柔光令牌与径向渐变层都已删除。
+        // 源码级断言(令牌字段本身已不存在,靠反射断言反而更脆):
+        val source = TestSource.readCode("java/com/ordo/android/ui/quickadd/QuickAdd.kt")
+        assertFalse("不应再有径向渐变柔光", source.contains("radialGradient"))
+        assertFalse("不应再引用柔光色令牌", source.contains("fabGlow"))
+        assertFalse("不应再有柔光尺寸计算", source.contains("glowTotal") || source.contains("glowRadiusPx"))
+        assertTrue("按钮仍是纯色圆钮", source.contains("background(colors.fab)"))
     }
 
     @Test
-    fun `柔光厚度是24dp_状态栏高度按StatusBar实测44dp`() {
-        assertEquals(24f, OrdoLayout.fabGlow.value, 0.001f)
+    fun `状态栏高度按StatusBar实测44dp且底部留白16dp`() {
         assertEquals("StatusBar composable 用 touchTarget = 44dp", 44f, OrdoLayout.statusBar.value, 0.001f)
         assertEquals("StatusBar 高度必须等于触控目标高度", OrdoLayout.touchTarget.value, OrdoLayout.statusBar.value, 0.001f)
-        assertTrue("柔光厚度必须 > 0，否则没有光晕", OrdoLayout.fabGlow.value > 0f)
+        assertEquals("去掉柔光后,底部留白由 BOTTOM_GAP_DP 给(与 Windows 的 OrdoSpace.l 一致)", 16, OrdoFabTokens.BOTTOM_GAP_DP)
     }
 
     /* --------------------------- ② 布局断言 --------------------------- */
 
     @Test
-    fun `窗口坐标下FAB底边距等于状态栏高度加柔光厚度`() {
+    fun `窗口坐标下FAB底边距等于状态栏高度加留白`() {
         assertEquals(
-            "fabBottomInset = statusBar + fabGlow",
-            OrdoLayout.statusBar + OrdoLayout.fabGlow,
+            "fabBottomInset = statusBar + 留白",
+            OrdoLayout.statusBar + OrdoLayout.fabContentInset,
             OrdoLayout.fabBottomInset,
         )
-        assertEquals(68f, OrdoLayout.fabBottomInset.value, 0.001f)
+        assertEquals(60f, OrdoLayout.fabBottomInset.value, 0.001f)
     }
 
     @Test
-    fun `FAB底边距不小于状态栏高度加柔光厚度`() {
+    fun `FAB底边距不小于状态栏高度加留白`() {
         assertTrue(
-            "按钮连同柔光必须整体浮在状态栏之上（≥ 状态栏高度 + 柔光厚度）",
-            OrdoLayout.fabBottomInset.value >= OrdoLayout.statusBar.value + OrdoLayout.fabGlow.value,
+            "按钮必须整体浮在状态栏之上(≥ 状态栏高度 + 留白)",
+            OrdoLayout.fabBottomInset.value >= OrdoLayout.statusBar.value + OrdoLayout.fabContentInset.value,
         )
     }
 
     @Test
     fun `内容区局部底边距等于窗口规则减去状态栏`() {
         assertEquals(
-            "内容区底边本身就是状态栏顶边，所以局部只要让出柔光厚度",
-            OrdoLayout.fabGlow,
-            OrdoLayout.fabContentInset,
+            "内容区底边本身就是状态栏顶边,所以局部只要让出留白",
+            16f,
+            OrdoLayout.fabContentInset.value,
+            0.001f,
         )
         assertEquals(
             "局部底边距 + 状态栏 = 窗口坐标下的完整规则",
             OrdoLayout.fabBottomInset,
             OrdoLayout.fabContentInset + OrdoLayout.statusBar,
         )
-        assertTrue("局部底边距至少要让出柔光厚度（否则柔光会盖到状态栏）", OrdoLayout.fabContentInset.value >= OrdoLayout.fabGlow.value)
+        assertTrue("留白必须 > 0(否则按钮会贴到状态栏)", OrdoLayout.fabContentInset.value > 0f)
     }
 
     /* ------------------------ ③ 源码级实现方式断言 ------------------------ */
 
     @Test
-    fun `柔光用径向渐变绘制`() {
-        val source = TestSource.read("java/com/ordo/android/ui/quickadd/QuickAdd.kt")
-
-        assertTrue("必须用 Brush.radialGradient", source.contains("Brush.radialGradient"))
-        assertTrue("渐变必须真的画上去（background(brush)）", source.contains("background(") && source.contains("brush = "))
-        assertTrue("柔光颜色必须来自令牌 colors.fabGlow", source.contains("colors.fabGlow"))
-        assertTrue("FAB 填充必须用新令牌 colors.fab（不再是 accent）", source.contains("background(colors.fab)"))
-    }
-
-    @Test
-    fun `禁止退回彩色阴影实现柔光`() {
-        // 只看代码：注释里为了说明"不要用 ambientColor/spotColor" 会包含这些词
+    fun `按钮是纯色填充且不得用彩色阴影`() {
         val code = TestSource.readCode("java/com/ordo/android/ui/quickadd/QuickAdd.kt")
 
+        assertTrue("FAB 填充必须用新令牌 colors.fab（不再是 accent）", code.contains("background(colors.fab)"))
         assertFalse("不得使用 shadow(ambientColor=…)", code.contains("ambientColor"))
         assertFalse("不得使用 shadow(spotColor=…)", code.contains("spotColor"))
         assertFalse("不得用带颜色的 shadow 做柔光", code.contains("color = colors.fab"))
     }
 
     @Test
-    fun `柔光用requiredSize溢出按钮边界且不参与布局`() {
+    fun `按钮尺寸固定为 fabSize`() {
         val source = TestSource.read("java/com/ordo/android/ui/quickadd/QuickAdd.kt")
 
-        assertTrue("柔光必须用 requiredSize 溢出边界（否则会把按钮往屏里推 24dp）", source.contains("requiredSize("))
-        assertTrue(
-            "柔光尺寸 = 按钮 + 两侧柔光厚度",
-            source.contains("OrdoLayout.fabSize + OrdoLayout.fabGlow * 2"),
-        )
         assertTrue("按钮本体的尺寸仍固定为 fabSize", source.contains(".size(OrdoLayout.fabSize)"))
+        assertFalse("不再需要 requiredSize 溢出(没有柔光了)", source.contains("requiredSize("))
     }
 
     @Test

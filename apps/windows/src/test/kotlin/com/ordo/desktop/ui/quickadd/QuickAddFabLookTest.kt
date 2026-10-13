@@ -15,10 +15,11 @@ import org.junit.Test
  * 右下角快加号按钮的**外观与动效**回归(2026-10-13 用户指定对齐参照原型)。
  *
  * 用户给的两张图钉死了两件事:
- * 1. 收起态是一枚**亮蓝**(#0A84FF)圆形按钮 + 白色圆头「+」,四周有一圈柔光;
+ * 1. 收起态是一枚**亮蓝**(#0A84FF)圆形按钮 + 白色圆头「+」;
+ *    (2026-10-13 追加:**不再要柔光** —— 光晕令牌与径向渐变层都已删除,见 [按钮不再有柔光])
  * 2. 点击后按钮**弹性旋转 45° 变成「×」**,菜单带着缩放/上滑/错位淡入出现。
  *
- * 这里把颜色、光晕、图标来源与动效的**存在性**都断言住 —— 光靠肉眼看截图容易被后续改动悄悄改回去。
+ * 这里把颜色、图标来源与动效的**存在性**都断言住 —— 光靠肉眼看截图容易被后续改动悄悄改回去。
  */
 class QuickAddFabLookTest {
 
@@ -41,21 +42,17 @@ class QuickAddFabLookTest {
     }
 
     @Test
-    fun `按钮的光晕半透明且与填充同源`() {
-        for ((name, p) in listOf("light" to OrdoLightPalette, "dark" to OrdoDarkPalette)) {
-            assertTrue("$name 光晕必须半透明(否则会盖住按钮)", p.fabGlow.alpha > 0f && p.fabGlow.alpha < 1f)
-            assertEquals("$name 光晕红通道与填充一致", p.fab.red, p.fabGlow.red)
-            assertEquals("$name 光晕绿通道与填充一致", p.fab.green, p.fabGlow.green)
-            assertEquals("$name 光晕蓝通道与填充一致", p.fab.blue, p.fabGlow.blue)
-        }
-        assertEquals("浅色光晕 = #0A84FF @35%", Color(0x590A84FF), OrdoLightPalette.fabGlow)
-        assertEquals("深色光晕 = #0A84FF @45%", Color(0x730A84FF), OrdoDarkPalette.fabGlow)
+    fun `按钮不再有柔光`() {
+        // 用户 2026-10-13:「三端的蓝色圆按钮都不需要柔光了」→ 光晕令牌与径向渐变层都已删除
+        val src = sourceOf("QuickAdd.kt") ?: return
+        assertFalse("不应再有径向渐变柔光", src.contains("radialGradient"))
+        assertFalse("不应再引用光晕色令牌", src.contains("fabGlow"))
+        assertFalse("不应再有光晕厚度常量", src.contains("glowOuter") || src.contains("glowEdge"))
     }
 
     @Test
-    fun `按钮直径与光晕厚度仍是设计令牌`() {
+    fun `按钮直径仍是设计令牌`() {
         assertEquals(56.dp, OrdoSize.fab)
-        assertEquals("光晕厚度由令牌给出(参照原型量得 ≈ 按钮半径)", 24.dp, OrdoSize.fabGlow)
     }
 
     @Test
@@ -66,17 +63,14 @@ class QuickAddFabLookTest {
     // ------------------------------------------------------------ 源码级:外观 + 动效
 
     @Test
-    fun `按钮用 fab 令牌填充,光晕是显式径向渐变`() {
+    fun `按钮用 fab 令牌填充且完全依赖纯色`() {
         val src = sourceOf("QuickAdd.kt") ?: return
         assertTrue("填充必须走 colors.fab 令牌", src.contains("colors.fab"))
-        // Compose Desktop 不渲染彩色阴影:必须自己画径向渐变,否则光晕根本不出现
-        assertTrue("光晕要用 Brush.radialGradient 画", src.contains("Brush.radialGradient"))
-        assertTrue("渐变颜色取 fabGlow 令牌", src.contains("colors.fabGlow"))
-        assertTrue("光晕厚度取 OrdoSize.fabGlow", src.contains("OrdoSize.fabGlow"))
         assertFalse(
             "不要依赖彩色阴影(桌面端不生效)",
             src.contains("ambientColor = ") || src.contains("spotColor = ")
         )
+        assertFalse("纯色圆钮:不得再加渐变/半透明叠加", src.contains("Brush."))
     }
 
     @Test

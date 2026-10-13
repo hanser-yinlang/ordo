@@ -41,6 +41,6 @@ fun StatusBar(state: UiState) {
     ) {
         Text("共 $total 项 · 已完成 $done 项", style = OrdoType.caption, color = colors.textSecondary)
         Spacer(Modifier.weight(1f))
-        Text("纯本地 · 不联网", style = OrdoType.micro, color = colors.textTertiary)
+        Text("本地", style = OrdoType.micro, color = colors.textTertiary)
     }
 }

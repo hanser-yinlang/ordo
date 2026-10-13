@@ -119,7 +119,8 @@ class StartupAndShellRenderTest {
             )
             assertTrue("截图为本次交付物", out.length() > 5_000)
             assertEquals("不得出现任何登录 / 同步字眼", emptyList<String>(), leaks(labels))
-            assertTrue("状态栏应写明纯本地:$labels", labels.any { it.contains("纯本地") })
+            assertTrue("状态栏右下角应写明「本地」:$labels", labels.any { it == "本地" })
+            assertFalse("不该再出现「纯本地 · 不联网」:$labels", labels.any { it.contains("不联网") })
         } finally {
             scene.close()
         }

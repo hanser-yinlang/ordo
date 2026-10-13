@@ -26,9 +26,61 @@ import java.awt.geom.Ellipse2D
 import java.awt.image.BufferedImage
 
 /**
+ * 托盘右键菜单的文案与字体选择(纯逻辑,便于单测;不碰 AWT)。
+ *
+ * **踩过的坑(用户实测截图)**:`java.awt.PopupMenu` 的菜单项用的是 **JVM 的默认 AWT 字体**,
+ * 在这台机器上它**显示不了中文** —— 菜单里「打开 Ordo」「退出」全渲染成两个空心方框(豆腐块),
+ * 而应用内 Compose 的中文完全正常(两套字体栈各管各的)。
+ *
+ * 规则:
+ * 1. 优先选一个**确实能显示中文**的字体(候选表按 Windows 常见中文字体排序);
+ * 2. 一个都选不出来时,**菜单文案退回英文** —— 宁可是英文,也不能给用户看豆腐块。
+ */
+object TrayMenuSpec {
+
+    /** 候选字体(按"Windows 上最可能存在且字形好看"排序) */
+    val CJK_FONT_CANDIDATES: List<String> = listOf(
+        "Microsoft YaHei UI",
+        "Microsoft YaHei",
+        "Microsoft JhengHei UI",
+        "SimSun",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "Source Han Sans SC",
+        "PingFang SC"
+    )
+
+    /** 用哪个字号(与系统菜单接近) */
+    const val FONT_SIZE = 12
+
+    /** 中文标签(能显示中文时用) */
+    val LABELS_ZH: List<String> = listOf("打开 Ordo", "退出")
+
+    /** 英文兜底标签(选不出中文字体时用) */
+    val LABELS_EN: List<String> = listOf("Open Ordo", "Quit")
+
+    /**
+     * 从"系统里真实可用的字体族"里挑一个能显示中文的。
+     * @param available 系统可用字体族(来自 [java.awt.GraphicsEnvironment],由调用方注入,便于单测)
+     * @param canDisplay 该字体族能否显示中文探测字符(AWT 的 `Font(family, PLAIN, 12).canDisplay('打')`)
+     */
+    fun pickFontFamily(
+        available: Set<String>,
+        canDisplay: (String) -> Boolean
+    ): String? {
+        CJK_FONT_CANDIDATES.firstOrNull { it in available && canDisplay(it) }?.let { return it }
+        // 候选表里没有:退一步,在系统字体里随便找一个**真能显示中文**的(宁可字形一般,也不能是豆腐块)
+        return available.sorted().firstOrNull { canDisplay(it) }
+    }
+
+    /** 菜单文案:选得出中文字体就用中文,否则英文 */
+    fun labels(cjkFontFamily: String?): List<String> = if (cjkFontFamily != null) LABELS_ZH else LABELS_EN
+}
+
+/**
  * 托盘图标 + 到点提醒的系统通知(04-UI规范 §7:系统通知(托盘 + Toast))。
  *
- * - 托盘双击:打开主窗口;右键菜单:打开 Ordo / 退出。
+ * - 托盘双击:打开主窗口;右键菜单:打开 Ordo / 退出(文案与字体见 [TrayMenuSpec])。
  * - 提醒到点:调用 [TrayIcon.displayMessage] 弹出系统气泡;双击托盘会跳到最近一次提醒的待办。
  * - 托盘不可用时(极端情况)自动降级为静默,不影响主流程。
  */
@@ -60,9 +112,25 @@ class TrayNotifications(
                 }
             )
             val menu = PopupMenu()
-            menu.add(MenuItem("打开 Ordo").apply { addActionListener { onOpenWindow() } })
+            // ⚠ 必须显式设字体:AWT 默认字体不保证能显示中文,否则菜单项会渲染成豆腐块(用户实测就是 □□)
+            val cjkFamily = runCatching {
+                val available = java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment()
+                    .availableFontFamilyNames.toSet()
+                TrayMenuSpec.pickFontFamily(available) { family ->
+                    Font(family, Font.PLAIN, TrayMenuSpec.FONT_SIZE).canDisplay('打')
+                }
+            }.getOrNull()
+            val menuFont = Font(cjkFamily ?: Font.DIALOG, Font.PLAIN, TrayMenuSpec.FONT_SIZE)
+            val labels = TrayMenuSpec.labels(cjkFamily)
+            menu.add(MenuItem(labels[0]).apply {
+                font = menuFont
+                addActionListener { onOpenWindow() }
+            })
             menu.addSeparator()
-            menu.add(MenuItem("退出").apply { addActionListener { onQuit() } })
+            menu.add(MenuItem(labels[1]).apply {
+                font = menuFont
+                addActionListener { onQuit() }
+            })
             icon.popupMenu = menu
             SystemTray.getSystemTray().add(icon)
             trayIcon = icon

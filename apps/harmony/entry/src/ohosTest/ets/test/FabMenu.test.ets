@@ -17,6 +17,18 @@ import {
   AREA_SIZE,
   AREA_STROKE,
   AREA_TOP,
+  FAB_FILL_HEX,
+  FAB_GLOW_ALPHA_DARK,
+  FAB_GLOW_ALPHA_LIGHT,
+  FAB_GLOW_GAP,
+  FAB_GLOW_INNER_STOP,
+  FAB_GLOW_OUTER_STOP,
+  FAB_GLOW_RENDER_MODE,
+  FAB_GLOW_THICKNESS,
+  FAB_MARGIN_BOTTOM,
+  FAB_MARGIN_RIGHT,
+  FAB_SIZE,
+  FAB_STATUS_BAR_HEIGHT,
   FAB_ICON_SIZE,
   FAB_ITEM_HEIGHT,
   FAB_ITEM_ICON_GAP,
@@ -44,6 +56,9 @@ import {
   PROJECT_RIGHT_TO,
   PROJECT_STROKE,
   fabItemAvailable,
+  fabGlowDiameter,
+  fabGlowInnerColor,
+  fabGlowOuterColor,
   fabMenuItems
 } from '../../../main/ets/viewmodel/FabMenu.ets';
 
@@ -174,6 +189,47 @@ export default function fabMenuTest() {
       const c: FabMenuItemModel[] = fabMenuItems('today');
       expect(c.length).assertEqual(3);
       expect(a.length).assertEqual(4);
+    });
+
+    it('fab_is_bright_blue_not_brand_indigo', 0, () => {
+      // §5.2 v1.5:FAB 用专用亮蓝;品牌靛紫(accentPrimary)不动、菜单图标走 textSecondary
+      expect(FAB_FILL_HEX).assertEqual('#0A84FF');
+      expect(FAB_SIZE).assertEqual(56);
+      expect(FAB_FILL_HEX.toUpperCase()).assertEqual(FAB_FILL_HEX);
+    });
+
+    it('glow_is_radial_gradient_24vp_with_blue_alpha', 0, () => {
+      // 柔光必须走径向渐变(普通 shadow 是灰的,画不出蓝光)
+      expect(FAB_GLOW_RENDER_MODE).assertEqual('radialGradient');
+      expect(FAB_GLOW_THICKNESS).assertEqual(24);
+      // 渐变圆每边多出 24 → 直径 56 + 48 = 104
+      expect(fabGlowDiameter()).assertEqual(104);
+      // 从按钮边缘(28/52 ≈ 0.54)最亮,向外到 1.0 渐隐为全透明
+      expect(FAB_GLOW_INNER_STOP > 0.5 && FAB_GLOW_INNER_STOP < 0.6).assertTrue();
+      expect(FAB_GLOW_OUTER_STOP).assertEqual(1.0);
+      // 浅色 35% / 深色 45%,且都是 #0A84FF 的透明度变体(不是灰)
+      expect(FAB_GLOW_ALPHA_LIGHT).assertEqual(0.35);
+      expect(FAB_GLOW_ALPHA_DARK).assertEqual(0.45);
+      // ⚠ ArkUI 是 #AARRGGBB(alpha 在前),不是 CSS 的 #RRGGBBAA —— 写反会导致光晕几乎不可见(真机踩过)
+      expect(fabGlowInnerColor(false)).assertEqual('#590A84FF');
+      expect(fabGlowInnerColor(true)).assertEqual('#730A84FF');
+      expect(fabGlowOuterColor()).assertEqual('#000A84FF');
+      expect(fabGlowInnerColor(false).substring(3)).assertEqual(FAB_FILL_HEX.substring(1));
+      expect(fabGlowOuterColor().substring(3)).assertEqual(FAB_FILL_HEX.substring(1));
+      expect(fabGlowOuterColor().substring(0, 3)).assertEqual('#00');
+    });
+
+    it('fab_margin_keeps_the_glow_off_the_bottom_bar', 0, () => {
+      // 位置规则(§5.2 v1.5):底边距 = 底栏高度 + 光晕厚度 + 空隙,按钮连同光晕不压住底部文案
+      expect(FAB_STATUS_BAR_HEIGHT).assertEqual(32);
+      expect(FAB_GLOW_GAP).assertEqual(8);
+      expect(FAB_MARGIN_BOTTOM >= FAB_STATUS_BAR_HEIGHT + FAB_GLOW_THICKNESS).assertTrue();
+      expect(FAB_MARGIN_BOTTOM).assertEqual(FAB_STATUS_BAR_HEIGHT + FAB_GLOW_THICKNESS + FAB_GLOW_GAP);
+      expect(FAB_MARGIN_BOTTOM).assertEqual(64);
+      // 右侧留白与页面一致(OrdoSpace.xl = 24)
+      expect(FAB_MARGIN_RIGHT).assertEqual(24);
+      // 光晕比按钮每边大 24:底边距必须把这 24 算进去
+      expect(fabGlowDiameter() - FAB_SIZE).assertEqual(FAB_GLOW_THICKNESS * 2);
     });
   });
 }

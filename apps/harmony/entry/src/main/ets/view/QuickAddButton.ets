@@ -54,6 +54,12 @@ import {
   PROJECT_RIGHT_FROM,
   PROJECT_RIGHT_TO,
   PROJECT_STROKE,
+  FAB_GLOW_INNER_STOP,
+  FAB_GLOW_OUTER_STOP,
+  FAB_GLOW_THICKNESS,
+  fabGlowDiameter,
+  fabGlowInnerColor,
+  fabGlowOuterColor,
   fabMenuItems
 } from '../viewmodel/FabMenu.ets';
 import { touchOf } from './Common/GestureUtil.ets';
@@ -226,7 +232,7 @@ export struct QuickAddFab {
    *
    * 上一轮的 '→' 在鸿蒙上走了字体回退、渲染成别的形状,所以这里凡是"有语义的图形"都用
    * `Line` / `Rect` / `Circle` 画:几何与线宽来自 `viewmodel/FabMenu.ets`(可被宿主机用例钉住),
-   * 颜色走 Tokens 的 accent(Ordo 靛紫)/ textSecondary。
+   * 颜色走 Tokens 的 `textSecondary`(§5.2 v1.5:菜单项图标是中性色,亮蓝只属于按钮本身)。
    */
   @Builder
   fabIcon(kind: FabIconKind) {
@@ -235,28 +241,28 @@ export struct QuickAddFab {
         Line()
           .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
           .startPoint(PLUS_H_FROM).endPoint(PLUS_H_TO)
-          .stroke(this.c().accentPrimary).strokeWidth(PLUS_STROKE)
+          .stroke(this.c().textSecondary).strokeWidth(PLUS_STROKE)
           .strokeLineCap(LineCapStyle.Round)
         Line()
           .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
           .startPoint(PLUS_V_FROM).endPoint(PLUS_V_TO)
-          .stroke(this.c().accentPrimary).strokeWidth(PLUS_STROKE)
+          .stroke(this.c().textSecondary).strokeWidth(PLUS_STROKE)
           .strokeLineCap(LineCapStyle.Round)
       } else if (kind === 'projectH') {
         Line()
           .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
           .startPoint(PROJECT_LEFT_FROM).endPoint(PROJECT_LEFT_TO)
-          .stroke(this.c().accentPrimary).strokeWidth(PROJECT_STROKE)
+          .stroke(this.c().textSecondary).strokeWidth(PROJECT_STROKE)
           .strokeLineCap(LineCapStyle.Round)
         Line()
           .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
           .startPoint(PROJECT_RIGHT_FROM).endPoint(PROJECT_RIGHT_TO)
-          .stroke(this.c().accentPrimary).strokeWidth(PROJECT_STROKE)
+          .stroke(this.c().textSecondary).strokeWidth(PROJECT_STROKE)
           .strokeLineCap(LineCapStyle.Round)
         Line()
           .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
           .startPoint(PROJECT_BAR_FROM).endPoint(PROJECT_BAR_TO)
-          .stroke(this.c().accentPrimary).strokeWidth(PROJECT_STROKE)
+          .stroke(this.c().textSecondary).strokeWidth(PROJECT_STROKE)
           .strokeLineCap(LineCapStyle.Round)
       } else if (kind === 'area') {
         // 圆角方框 + 中心点(方框靠 Rect.radius,中心点靠实心 Circle)
@@ -264,19 +270,19 @@ export struct QuickAddFab {
           .width(AREA_SIZE).height(AREA_SIZE)
           .radius(AREA_RADIUS)
           .fillOpacity(0)
-          .stroke(this.c().accentPrimary)
+          .stroke(this.c().textSecondary)
           .strokeWidth(AREA_STROKE)
           .margin({ left: AREA_LEFT, top: AREA_TOP })
         Circle()
           .width(AREA_DOT_RADIUS * 2).height(AREA_DOT_RADIUS * 2)
-          .fill(this.c().accentPrimary)
+          .fill(this.c().textSecondary)
       } else {
         // 标题:三横线
         ForEach(HEADING_LINE_YS, (y: number) => {
           Line()
             .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
             .startPoint([HEADING_LINE_FROM_X, y]).endPoint([HEADING_LINE_TO_X, y])
-            .stroke(this.c().accentPrimary).strokeWidth(HEADING_STROKE)
+            .stroke(this.c().textSecondary).strokeWidth(HEADING_STROKE)
             .strokeLineCap(LineCapStyle.Round)
         }, (y: number) => 'heading_' + y.toString())
       }
@@ -357,10 +363,30 @@ export struct QuickAddFab {
       // 快加号本体:整个集群**只有这一个圆形按钮**(§5.2「删除独立的折叠箭头按钮」)
       // 白色「+」同样用矢量画(不再用字体字符,避免字体回退把「+」渲染成别的形状)
       Stack() {
+        // §5.2 v1.5:**亮蓝柔光**用径向渐变画(不能用 shadow —— 那是灰的)。
+        // 渐变圆比圆钮每边大 FAB_GLOW_THICKNESS(24),用 position 绝对定位**溢出**按钮边界,
+        // 因此**不影响布局**(父 Stack 仍由下面的圆钮决定 56×56);命中测试设为 None,不吃点击。
+        // 注意:柔光**不能**写成 `Circle().fill()` + `.radialGradient()` —— 形状的 fill 会盖住渐变,
+        // 渲染出来是一整块实心大蓝圆(真机踩过);渐变要挂在**容器**上,配 borderRadius 成圆,
+        // 外缘 alpha=00 自然渐隐,不会出现方角。
+        Column()
+          .width(fabGlowDiameter())
+          .height(fabGlowDiameter())
+          .borderRadius(fabGlowDiameter() / 2)
+          .radialGradient({
+            center: ['50%', '50%'],
+            radius: '50%',
+            colors: [
+              [fabGlowInnerColor(this.store.isDark()), FAB_GLOW_INNER_STOP],
+              [fabGlowOuterColor(), FAB_GLOW_OUTER_STOP]
+            ]
+          })
+          .position({ x: -FAB_GLOW_THICKNESS, y: -FAB_GLOW_THICKNESS })
+          .hitTestBehavior(HitTestMode.None)
         Circle()
           .width(OrdoSize.quickAdd)
           .height(OrdoSize.quickAdd)
-          .fill(this.c().accentPrimary)
+          .fill(this.c().fab)
         Line()
           .width(FAB_PLUS_SIZE).height(FAB_PLUS_SIZE)
           .startPoint([FAB_PLUS_INSET, FAB_PLUS_SIZE / 2]).endPoint([FAB_PLUS_SIZE - FAB_PLUS_INSET, FAB_PLUS_SIZE / 2])
@@ -375,7 +401,7 @@ export struct QuickAddFab {
       .width(OrdoSize.quickAdd)
       .height(OrdoSize.quickAdd)
       .id('ordo_fab')
-      .shadow({ radius: 8, color: 'rgba(0,0,0,0.20)', offsetY: 4 })
+      // 注意:这里**没有**中性 `.shadow()` —— 阴影是灰的,画不出蓝色柔光(§5.2 v1.5)
       // 长按到 400ms:放大到 1.06 并保持;按压 0.96(90ms)
       .scale({
         x: this.menuOpen ? OrdoMotion.fabHoldScale : (this.pressed ? OrdoMotion.fabPressScale : 1),

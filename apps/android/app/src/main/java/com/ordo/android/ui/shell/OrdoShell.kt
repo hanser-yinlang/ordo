@@ -172,7 +172,14 @@ private fun MainShell(
                             onLongClick = vm::onQuickAddLongPress,
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(OrdoSpace.xl),
+                                /*
+                                 * UI §5.2 v1.5：底边距保证按钮**连同柔光**整体浮在状态栏之上。
+                                 * 窗口坐标下的规则是 `statusBar + fabGlow`；而本 FAB 挂在内容区里，
+                                 * 内容区底边正好是状态栏顶边，因此这里用减去状态栏后的局部值
+                                 * （= `OrdoLayout.fabGlow`，见 Tokens 的 fabContentInset 推导）。
+                                 * 柔光本身用 requiredSize 溢出边界，不参与布局，所以不会把按钮往里推。
+                                 */
+                                .padding(end = OrdoSpace.xl, bottom = OrdoLayout.fabContentInset),
                         )
                     }
                 }

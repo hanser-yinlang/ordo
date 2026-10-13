@@ -37,6 +37,12 @@ export interface OrdoColorTokens {
   textSecondary: string;
   textTertiary: string;
   accentPrimary: string;
+  /**
+   * 快加号(FAB)专用填充色(§5.2 v1.5:亮蓝 `#0A84FF`)。
+   * **独立于 accentPrimary**:品牌靛紫不动,只有这一个圆钮用亮蓝;
+   * 光晕也用它(半透明,见 FabMenu.FAB_GLOW_*)。
+   */
+  fab: string;
   accentTonight: string;
   stateDanger: string;
   stateSuccess: string;
@@ -61,6 +67,8 @@ export class OrdoColors {
     textSecondary: '#7A776F',
     textTertiary: '#A8A49B',
     accentPrimary: '#5B5BD6',
+    // §5.2 v1.5:快加号专用亮蓝(浅色与深色同值);菜单项图标仍走 textSecondary
+    fab: '#0A84FF',
     accentTonight: '#D98324',
     stateDanger: '#E5533D',
     stateSuccess: '#2FA36B',
@@ -81,6 +89,7 @@ export class OrdoColors {
     textSecondary: '#9A968E',
     textTertiary: '#6E6B65',
     accentPrimary: '#7C7CF0',
+    fab: '#0A84FF',
     accentTonight: '#E8A13F',
     stateDanger: '#F2705C',
     stateSuccess: '#3FBF83',

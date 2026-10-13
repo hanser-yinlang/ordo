@@ -2,8 +2,8 @@
 
 > 契约来源：[03 · 数据模型与同步协议](../../docs/03-数据模型与同步协议.md) · [04 · UI 设计规范](../../docs/04-UI设计规范.md)（FROZEN v1）
 > 业务核心：KMP `shared:core`（**只调用、不修改**）· 交互参照：`things-clone/`（Web 原型，仅复用信息架构；名称/图标/配色一律按 04 文档的 Ordo 品牌）
-> **v1.3 产品决策：不再需要登录** —— 启动即进主界面，云同步走**后台静默匿名会话**（无登录界面、无账号管理）。
-> 规模：58 个 Kotlin 文件（44 主 + 14 测试）· 12 个测试类 / **129 个用例**（本机 `assembleDebug` + `testDebugUnitTest` 真实执行通过，见 §7.5）
+> **v1.4 产品决策：彻底删除云同步 —— 本应用是纯本地应用，不联网、不申请 INTERNET 权限。**
+> 规模：43 个 Kotlin 文件（33 主 + 10 测试）· 10 个测试类 / **114 个用例**（本机 `assembleDebug` + `assembleRelease` + `testDebugUnitTest` 真实执行通过，见 §7.6/§7.7）
 
 ## 1. 构建
 
@@ -21,63 +21,52 @@
 ```bash
 # 在仓库根目录（ordo/）执行
 ./gradlew :apps:android:app:assembleDebug        # 打 debug 包
-./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（NLP / 查询 / 重复 / 同步合并 / 项目完成 / 快加浮层 / 刷新控件 / 快加菜单 / 静默会话 / 数据目录）
+./gradlew :apps:android:app:assembleRelease      # 打 release 包（未签名，见 build.gradle.kts）
+./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（9 个测试类 / 104 个用例，见 §7.6）
 ./gradlew :apps:android:app:installDebug         # 安装到设备
 ```
 
 产物：`apps/android/app/build/outputs/apk/debug/app-debug.apk`
 
-### 1.3 运行配置
+### 1.3 运行配置（纯本地）
 
-- **服务器地址是隐藏覆盖**（v1.3 起设置页没有输入框）：网络层固定读引导库 kv `ordo.serverUrl`，
-  缺省值 `https://api.ordo.app`（`SqliteStorage.DEFAULT_SERVER_URL`）**不变**。本地联调改法见 §1.5。
+- **不联网**：没有服务器地址、没有账号、没有同步；数据全部落在本机 `filesDir/`。
 - 深链：`ordo://list/today`、`ordo://todo/{id}`、`ordo://project/{id}`；点提醒通知即走 `ordo://todo/{id}`。
 - 首次启动由 `OrdoEngine.seedDemoData()` 写入示例数据；「设置 → 数据 → 重置为示例数据」可恢复。
 
-### 1.4 启动流程（v1.3：没有登录界面）
+### 1.4 启动流程（纯本地，v1.4）
 
 ```
 App 启动（OrdoApp.onCreate → ServiceLocator.init）
-  ├─ 读引导库会话 session
-  │    ├─ 有且未过期            → 挂 <userId> 账号目录，直接进主界面，后台静默 refresh + sync
-  │    ├─ 有但 accessToken 过期 → 先 refresh
-  │    │      ├─ 成功           → 用新会话进主界面
-  │    │      ├─ 401（服务端否认）→ 静默 POST /v1/auth/guest 重建匿名账号后继续
-  │    │      └─ 网络不可达/5xx  → 按"暂时同步不上"处理：离线继续用旧会话与旧目录
-  │    └─ 无 / 残缺             → 先挂**临时工作区** filesDir/local-<deviceId>/（离线可用），
-  │                              同时后台静默 guest 建匿名账号（1s→2s→…→60s 退避重试）
-  └─ 匿名账号到手 → 认领（改名）临时工作区 → 挂 <userId> 目录 → 起实时通道 → 通知界面补一次同步
+  ├─ 解析本机数据目录 id（契约 §7.6.6）：kv 已钉住 > 磁盘上唯一既有目录 > 新建 local-<16hex>
+  ├─ 打开该目录的 SQLite（filesDir/<dirId>/ordo.db），首次运行写演示数据
+  ├─ 起本地提醒（Notifier 渠道 + ReminderWorker）
+  └─ 界面：ViewModel 订阅本地引擎 → 直接渲染；**全程不发任何网络请求**
 ```
 
-- **不阻塞启动、不弹任何界面**：网络不可达时照常进主界面（本地数据可读可写），后台退避重试直到拿到会话。
-- **同步中遇 401**：`SyncScheduler` 判为 `NOT_LOGGED_IN` → 界面层静默调用
-  `ServiceLocator.ensureAnonymousSession(replaceExisting = true)` 重建匿名会话，绝不出现登录页。
-- **本地数据**：仍是 `filesDir/<userId>/ordo.db`（契约 §7.6.3 逐账号隔离），**不做任何旧数据迁移**；
-  唯一的新动作是"认领"：首启离线期间写在 `filesDir/local-<deviceId>/` 的数据，在拿到匿名账号后
-  **改名**为目标账号目录（幂等；目标已存在或源不存在时不动）。
-- 引导库 `filesDir/ordo-bootstrap.db`（会话 / 设备标识 / 服务器地址）**必须保留**：读会话本身需要一份
-  不属于任何账号的存储，`deviceId` 也必须跨账号稳定；去掉它会造成"先有 userId 才能读 session、
-  先有 session 才知道 userId"的循环依赖，不是简化。
+- 没有登录、没有会话/令牌、没有同步调度器、没有实时通道；`AuthApi`/`SyncApi` 的 Android 实现已整体删除。
+- 设置页只有 外观 / 数据（重置为示例数据）/ 关于。
 
-### 1.5 服务器地址的隐藏覆盖（本地联调）
+### 1.5 纯本地的证明方式（4 条，可复现）
 
-v1.3 删除了设置页的服务器地址输入框，改成**只读 kv 的隐藏覆盖**（默认值不变）。三种改法：
+```powershell
+$apk = "apps/android/app/build/outputs/apk/debug/app-debug.apk"
+# ① 代码：不存在任何网络客户端/调用
+Select-String -Path "apps/android/app/src/main/**/*.kt" -Pattern "io\.ktor|okhttp|HttpClient|WebSocket|HttpURLConnection|java\.net\.Socket"
+# ② 清单：APK 里没有 INTERNET 权限（也没有 ACCESS_NETWORK_STATE 之外的网络相关权限）
+& "$env:ANDROID_HOME\build-tools\36.0.0\aapt2.exe" dump permissions $apk
+# ③ 依赖：build.gradle.kts 里没有 ktor/okhttp/datastore
+Select-String -Path "apps/android/app/build.gradle.kts" -Pattern "ktor|okhttp|datastore"
+# ④ 产物：dex 里没有 okhttp / ktor / okio / URLConnection / WebSocket 的类名
+Copy-Item $apk "$env:TEMP\o.zip"; Expand-Archive "$env:TEMP\o.zip" "$env:TEMP\o" -Force
+Get-ChildItem "$env:TEMP\o" -Filter *.dex | ForEach-Object { [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($_.FullName)) } |
+  Select-String -Pattern "okhttp3|io/ktor|okio|URLConnection|WebSocket"
+```
 
-1. **改默认值后重新构建**（最省事，推荐）：改 `data/SqliteStorage.kt` 里的
-   `const val DEFAULT_SERVER_URL = "https://api.ordo.app"` → 本地后端地址，重新 `assembleDebug`。
-2. **直接写引导库 kv**（不改代码，走的就是"仍读 kv"这条机制）：kv 表结构是 `kv(k TEXT PRIMARY KEY, v TEXT)`，
-   键名 `serverUrl`，库文件 `filesDir/ordo-bootstrap.db`（设备上即 `/data/data/com.ordo.android/files/ordo-bootstrap.db`）：
-   ```bash
-   # 模拟器（debug 包可 run-as）
-   adb shell run-as com.ordo.android sqlite3 files/ordo-bootstrap.db \
-     "insert or replace into kv(k,v) values('serverUrl','http://10.0.2.2:8787');"
-   # 设备上没有 sqlite3 时：拉到本地改完再推回
-   adb exec-out run-as com.ordo.android cat files/ordo-bootstrap.db > ordo-bootstrap.db
-   sqlite3 ordo-bootstrap.db "insert or replace into kv(k,v) values('serverUrl','http://10.0.2.2:8787');"
-   adb push ordo-bootstrap.db /data/local/tmp/ && adb shell run-as com.ordo.android cp /data/local/tmp/ordo-bootstrap.db files/ordo-bootstrap.db
-   ```
-   改完**重启 App** 生效（`TokenStore.serverUrl()` 每次请求都会读 kv）。
-3. **程序化写入口**（供将来的开发者工具调用）：`TokenStore.saveServerUrl(url)`。
+**结论**：① 0 处命中；② 权限只有 `POST_NOTIFICATIONS` / `RECEIVE_BOOT_COMPLETED`(WorkManager 另注入
+`WAKE_LOCK`/`ACCESS_NETWORK_STATE`/`FOREGROUND_SERVICE`)——**没有 INTERNET**，因此即使将来误引入网络调用，
+系统也会直接抛 `SecurityException` 而不是静默联网；③ 依赖里没有网络库（DataStore 也已移除，它经 okio
+带进过套接字相关传递依赖）；④ dex 命中为 0（仅剩通用的 `java/net/SocketException` 异常类型字符串）。
 
 模拟器访问宿主机用 `http://10.0.2.2:<port>`。
 
@@ -88,33 +77,24 @@ apps/android/
 ├── README.md
 └── app/
     ├── build.gradle.kts                compileSdk 36 / minSdk 26 / Compose(BOM) / BuildConfig 常量
-    ├── proguard-rules.pro              保留 core 公开面、Ktor、Worker
+    ├── proguard-rules.pro              保留 core 公开面、Worker
     └── src/
-        ├── main/AndroidManifest.xml (39)   权限(INTERNET/POST_NOTIFICATIONS/RECEIVE_BOOT_COMPLETED/ACCESS_NETWORK_STATE) + ordo:// 深链
-        ├── main/res/                       strings(202 行中文文案) / colors / themes + values-night / 自适应图标 / 通知图标
+        ├── main/AndroidManifest.xml        权限(POST_NOTIFICATIONS/RECEIVE_BOOT_COMPLETED；**无 INTERNET**) + ordo:// 深链
+        ├── main/res/                       strings(中文文案) / colors / themes + values-night / 自适应图标 / 通知图标
         └── main/java/com/ordo/android/
             ├── OrdoApp.kt (14)                         Application：装配 + 通知渠道 + 提醒任务
-            ├── MainActivity.kt (84)                    单 Activity + 深链解析 + 通知权限 + 前后台同步钩子
-            ├── di/ServiceLocator.kt (89)               手工装配（OrdoEngine / Ktor / Scheduler / Realtime）
+            ├── MainActivity.kt                        单 Activity + 深链解析 + 通知权限（v1.4 起无同步钩子）
+            ├── di/ServiceLocator.kt (143)              手工装配（只有本地：OrdoEngine / 引导库 kv / Notifier）
             ├── data/
-            │   ├── SqliteStorage.kt (283)               OrdoStorage 实现（原生 SQLite：entities/outbox/tombstones/kv）
+            │   ├── SqliteStorage.kt (300)              OrdoStorage 实现（原生 SQLite：entities/outbox/tombstones/kv）
+            │   ├── LocalAccount.kt                     本机数据目录 id 的生成与解析（契约 §7.6.6）
+            │   ├── UserDataDir.kt                      工作区目录名/路径 + 既有目录扫描
             │   ├── SeedData.kt (20)                    示例数据入口（内容来自 core，避免两份数据）
-            │   ├── SettingsStore.kt (34)               DataStore：外观 / 服务器地址 / 上次同步
+            │   ├── SettingsStore.kt                    外观模式（存引导库 kv；v1.4 起不再用 DataStore）
             │   └── ModelExt.kt (15)                    `when` 反引号访问（单点适配）
-            ├── net/
-            │   ├── HttpClientFactory.kt (43)           OkHttp 引擎 + 统一请求头 + 超时 + WebSocket
-            │   ├── Dto.kt (75)                         统一请求头 / 错误模型解析 / WS 帧
-            │   ├── AuthApi.kt                          OrdoAuthApi : core AuthApi（v1.3 只用 guest/refresh；其余为实现共享接口所必需）
-            │   ├── AuthErrors.kt                       契约 §7.4/§7.6.5 的 details（reason / retryAfterSec）解析
-            │   ├── KtorSyncApi.kt (104)                KtorSyncApi : core SyncApi（401 自动 refresh 重放一次）
-            │   ├── RealtimeClient.kt (116)             RealtimeClient : core RealtimeChannel（指数退避重连）
-            │   ├── OrdoErrors.kt (33)                  契约 §7.4 错误码全集与应对策略
-            │   └── TokenStore.kt                       kv 里的会话/令牌 + 服务器地址（v1.3 只由后台静默会话写）
-            ├── auth/SilentSession.kt                   静默匿名会话纯逻辑（启动处置 / 401 判定 / 退避序列）
-            ├── sync/SyncScheduler.kt (147)             前台 30s + 回前台 + 网络恢复；SYNC_SEQ_GAP 自动全量重同步
             ├── notify/Notifier.kt (70)                 ordo_reminders 渠道 + 深链 PendingIntent
-            ├── notify/ReminderWorker.kt (123)          准点一次性任务 + 15 分钟周期兜底 + 已发记录
-            ├── vm/UiState.kt / OrdoViewModel.kt        单向数据流，写操作全部经 OrdoEngine（v1.3 起无登录态）
+            ├── notify/ReminderWorker.kt (123)          准点一次性任务 + 15 分钟周期兜底 + 已发记录（纯本地）
+            ├── vm/UiState.kt / OrdoViewModel.kt        单向数据流，写操作全部经 OrdoEngine（v1.4 无同步/无会话）
             ├── vm/ComposerState.kt (63)                       快加浮层状态机（纯逻辑：打开/重复点击/关闭/提交）
             ├── vm/ProjectCompletion.kt (93)                   完成项目判定、文案选择与卡片主动作（纯逻辑，契约 §2.2 v1.1）
             ├── nav/Routes.kt (33) / OrdoNavHost.kt (61)       路由 ↔ 派生清单
@@ -123,8 +103,8 @@ apps/android/
                 ├── common/OrdoIcons.kt                        自绘矢量图标（不依赖图标扩展包、不用他人资产）
                 ├── common/Components.kt                       复选框/进度环/胶囊/浮层/Toast/输入框/Markdown 预览
                 ├── common/OrdoFormatter.kt (85)               日期词汇走 core 的 OrdoDate，界面文案走 strings.xml
-                ├── shell/OrdoShell.kt / Sidebar.kt            应用根（v1.3 无登录门禁，直接三栏骨架）+ 侧栏 + 状态栏
-                ├── list/ListScreen.kt (291) / TodoRow.kt (243) 大标题/分组/38dp 行/滑动操作/完成动效
+                ├── shell/OrdoShell.kt / Sidebar.kt            应用根（直接三栏骨架）+ 侧栏 + 状态栏（v1.4 无同步指示）
+                ├── list/ListScreen.kt / TodoRow.kt            大标题/分组/38dp 行/滑动操作/完成动效（无下拉刷新）
                 ├── detail/DetailCard.kt (365)                 标题/备注 Markdown/何时/截止/提醒/重复/移动/标签/清单
                 ├── schedule/ScheduleSheet.kt (234)            自然语言 + 快捷项 + 提醒 + 月历 + 清除
                 ├── search/FastFind.kt (223)                   快找浮层（↑↓/Enter/Esc）+ 搜索页
@@ -136,7 +116,10 @@ apps/android/
             ├── NlpParsingTest.kt (179) 契约 §5 逐条（今天/今晚/明天/大后天/N天后/N周后/N个月后/绝对日期/星期/周末/某天/时间/标签/综合）
             ├── QueryRulesTest.kt (223) 契约 §4 边界（收件箱/今天含逾期/今晚分区/14 天窗口与「更晚」/某天/日志簿/标签开关/进度/搜索/计数/演示数据规模）
             ├── RepeatEngineTest.kt (117) 契约 §6（fixed/afterCompletion/月末溢出/每年/新实例字段/清单重置/取消重复）
-            ├── SyncMergeTest.kt (140)   契约 §7.3（LWW/完成不回滚/标签并集/删除墓碑/发件箱 ack/快照替换）
+            ├── GestureRulesTest.kt 契约 §5.2/§5.4（长按 400ms、位移阈值、菜单与拖拽判定、FAB 几何）
+            ├── QuickAddMenuTest.kt 契约 §5.2 v1.3（菜单项顺序/图标形状/文案/排版硬指标）
+            ├── LocalAccountTest.kt 契约 §7.6.6（本机目录 id 生成与解析优先级）
+            ├── UserDataDirTest.kt 契约 §7.6.3（目录隔离、既有目录扫描）
             ├── ProjectCompletionTest.kt (215) 契约 §2.2 v1.1（拒绝原因与文案带 N/标题未归档也允许完成+自动归档/归档 Op 与完成 Op/已完成态/取消不阻塞/卡片主动作）
             └── ComposerStateTest.kt (74) 快加浮层（打开状态正确/已打开时再点加号不丢草稿且重新聚焦/空标题不产生待办/关闭再开是新的一轮）
 ```
@@ -151,17 +134,14 @@ apps/android/
 | 详情卡片 | `ui/detail/DetailCard.kt` | 标题/备注(Markdown 预览)/何时/截止/提醒/重复/移动/标签/清单，字段均为可点胶囊 |
 | 排期面板 | `ui/schedule/ScheduleSheet.kt` | 今天/今晚/明天/本周末/某天 + 提醒快捷 + 月历 + 自然语言输入 + 危险色清除 |
 | 快找 | `ui/search/FastFind.kt` | 顶部搜索按钮进入；↑↓/Enter/Esc；结果含待办/项目/区域/标签；标签直达 |
-| 快加号 | `ui/quickadd/QuickAdd.kt`、`vm/ComposerState.kt` | 单击新建（NLP 解析日期/时间/标签）、长按菜单（待办/项目/区域）；打开即聚焦+弹键盘，已打开时再点是"重新聚焦"而不是空操作，返回键/Esc 关闭且不产生空待办 |
+| 快加号 | `ui/quickadd/QuickAdd.kt`、`vm/ComposerState.kt`、`ui/theme/Tokens.kt` | 单击新建（NLP 解析日期/时间/标签）、长按菜单（待办/项目/区域）；打开即聚焦+弹键盘，已打开时再点是"重新聚焦"而不是空操作，返回键/Esc 关闭且不产生空待办。**UI §5.2 v1.5 视觉**：填充亮蓝 `#0A84FF`（`colors.fab`）+ 同色**径向渐变柔光** 24dp（`colors.fabGlow`，浅 35% / 深 45%），柔光 `requiredSize` 溢出边界不参与布局，FAB 底边距按 `statusBar + fabGlow` 推导 —— 按钮连同柔光整体浮在状态栏之上 |
 | 项目完成 | `ui/list/ListScreen.kt`、`vm/ProjectCompletion.kt` | 契约 §2.2 v1.1：唯一硬约束是"项目下没有未完成的待办"，标题未归档由引擎自动归档；拒绝文案带 N 且不提「标题」；已完成项目显示「已完成 + 重新打开」而不是「完成项目」 |
 | 路由 | `nav/Routes.kt`、`OrdoNavHost.kt` | inbox/today/upcoming/anytime/someday/logbook/project/{id}/area/{id}/tag/{name}/search |
-| 本地存储(SQLite) | `data/SqliteStorage.kt`、`data/LocalAccount.kt`、`data/UserDataDir.kt` | 实体按 **JSON 快照整行**存放(`entities(entity,id,payload,updated_at,deleted)`),与服务端 `entities` 表同构(架构 ADR-004);字段名与契约 §2 永远一致,无需映射代码,契约加字段也不用迁移;outbox 主键 `op_id` 天然幂等;kv 存 schemaVersion/serverSeq/令牌。**目录 id 是本机钉住的**（契约 §7.6.6），不是服务端 userId |
-| 静默匿名会话 | `auth/SilentSession.kt`、`di/ServiceLocator.kt`、`vm/OrdoViewModel.kt` | 启动读会话 → 有效直接用 / 过期先 refresh / 否则静默 `POST /v1/auth/guest`；网络不可达也进主界面（离线可用），后台 1s→2s→…→60s 退避重试；同步 401 → 先确认是否真的被否认，是则静默重建匿名会话（本地目录不变） |
-| Ktor 同步 + 401 重放 | `net/KtorSyncApi.kt`、`net/AuthApi.kt` | 3 个同步端点 + 认证端点 guest/refresh（v1.3 实际只用到这两个）+ 设备注册；DTO 直接复用 core 的 `@Serializable` 定义 |
-| WebSocket 实时通道 | `net/RealtimeClient.kt` | hello/ops/reminder/ping；上行 subscribe/ack/pong；退避 1s→2s→…→60s |
-| 同步调度 | `sync/SyncScheduler.kt` | 三个触发源；动作委托 `SyncEngine(engine, api).syncOnce()`；错误码分流（SEQ_GAP→全量、AUTH→静默修复会话、RATE_LIMITED→退避） |
-| 提醒 | `notify/Notifier.kt`、`ReminderWorker.kt` | `ordo_reminders` 渠道；准点一次性任务 + 15 分钟周期兜底；点击深链打开待办 |
+| 本地存储(SQLite) | `data/SqliteStorage.kt`、`data/LocalAccount.kt`、`data/UserDataDir.kt` | 实体按 **JSON 快照整行**存放(`entities(entity,id,payload,updated_at,deleted)`)，字段名与契约 §2 永远一致；outbox 主键 `op_id` 天然幂等；kv 存 schemaVersion / serverSeq / deviceId / 目录 id / 外观。**目录 id 是本机钉住的**（契约 §7.6.6） |
+| **纯本地（不联网）** | 全模块 | v1.4：云同步 / 登录 / 会话 / 令牌 / Ktor / WebSocket / 同步 UI 全部删除；**清单里没有 INTERNET 权限**；启动直接读本地 SQLite 渲染（§1.5 有四条可复现的证明命令） |
+| 提醒 | `notify/Notifier.kt`、`ReminderWorker.kt` | `ordo_reminders` 渠道；准点一次性任务 + 15 分钟周期兜底；点击深链打开待办（纯本地，无网络约束） |
 | 深链 | `AndroidManifest.xml`、`MainActivity.kt` | `ordo://` scheme，`Routes.fromDeepLink` 解析 |
-| 单元测试 | `src/test/**` | 12 个测试类 / 129 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
+| 单元测试 | `src/test/**` | 9 个测试类 / 104 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
 
 ## 4. 设计令牌落地（04 文档 §2）
 
@@ -332,6 +312,83 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 | 写入范围 | ✅ 只改 `apps/android/**`（`git status` 里其它端的改动属于并行任务） |
 
 **本轮未覆盖（风险）**：真机上的"首启离线 → 联网建号"与"服务端 401 → 重建会话"两条路径只能靠纯逻辑单测 + 编译保证；建议真机回归一次（飞行模式首启写几条待办 → 联网 → 确认待办还在且开始同步）。
+
+### 7.6 本轮：彻底删除云同步 → 纯本地应用（2026-10-13）
+
+**产品决策**：不再需要云同步。Android 端从此是纯本地应用：**不联网、无账号、无会话、无同步 UI**。
+
+**删除清单（全部在 `apps/android/**`）**
+
+| 类别 | 内容 |
+|---|---|
+| 网络包 | `net/` 整包：`HttpClientFactory`、`Dto`（请求头/错误模型/WS 帧）、`AuthApi`、`AuthErrors`、`KtorSyncApi`、`RealtimeClient`、`OrdoErrors`、`TokenStore` |
+| 同步包 | `sync/` 整包：`SyncScheduler`（含网络恢复回调、WorkManager 同步触发）、`RefreshController`（刷新控件状态机） |
+| 会话 | `auth/SilentSession.kt`；`ServiceLocator` 里的 `sessions`/`tokens`/`authApi`/`syncApi`/`realtime`/`scheduler`/`ensureAnonymousSession`/`session` 流/`startRealtime` |
+| 同步 UI | 状态栏刷新控件与同步文字（`OrdoShell.RefreshControl`）、列表下拉刷新（`PullToRefreshBox`）、设置页「立即同步」、`UiState.syncState`/`UiState.refresh`、`OrdoViewModel.refresh/syncNow/applySyncState/onAppForeground/onAppBackground`、`MainActivity` 的前后台同步钩子 |
+| 依赖 | `ktor-client-okhttp` / `ktor-client-content-negotiation` / `ktor-client-websockets` / `ktor-serialization-kotlinx-json`；**DataStore 也删除**（它经 okio 带进套接字相关传递依赖，外观设置改存引导库 kv） |
+| 权限 | `INTERNET`、`ACCESS_NETWORK_STATE`（后者由 WorkManager 另行注入，见 §1.5） |
+| 资源 | `sync_*`(5+5 条)、`refresh_desc`、`settings_sync_now`、`toast_sync_*`、`toast_local_dir_failed` |
+| 用例 | `RefreshStateTest`(9)、`SyncMergeTest`(7)、`SilentSessionTest`(8) 删除；`LocalAccountTest` 收敛为纯本机语义（7→6） |
+| 其它 | `SqliteStorage` 的 `KEY_ACCESS_TOKEN/KEY_REFRESH_TOKEN/KEY_USER_EMAIL/KEY_SERVER_URL/DEFAULT_SERVER_URL`；`SettingsStore.lastSyncAt`；`UserDataDir` 不再引用共享的 sync 包（目录名清洗规则逐字内联，保证老目录仍可解析） |
+
+**保留**：本地 SQLite 存储与 `OrdoEngine` 全部本地能力、三栏界面、快加号、排期、快找、提醒（WorkManager 仅用于本地提醒）、深链、契约 §7.6.6 的"本机钉住目录 id"。
+
+真实构建/测试证据（JDK 21 + Android SDK 36 + Gradle 8.14）：
+
+| 验证项 | 结果 |
+|---|---|
+| `assembleDebug` + `testDebugUnitTest` | ✅ `BUILD SUCCESSFUL`；**9 个测试类 / 104 个用例全绿**，0 failures / 0 errors |
+| 用例数变化 | 129 → 104（**如实下降**：删 24 条同步/会话用例、`LocalAccountTest` 收敛 -1） |
+| APK | ✅ `app-debug.apk` **15,758,950 字节（15.03 MB）**（v1.3 为 15.9 MB） |
+| 无网络证明 | ✅ §1.5 四条：代码 0 处网络调用 / APK 权限无 INTERNET（`aapt2 dump permissions`）/ 依赖无 ktor·okhttp·datastore / dex 无 okhttp·ktor·okio·URLConnection·WebSocket 类名 |
+| `python tools/check-encoding.py` | ✅ `OK: no encoding problems found` |
+| 写入范围 | ✅ 只改 `apps/android/**` |
+
+**本轮未覆盖（风险）**：真机/模拟器运行（本机没有设备）——"不联网"是从权限与产物层面证明的，未做抓包实测；
+另外 `ACCESS_NETWORK_STATE`/`WAKE_LOCK`/`FOREGROUND_SERVICE` 由 `androidx.work` 注入（本地提醒用），
+它们不授予任何联网能力，故保留。
+
+### 7.7 本轮：快加号对齐 §5.2 v1.5（亮蓝 + 柔光 + 浮在状态栏之上，2026-10-13）
+
+**改了什么**
+
+| 项 | 之前 | 现在 |
+|---|---|---|
+| 填充色 | `colors.accent`（靛紫 #5B5BD6） | `colors.fab` = **#0A84FF**（浅/深色同一色值） |
+| 柔光 | 无（只有灰阶 elevation 阴影） | **径向渐变**柔光 24dp，`colors.fabGlow`（同色，浅 35% / 深 45%） |
+| 柔光实现 | — | `Brush.radialGradient` + `Modifier.background(brush)`；**不用** `shadow(ambientColor/spotColor)`（Windows/Skia 实测彩色阴影不渲染，两端统一用渐变） |
+| 布局 | 柔光若用普通尺寸会把按钮往里推 | 柔光用 `requiredSize` **溢出按钮边界、不参与布局** |
+| 位置 | `align(BottomEnd).padding(OrdoSpace.xl)`（整圈 24dp） | `padding(end = OrdoSpace.xl, bottom = OrdoLayout.fabContentInset)`；窗口坐标下的规则是 `statusBar(44) + fabGlow(24) = 68dp`，因此按钮连同柔光整体浮在状态栏之上（柔光下缘正好落在状态栏顶边） |
+| 交互 | 单击 = 新建待办、长按 = 菜单 | **不变**（图 2 的 Ctrl+N 是桌面端交互，移动端保留"点 = 新建"） |
+
+**令牌（`ui/theme/Tokens.kt`）**
+
+- `OrdoFabTokens.fill = #0A84FF`；`GLOW_ALPHA_LIGHT = 0.35`；`GLOW_ALPHA_DARK = 0.45`；`GLOW_THICKNESS_DP = 24`；`STATUS_BAR_DP = 44`；`BOTTOM_INSET_DP = 68`
+- `OrdoColors.fab` / `OrdoColors.fabGlow`（浅/深各一份）
+- `OrdoLayout.fabGlow = 24.dp`、`OrdoLayout.statusBar = 44.dp`（= `touchTarget`，StatusBar composable 的实测高度）、
+  `OrdoLayout.fabBottomInset = 68.dp`、`OrdoLayout.fabContentInset = 24.dp`
+
+> **为什么外壳用的是 `fabContentInset` 而不是 `fabBottomInset`**：Android 的 FAB 挂在内容区（`Column` 里的 `Box(weight=1f)`）内，
+> 而 App 状态栏是它的**下一个**兄弟节点 —— 内容区底边本身就是状态栏顶边，所以窗口规则 `statusBar + fabGlow`
+> 落到内容区只剩 `fabGlow`；两者相加仍等于 68dp（顺序上也与宽屏三栏一致，不会压到详情列）。
+
+**用例（新增 `QuickAddFabStyleTest`，10 条）**：颜色/柔光令牌（#0A84FF、35%/45%、同色通道）、柔光厚度与状态栏高度、
+`fabBottomInset == statusBar + fabGlow` 且 `≥` 两者之和、`fabContentInset + statusBar == fabBottomInset`、
+以及源码级断言（必须 `Brush.radialGradient` / `requiredSize` / `background(colors.fab)`，
+**禁止** `ambientColor` / `spotColor` / 带色 shadow；OrdoShell 必须用 `fabContentInset`）。
+
+真实构建/测试证据：
+
+| 验证项 | 结果 |
+|---|---|
+| `assembleDebug` + `assembleRelease` + `testDebugUnitTest` | ✅ `BUILD SUCCESSFUL`；**10 个测试类 / 114 个用例全绿**（104 → 114，新增 10），0 failures / 0 errors |
+| APK | ✅ debug `app-debug.apk` 15,758,950 B（14:59:20）· release `app-release.apk` 1,751,779 B（15:01:12） |
+| 产物抽验 | ✅ dex 里含 `OrdoFabTokens`（新令牌类）与 `radialGradient` 引用 —— 证明包确实来自本轮源码 |
+| `python tools/check-encoding.py` | ✅ `OK: no encoding problems found` |
+
+**无法验证的部分（诚实标注）**：本机**没有 Android 设备/模拟器**，无法目视核对真实渲染 ——
+柔光的实际观感（渐变范围、透明度在浅/深色下的强度）、FAB 与状态栏「本地」文字的最终间距、
+以及长按/单击手感都只做了令牌与源码级保证，需在真机上回归一次。
 
 ## 8. 后续 TODO
 

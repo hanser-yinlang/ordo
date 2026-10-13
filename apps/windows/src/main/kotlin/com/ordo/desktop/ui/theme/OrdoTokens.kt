@@ -31,6 +31,10 @@ data class OrdoPalette(
     val textTertiary: Color,
     val accent: Color,
     val accentSoft: Color,
+    /** 快加号悬浮按钮的填充色(用户指定对齐参照原型:亮蓝 #0A84FF;改回品牌靛紫只需改这一处) */
+    val fab: Color,
+    /** 悬浮按钮的光晕(参照原型那颗按钮四周的柔光) */
+    val fabGlow: Color,
     val tonight: Color,
     val danger: Color,
     val success: Color,
@@ -52,6 +56,8 @@ val OrdoLightPalette = OrdoPalette(
     textTertiary = Color(0xFFA8A49B),
     accent = Color(0xFF5B5BD6),
     accentSoft = Color(0x1F5B5BD6),
+    fab = Color(0xFF0A84FF),
+    fabGlow = Color(0x590A84FF),
     tonight = Color(0xFFD98324),
     danger = Color(0xFFE5533D),
     success = Color(0xFF2FA36B),
@@ -73,6 +79,8 @@ val OrdoDarkPalette = OrdoPalette(
     textTertiary = Color(0xFF6E6B65),
     accent = Color(0xFF7C7CF0),
     accentSoft = Color(0x3D7C7CF0),
+    fab = Color(0xFF0A84FF),
+    fabGlow = Color(0x730A84FF),
     tonight = Color(0xFFE8A13F),
     danger = Color(0xFFF2705C),
     success = Color(0xFF3FBF83),
@@ -137,6 +145,9 @@ object OrdoSize {
 
     /** 快加号直径(04-UI规范 §5.2:只保留一个 56dp 的蓝色「+」) */
     val fab: Dp = 56.dp
+
+    /** 快加号四周的光晕高度(参照原型那颗按钮的柔光) */
+    val fabGlow: Dp = 14.dp
     val iconSm: Dp = 14.dp
     val icon: Dp = 18.dp
     val touchTarget: Dp = 32.dp

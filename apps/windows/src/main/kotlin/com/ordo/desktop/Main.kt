@@ -282,7 +282,7 @@ private fun ApplicationScope.LocalApp(
     val reminderJob = remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(Unit) {
-        // 首次启动:注册 ordo:// 协议(失败不影响启动,设置页可手动重试)
+        // 首次启动:静默注册 ordo:// 协议(失败不影响启动,也没有界面入口)
         runCatching {
             val registrar = WindowsProtocolRegistrar()
             if (!registrar.isRegistered()) registrar.register()
@@ -439,7 +439,6 @@ private fun ApplicationScope.DesktopWindow(
     LaunchedEffect(Unit) {
         // 纯本地:没有会话 / 令牌 / 同步可挂,只做系统集成与路由
         vm.autoStart = WindowsAutoStart()
-        vm.protocol = WindowsProtocolRegistrar()
         vm.onNewWindow = onRequestNewWindow
         vm.attachSelectionBus(selectionBus)
         if (initialRoute != OrdoRoute.Today) vm.navigate(initialRoute)

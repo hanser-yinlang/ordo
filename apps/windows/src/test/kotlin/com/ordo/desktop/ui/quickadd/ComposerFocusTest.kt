@@ -211,6 +211,21 @@ class ComposerFocusTest {
         scene.render()
     }
 
+    /**
+     * 打开输入行的**真实路径**(2026-10-13 起):点右下角加号 → 展开菜单 → 选第一项「新建待办」。
+     *
+     * 点加号那一步仍然发真实指针事件;菜单项的选择等价于 `vm.openComposer()`
+     * (QuickAddMenu 的 TODO 分支就是它),这里直接调用,避免依赖菜单条目的像素坐标。
+     */
+    private fun openComposerThroughFab(scene: ImageComposeScene, vm: OrdoViewModel, center: Offset) {
+        clickFab(scene, center)
+        settleAnimation(scene)
+        assertTrue("点加号应先展开菜单(不再直接开输入行)", vm.state.value.quickAddMenuOpen)
+        vm.setQuickAddMenu(false)
+        vm.openComposer()
+        settleAnimation(scene)
+    }
+
     /** 把列表滚到指定位置(用户"已经滚到底部"的现场);用真实的挂起 API,不用反射改内部字段 */
     private fun scrollTo(scroll: ScrollState, target: Int) = runBlocking { scroll.scrollTo(target) }
 
@@ -240,10 +255,9 @@ class ComposerFocusTest {
             assertFalse("初始不应有输入框", vm.state.value.composerOpen)
             assertFalse("初始没有输入框时焦点实况必须是假", vm.state.value.composerFocused)
 
-            clickFab(scene, fabCenter(1280, 800))
-            scene.render()
+            openComposerThroughFab(scene, vm, fabCenter(1280, 800))
 
-            assertTrue("点加号必须打开输入框", vm.state.value.composerOpen)
+            assertTrue("走完菜单后必须打开输入框", vm.state.value.composerOpen)
             assertEquals("应恰好请求一次聚焦", 1, vm.state.value.composerFocusRequests)
             assertTrue("输入框必须真的拿到键盘焦点(onFocusChanged 回报)", vm.state.value.composerFocused)
             assertNotNull("语义树里应存在可编辑输入框节点", editableNode(scene))
@@ -269,7 +283,16 @@ class ComposerFocusTest {
             clickFab(scene, fabCenter(1280, 620))
             settleAnimation(scene)
 
-            assertTrue("点加号后列表必须离开底部", scroll.value < scroll.maxValue)
+            // 2026-10-13 起:点加号先展开菜单(与参照原型一致),不再直接开输入行
+            assertTrue("点加号应展开菜单", vm.state.value.quickAddMenuOpen)
+            assertFalse("此时还没有输入行", vm.state.value.composerOpen)
+
+            // 菜单第一项「新建待办」= vm.openComposer();输入行随即滚回可见处
+            vm.setQuickAddMenu(false)
+            vm.openComposer()
+            settleAnimation(scene)
+
+            assertTrue("打开输入行后列表必须离开底部", scroll.value < scroll.maxValue)
             assertEquals("输入行在内容顶端,所以终点就是 0", 0, scroll.value)
         } finally {
             scene.close()
@@ -283,21 +306,18 @@ class ComposerFocusTest {
         val scene = scene(vm, width = 1280, height = 620, scroll = scroll)
         try {
             scene.render()
-            val center = fabCenter(1280, 620)
-
-            clickFab(scene, center)
+            openComposerThroughFab(scene, vm, fabCenter(1280, 620))
             scene.render()
             val afterFirst = vm.state.value
             assertTrue(afterFirst.composerOpen)
             assertEquals(1, afterFirst.composerFocusRequests)
 
-            // 输入框一直开着:这正是用户当时的现场,再点一次过去是彻底的空操作
+            // 输入框一直开着:这正是用户当时的现场,再走一次菜单 → 新建待办过去是彻底的空操作
             scrollTo(scroll, scroll.maxValue)
             scene.render()
             assertEquals(scroll.maxValue, scroll.value)
 
-            clickFab(scene, center)
-            settleAnimation(scene)
+            openComposerThroughFab(scene, vm, fabCenter(1280, 620))
 
             assertTrue("输入框不该被关掉", vm.state.value.composerOpen)
             assertEquals("再点必须重新请求聚焦", 2, vm.state.value.composerFocusRequests)
@@ -316,7 +336,7 @@ class ComposerFocusTest {
         val scene = scene(vm, width = 1280, height = 800)
         try {
             scene.render()
-            clickFab(scene, fabCenter(1280, 800))
+            openComposerThroughFab(scene, vm, fabCenter(1280, 800))
             scene.render()
             assertTrue("输入框应已拿到焦点", vm.state.value.composerFocused)
 
@@ -340,10 +360,9 @@ class ComposerFocusTest {
         val scene = scene(vm, width = 1280, height = 800)
         try {
             scene.render()
-            clickFab(scene, fabCenter(1280, 800))
-            scene.render()
+            openComposerThroughFab(scene, vm, fabCenter(1280, 800))
 
-            assertTrue(vm.state.value.composerOpen)
+            assertTrue("项目清单里点加号也一样要先出菜单再开输入行", vm.state.value.composerOpen)
             assertTrue("项目清单里也必须真的拿到焦点", vm.state.value.composerFocused)
         } finally {
             scene.close()

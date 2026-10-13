@@ -60,9 +60,9 @@ class QuickAddRefactorTest {
         assertFalse("折叠箭头按钮必须删除(客户:不要有多余的东西)", text.contains("OrdoQuickAddCaret"))
         assertFalse("折叠箭头图标不该再被引用", text.contains("ExpandMore"))
         assertEquals(
-            "有且只有一个圆形按钮使用 fab 尺寸",
+            "有且只有一个圆形按钮用 fab 直径(只数 size(OrdoSize.fab),不误伤 fabGlow 这类令牌)",
             1,
-            Regex("OrdoSize\\.fab").findAll(text).count()
+            Regex("""size\(OrdoSize\.fab\)""").findAll(text).count()
         )
         assertTrue("按钮直径 56", text.contains("val fab: Dp = 56.dp") || OrdoSize.fab.value == 56f)
     }
@@ -83,8 +83,9 @@ class QuickAddRefactorTest {
     // ------------------------------------------------------------ 分支判定
 
     @Test
-    fun `单击开输入行,菜单展开时单击收起菜单`() {
-        assertEquals(QuickAddAction.OPEN_COMPOSER, QuickAddGesture.clickAction(menuOpen = false))
+    fun `单击展开菜单,菜单展开时单击收起菜单`() {
+        // 2026-10-13 按用户指定的参照原型调整:点按钮先出菜单(新建待办走菜单第一项 / Ctrl+N)
+        assertEquals(QuickAddAction.EXPAND_MENU, QuickAddGesture.clickAction(menuOpen = false))
         assertEquals(QuickAddAction.CLOSE_MENU, QuickAddGesture.clickAction(menuOpen = true))
     }
 
@@ -132,7 +133,7 @@ class QuickAddRefactorTest {
     }
 
     @Test
-    fun `离屏单击加号打开输入行,不展开菜单`() {
+    fun `离屏单击加号展开菜单,不再直接开输入行`() {
         val vm = vm()
         val scene = scene(vm, width = 1280, height = 800)
         try {
@@ -146,8 +147,17 @@ class QuickAddRefactorTest {
             scene.sendPointerEvent(PointerEventType.Release, center)
             scene.render()
 
-            assertTrue("单击应打开输入行", vm.state.value.composerOpen)
-            assertFalse("单击不该展开菜单", vm.state.value.quickAddMenuOpen)
+            // 2026-10-13 按用户指定的参照原型:点按钮先出菜单(新建待办走菜单第一项 / Ctrl+N)
+            assertTrue("单击应展开菜单", vm.state.value.quickAddMenuOpen)
+            assertFalse("单击不再直接打开输入行", vm.state.value.composerOpen)
+
+            // 菜单展开时再单击一次 → 收起(与真人的按下-抬起节奏一致)
+            scene.sendPointerEvent(PointerEventType.Press, center)
+            scene.render()
+            Thread.sleep(30L)
+            scene.sendPointerEvent(PointerEventType.Release, center)
+            scene.render()
+            assertFalse("菜单展开中单击应收起", vm.state.value.quickAddMenuOpen)
         } finally {
             scene.close()
         }
@@ -177,14 +187,7 @@ class QuickAddRefactorTest {
             scene.sendPointerEvent(PointerEventType.Release, center)
             scene.render()
             assertTrue("松手后菜单仍然开着", vm.state.value.quickAddMenuOpen)
-
-            // 菜单打开时单击 → 收起
-            scene.sendPointerEvent(PointerEventType.Press, center)
-            scene.render()
-            scene.sendPointerEvent(PointerEventType.Release, center)
-            scene.render()
-            assertFalse("菜单展开中单击应收起", vm.state.value.quickAddMenuOpen)
-            assertEquals(0f, QuickAddVisual.rotation(vm.state.value.quickAddMenuOpen), 0.001f)
+            assertFalse("长按松手不等于单击:不该顺手开输入行", vm.state.value.composerOpen)
         } finally {
             scene.close()
         }

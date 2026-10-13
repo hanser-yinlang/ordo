@@ -477,26 +477,8 @@ class OrdoViewModel(
     }
 
     /**
-     * `ordo://` 协议注册(04-UI规范 §7:Windows 端协议注册)。
-     * 同样由入口注入真实实现,未注入时是内存实现;所有注册表调用都在实现里 runCatching。
+     * 关闭窗口时最小化到托盘(而不是退出);入口据此决定 onCloseRequest 行为
      */
-    var protocol: com.ordo.desktop.system.ProtocolRegistrar = com.ordo.desktop.system.InMemoryProtocolRegistrar()
-
-    fun isProtocolRegistered(): Boolean = runCatching { protocol.isRegistered() }.getOrDefault(false)
-
-    fun registerProtocol(): Boolean {
-        val ok = runCatching { protocol.register() }.getOrDefault(false)
-        if (ok) storage.kvSet(KEY_PROTOCOL_REGISTERED, "1")
-        return ok
-    }
-
-    fun protocolHint(): String = when {
-        isProtocolRegistered() -> "已在注册表登记 HKCU\\Software\\Classes\\ordo,浏览器/其它应用可直接打开 ordo:// 链接"
-        protocol is com.ordo.desktop.system.InMemoryProtocolRegistrar -> "便携模式:不会写注册表"
-        else -> "未注册:命令行深链(Ordo.exe ordo://today)仍可用,点击链接打开需要先注册"
-    }
-
-    /** 关闭窗口时最小化到托盘(而不是退出);入口据此决定 onCloseRequest 行为 */
     fun closeToTray(): Boolean = storage.kvGet(KEY_CLOSE_TO_TRAY)?.toBooleanStrictOrNull() ?: true
 
     fun setCloseToTray(enabled: Boolean) {
@@ -544,7 +526,6 @@ class OrdoViewModel(
         const val KEY_WINDOW_X = "ordo.window.x"
         const val KEY_WINDOW_Y = "ordo.window.y"
         const val KEY_CLOSE_TO_TRAY = "ordo.closeToTray"
-        const val KEY_PROTOCOL_REGISTERED = "ordo.protocol.registered"
         const val KEY_FOLLOW_SELECTION = "ordo.followSelection"
     }
 }

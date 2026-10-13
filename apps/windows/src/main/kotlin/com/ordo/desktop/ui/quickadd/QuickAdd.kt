@@ -1,12 +1,15 @@
 package com.ordo.desktop.ui.quickadd
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,8 +51,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
@@ -80,6 +86,9 @@ object QuickAddVisual {
     /** 菜单展开时的旋转角(「+」变「×」) */
     const val OPEN_ROTATION = 45f
 
+    /** 按钮里那枚白色「+」的尺寸(参照原型按钮内图标的观感比例) */
+    val ICON_SIZE = 22.dp
+
     fun rotation(menuOpen: Boolean): Float = if (menuOpen) OPEN_ROTATION else 0f
 
     fun scale(pressed: Boolean, armed: Boolean): Float = when {
@@ -109,6 +118,8 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
     var prompt by remember { mutableStateOf<NamePrompt?>(null) }
     var pressed by remember { mutableStateOf(false) }
     var armed by remember { mutableStateOf(false) }
+    // 上滑幅度换算成像素(必须小于面板与按钮的间距,见下方注释)
+    val slidePx = with(LocalDensity.current) { QuickAddMenuSpec.SLIDE.roundToPx() }
 
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.BottomEnd) {
         Column(
@@ -117,16 +128,21 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(OrdoSpace.s)
         ) {
             // 菜单从按钮左上方弹出(面板结束边与按钮右缘对齐,向上生长)
+            // 动效:淡入 + 从 0.92 缩放(锚点在右下角,像从按钮"长出来")+ 自下方上滑 8dp
             AnimatedVisibility(
                 visible = state.quickAddMenuOpen,
                 enter = fadeIn(tween(motionMillis(180))) + scaleIn(
-                    initialScale = 0.9f,
+                    initialScale = 0.92f,
+                    transformOrigin = TransformOrigin(1f, 1f),
                     animationSpec = tween(motionMillis(180))
-                ),
+                // 上滑幅度**必须小于面板与按钮之间的间距**(OrdoSpace.s = 8dp),否则动画起始帧里
+                // 面板会压住按钮:真实点击会被面板吃掉(离屏用例同样会卡在"点按钮没反应")
+                ) + slideInVertically(tween(motionMillis(180))) { slidePx },
                 exit = fadeOut(tween(motionMillis(140))) + scaleOut(
-                    targetScale = 0.9f,
+                    targetScale = 0.92f,
+                    transformOrigin = TransformOrigin(1f, 1f),
                     animationSpec = tween(motionMillis(140))
-                )
+                ) + slideOutVertically(tween(motionMillis(140))) { slidePx }
             ) {
                 QuickAddMenu(state = state) { action ->
                     vm.setQuickAddMenu(false)
@@ -146,10 +162,10 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
                 onArmedChange = { armed = it },
                 onClick = {
                     when (QuickAddGesture.clickAction(state.quickAddMenuOpen)) {
-                        // 菜单展开中单击 → 收起(按钮转回 0°)
+                        // 菜单展开中单击 → 收起(按钮弹性转回 0°)
                         QuickAddAction.CLOSE_MENU -> vm.setQuickAddMenu(false)
-                        // 常态单击 → 打开行内输入行
-                        else -> vm.openComposer()
+                        // 常态单击 → 展开菜单(与参照原型一致;新建待办走菜单第一项或 Ctrl+N)
+                        else -> vm.setQuickAddMenu(true)
                     }
                 },
                 onLongPress = {
@@ -185,16 +201,19 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
 private enum class MenuAction { TODO, PROJECT, AREA, HEADING }
 
 /**
- * 快加号"单击 / 长按"的分支判定(§5.2 交互分工)。
+ * 快加号"单击 / 长按"的分支判定(§5.2 交互分工,**2026-10-13 按用户指定的参照原型调整**)。
  *
- * 单独抽成纯函数,是为了让"单击开输入行、长按开菜单、菜单展开中单击收起"这三条
+ * 单独抽成纯函数,是为了让"单击展开菜单、菜单展开中单击收起、长按也展开菜单"这三条
  * 能被直接断言,而不是只能靠人手点。
+ *
+ * > 变更点:单击**不再直接打开新建待办输入行**,而是先弹出菜单(与参照原型一致);
+ * > 新建待办改由菜单第一项「新建待办」或快捷键 `Ctrl+N` 触发。
  */
 object QuickAddGesture {
 
-    /** 单击的落点 */
+    /** 单击的落点:菜单开着就收起,否则展开菜单 */
     fun clickAction(menuOpen: Boolean): QuickAddAction =
-        if (menuOpen) QuickAddAction.CLOSE_MENU else QuickAddAction.OPEN_COMPOSER
+        if (menuOpen) QuickAddAction.CLOSE_MENU else QuickAddAction.EXPAND_MENU
 
     /** 长按(400ms)的落点:展开菜单;已经展开时保持展开,不来回切换 */
     fun longPressAction(menuOpen: Boolean): QuickAddAction =
@@ -202,7 +221,7 @@ object QuickAddGesture {
 }
 
 /** 一次快加号手势对应的界面动作 */
-enum class QuickAddAction { OPEN_COMPOSER, CLOSE_MENU, EXPAND_MENU, KEEP_MENU }
+enum class QuickAddAction { CLOSE_MENU, EXPAND_MENU, KEEP_MENU }
 
 /**
  * 快捷菜单的视觉规格(04-UI规范 §5.2「菜单项图标」),数值逐条对齐参照原型 `things-clone`
@@ -218,6 +237,9 @@ object QuickAddMenuSpec {
 
     /** 面板圆角(原型 `border-radius: 12px`) */
     val PANEL_RADIUS = 12.dp
+
+    /** 面板弹出的上滑幅度(必须 < 面板与按钮间距 OrdoSpace.s = 8dp,否则起始帧会盖住按钮) */
+    val SLIDE = 6.dp
 
     /** 面板内边距(原型 `padding: 5px`) */
     val PANEL_PADDING = 5.dp
@@ -377,9 +399,21 @@ private fun OrdoFab(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
 
+    // ⚠ `pointerInput(Unit)` 的块只在首次组合时创建:如果直接捕获 onClick/onLongPress,
+    // 里面读到的 `state.quickAddMenuOpen` 会永远停在**首次组合的那一份**(false),
+    // 于是"菜单展开后再点按钮收起"永远不生效(真实点击与离屏用例都会卡住)。
+    // 用 rememberUpdatedState 让手势节点保持稳定、同时每次调用都拿到最新的回调。
+    val currentClick by rememberUpdatedState(onClick)
+    val currentLongPress by rememberUpdatedState(onLongPress)
+
     val rotation by animateFloatAsState(
         targetValue = QuickAddVisual.rotation(menuOpen),
-        animationSpec = tween(motionMillis(OrdoMotion.BASE)),
+        // 弹性手感但**有界**(tween + FastOutSlowIn):spring 在离屏场景里会一直不收敛,
+        // 导致测试里后续的输入事件得不到处理;这里的缓动已经是"收放有回弹感"的效果。
+        animationSpec = tween(
+            durationMillis = motionMillis(OrdoMotion.BASE),
+            easing = FastOutSlowInEasing
+        ),
         label = "quickAddRotation"
     )
     val scale by animateFloatAsState(
@@ -393,26 +427,34 @@ private fun OrdoFab(
             .size(OrdoSize.fab)
             .scale(scale)
             // 8dp 投影(§5.2)
-            .shadow(8.dp, CircleShape)
+            // 光晕:参照原型那颗按钮四周的柔光(用主题里的 fabGlow,颜色与填充同源)
+            .shadow(
+                elevation = OrdoSize.fabGlow,
+                shape = CircleShape,
+                ambientColor = colors.fabGlow,
+                spotColor = colors.fabGlow
+            )
             .clip(CircleShape)
-            .background(if (hovered) colors.accent.copy(alpha = 0.92f) else colors.accent, CircleShape)
+            // 填充:用户指定对齐参照原型的亮蓝(fab 令牌;悬停略降透明度)
+            .background(if (hovered) colors.fab.copy(alpha = 0.92f) else colors.fab, CircleShape)
             .pointerInput(Unit) {
                 detectPressGesture(
                     onPressedChange = onPressedChange,
                     onArmedChange = onArmedChange,
                     // 位置参数用不上:按钮只有一个圆形热点,长按落点即按钮内部
-                    onLongPress = { onLongPress() },
-                    onClick = onClick
+                    onLongPress = { currentLongPress() },
+                    onClick = { currentClick() }
                 )
             },
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = OrdoIcons.Add,
-            contentDescription = if (menuOpen) "收起新建菜单" else "新建待办",
+            // 与菜单第一项同一枚圆头「+」(20×20 viewBox,stroke 2.1)—— 展开时旋转 45° 变「×」
+            imageVector = OrdoMenuIcons.Todo,
+            contentDescription = if (menuOpen) "收起新建菜单" else "打开新建菜单",
             tint = Color.White,
             modifier = Modifier
-                .size(24.dp)
+                .size(QuickAddVisual.ICON_SIZE)
                 .rotate(rotation)
         )
     }

@@ -55,8 +55,6 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
     var autoStartMessage by remember { mutableStateOf<String?>(null) }
     var closeToTray by remember { mutableStateOf(vm.closeToTray()) }
     var followSelection by remember { mutableStateOf(vm.followSelection()) }
-    var protocolRegistered by remember { mutableStateOf(vm.isProtocolRegistered()) }
-    var protocolMessage by remember { mutableStateOf<String?>(null) }
 
     Box(
         Modifier
@@ -158,31 +156,6 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
                 style = OrdoType.micro,
                 color = colors.textTertiary
             )
-
-            SectionDivider()
-
-            /* ---------------- 深链协议 ---------------- */
-            SectionTitle("ordo:// 深链")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OrdoTextButton(
-                    text = if (protocolRegistered) "已注册(点击重新注册)" else "注册协议",
-                    onClick = {
-                        val ok = vm.registerProtocol()
-                        protocolRegistered = vm.isProtocolRegistered()
-                        protocolMessage = if (ok) "已写入 HKCU\\Software\\Classes\\ordo" else "注册失败(权限或策略限制)"
-                    }
-                )
-                Spacer(Modifier.width(OrdoSpace.s))
-                Text(
-                    text = if (protocolRegistered) "浏览器点击 ordo://today 可直接打开" else "命令行深链仍可用",
-                    style = OrdoType.micro,
-                    color = colors.textTertiary
-                )
-            }
-            (protocolMessage ?: vm.protocolHint()).let {
-                Spacer(Modifier.height(OrdoSpace.xs))
-                Text(text = it, style = OrdoType.micro, color = colors.textTertiary)
-            }
 
             SectionDivider()
 

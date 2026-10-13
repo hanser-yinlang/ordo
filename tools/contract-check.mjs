@@ -53,12 +53,13 @@ const ONLY = {
   'sec:deeplink': ['android', 'ios', 'harmony', 'windows'],
   // §7.6:会话键名是客户端概念(服务端不存它);guest/upgrade 的 URL 路径在客户端,核心只有接口名
   'session:key': ['core', 'android', 'ios', 'harmony', 'windows'],
-  // §7.6.5 邮箱验证码:URL 路径在服务端与各端 HTTP 客户端(核心只定义接口名)
-  'session:emailcode': ['server', 'android', 'ios', 'harmony', 'windows'],
-  'session:emaillogin': ['server', 'android', 'ios', 'harmony', 'windows'],
+  // §7.6.5 邮箱验证码:契约 v1.4(§7.6.6)已把登录从客户端移除,接口只在**服务端**保留,
+  // 因此这几项只对服务端适用;客户端只保留 guest/refresh(见 session:guest / sec:tokens)。
+  'session:emailcode': ['server'],
+  'session:emaillogin': ['server'],
   // 只有服务端持有验证码表与 HMAC 逻辑(§7.6.5 安全条款)
   'session:codehash': ['server'],
-  'session:retryafter': ['core', 'server', 'android', 'ios', 'harmony', 'windows']
+  'session:retryafter': ['server']
 };
 
 const SKIP_DIRS = new Set(['node_modules', 'build', '.gradle', '.git', 'dist', 'oh_modules', 'Pods', '.idea', 'schemas']);
@@ -112,7 +113,9 @@ const CHECKS = [
   { id: 'nlp:time', desc: '时间解析(点/半/时段)', needles: ['半', '下午', '晚上'] },
   { id: 'nlp:tag', desc: '#标签解析', needles: ['tags'] },
 
-  { id: 'api:endpoints', desc: 'HTTP 端点', needles: ['/v1/sync/push', '/v1/sync/pull', '/v1/sync/snapshot', '/v1/auth/login'] },
+  // v1.4(§7.6.6):客户端不再实现 register/login/email-code,只用 guest + refresh ——
+  // 故这里改用 /v1/auth/guest 作为"每端都要有的鉴权端点";login/refresh 由服务端单独覆盖。
+  { id: 'api:endpoints', desc: 'HTTP 端点', needles: ['/v1/sync/push', '/v1/sync/pull', '/v1/sync/snapshot', '/v1/auth/guest'] },
   { id: 'api:ws', desc: 'WebSocket 实时通道', needles: ['/v1/ws'] },
   { id: 'api:errors', desc: '错误码', needles: ['VALIDATION_FAILED', 'AUTH_REQUIRED', 'AUTH_TOKEN_EXPIRED', 'RATE_LIMITED'] },
   { id: 'api:fastlane', desc: '快车道提醒推送', needles: ['reminder'] },

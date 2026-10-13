@@ -37,13 +37,10 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.ordo.core.platform.SystemOrdoClock
 import com.ordo.core.store.OrdoEngine
-import com.ordo.core.sync.OrdoSession
-import com.ordo.core.sync.OrdoSessionStore
-import com.ordo.desktop.app.GateStage
-import com.ordo.desktop.app.LoginController
 import com.ordo.desktop.app.OrdoRoute
 import com.ordo.desktop.app.OrdoViewModel
-import com.ordo.desktop.app.SessionGate
+import com.ordo.desktop.app.SilentSession
+import com.ordo.desktop.app.SilentSessionKeeper
 import com.ordo.desktop.app.SharedSelection
 import com.ordo.desktop.app.UiState
 import com.ordo.desktop.data.JsonFileStorage
@@ -62,12 +59,8 @@ import com.ordo.desktop.system.SingleInstanceLock
 import com.ordo.desktop.system.TrayNotifications
 import com.ordo.desktop.system.WindowsAutoStart
 import com.ordo.desktop.system.WindowsProtocolRegistrar
-import com.ordo.desktop.system.WindowsTheme
-import com.ordo.desktop.ui.auth.LoginView
 import com.ordo.desktop.ui.common.OrdoInputFocus
 import com.ordo.desktop.ui.shell.OrdoApp
-import com.ordo.desktop.ui.shell.OrdoGateHost
-import com.ordo.desktop.ui.theme.OrdoTheme
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -166,146 +159,66 @@ private fun selfTestReport(file: File?, line: String) {
 private fun ApplicationScope.desktopApp(args: Array<String>, baseDir: File, selfTest: File? = null) {
     val appScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
 
-    /* ---------------- 引导层:会话与服务器地址(与账号无关的目录,契约 §7.6) ---------------- */
-    // 会话必须能在"知道 userId 之前"读到,所以它住在基目录 %APPDATA%\Ordo 下,
-    // 而账号数据住在 %APPDATA%\Ordo\<userId>\ —— 两者绝不能混(契约 §7.6.3)。
+    /* ---------------- 引导层:会话与隐藏的服务器地址(与数据目录无关) ---------------- */
+    // 产品决策:不再需要登录 —— 启动即主界面,会话在后台静默拿(见 SilentSessionKeeper)。
+    // 会话仍旧住在基目录 %APPDATA%\Ordo 的 kv[ordo.session]:它属于"这台机器",不属于某份数据。
     selfTestReport(selfTest, "step=base-dir dir=${baseDir.absolutePath}")
     val bootstrap = remember { JsonFileStorage(baseDir) }
     val client = remember { OrdoHttp.create() }
     val tokens = remember { TokenStore(bootstrap) }
     val authApi = remember { KtorAuthApi(client, tokens) }
 
-    var decision by remember {
-        mutableStateOf(SessionGate.boot(tokens.currentSession(), System.currentTimeMillis()))
-    }
-    selfTestReport(selfTest, "step=gate stage=${decision.stage} user=${decision.session?.userId}")
-
-    val loginController = remember {
-        LoginController(
+    // 静默匿名会话:读会话 → 有效直接用;过期先 refresh;失败或没有 → 静默建匿名账号;
+    // 网络不可达**照常进主界面**(离线可用),后台按退避重试直到拿到会话。全程不弹任何界面。
+    val session = remember {
+        SilentSessionKeeper(
             api = authApi,
             tokens = tokens,
             scope = appScope,
-            onAuthenticated = { session -> decision = SessionGate.afterAuthenticated(session) }
+            onSession = { selfTestReport(selfTest, "step=session ready ${SilentSession.describe(it)}") }
         )
     }
-    // 会话过期提示(从"有会话"掉回登录页时才有);退出登录则把表单清干净
-    LaunchedEffect(decision.stage, decision.notice) {
-        if (decision.stage == GateStage.LOGIN) loginController.reset(decision.notice)
-    }
+    LaunchedEffect(Unit) { session.start() }
 
-    // 启动静默 refresh(契约 §7.6.4):成功 → 留在主界面(令牌更新);失败且已过期 → 登录页,目录保留
-    LaunchedEffect(decision.stage, decision.needsRefresh, decision.session?.userId) {
-        val session = decision.session ?: return@LaunchedEffect
-        if (!decision.needsRefresh) return@LaunchedEffect
-        val refreshed = runCatching { authApi.refresh(session.refreshToken) }.getOrNull()
-        if (refreshed != null) tokens.save(refreshed)
-        val next = SessionGate.afterRefresh(
-            session = session,
-            ok = refreshed != null,
-            refreshed = refreshed?.let { OrdoSessionStore.from(it, System.currentTimeMillis()) },
-            nowMillis = System.currentTimeMillis()
+    // 数据目录 id:**本机稳定标识**(契约 §7.6.6),首次启动即钉进 kv,之后**永不变**:
+    // 老用户升级沿用原会话 userId 的目录(不改名、不迁移);v1.3 里退出过登录的机器沿用遗留目录;
+    // 全新离线首启则生成一个本地匿名 id —— 这样"会话还没到手"也能立刻读写,而且会话到手后目录不会改名。
+    val dataDirId = remember {
+        val id = UserDataDirs.resolveDataDirId(bootstrap, tokens.currentSession()?.userId, baseDir)
+        selfTestReport(
+            selfTest,
+            "step=data-dir id=$id session=${SilentSession.describe(tokens.currentSession())}"
         )
-        selfTestReport(selfTest, "step=silent-refresh ok=${refreshed != null} stage=${next.stage}")
-        if (next.stage == GateStage.LOGIN) decision = next
+        id
     }
 
-    OrdoGateHost(
-        decision = decision,
-        // 登录页必须住在真实窗口里:直接放在 application 作用域会因为缺少字体解析器而崩
-        login = { LoginWindow(controller = loginController, selfTest = selfTest) },
-        main = {
-            val account = decision.session
-            if (account != null) {
-                // 只有"有会话"时才会组合到这里:数据目录因此天然属于当前 userId
-                AppWindows(
-                    args = args,
-                    baseDir = baseDir,
-                    bootstrap = bootstrap,
-                    tokens = tokens,
-                    authApi = authApi,
-                    client = client,
-                    scope = appScope,
-                    account = account,
-                    selfTest = selfTest,
-                    onSignedOut = {
-                        // 退出登录:回到登录页(只清会话,该账号目录保留)
-                        decision = SessionGate.afterSignOut()
-                    }
-                )
-            }
-        }
+    selfTestReport(selfTest, "step=startup ui=main(no-login session=${if (session.hasSession) "cached" else "pending"})")
+
+    AppWindows(
+        args = args,
+        baseDir = baseDir,
+        bootstrap = bootstrap,
+        tokens = tokens,
+        session = session,
+        client = client,
+        scope = appScope,
+        dataDirId = dataDirId,
+        selfTest = selfTest
     )
 
     DisposableEffect(Unit) {
-        onDispose { runCatching { client.close() } }
+        onDispose {
+            runCatching { session.stop() }
+            runCatching { client.close() }
+        }
     }
 }
 
 /**
- * 登录窗口(契约 §7.6.4:无会话时唯一可见的界面)。
+ * 主界面:一个数据目录 = N 个窗口(产品决策:不再需要登录,启动即进这里)。
  *
- * 尺寸比主界面小一圈、居中、不可缩放;关掉它等于退出应用(此时还没有任何账号数据可保护)。
- * `--selftest` 下同样会写自检报告并自动退出,免得打包冒烟在没有会话的新目录上一直挂着。
- */
-@Composable
-private fun ApplicationScope.LoginWindow(controller: LoginController, selfTest: File?) {
-    val windowState = rememberWindowState(
-        size = DpSize(LOGIN_WINDOW_WIDTH.dp, LOGIN_WINDOW_HEIGHT.dp),
-        position = WindowPosition(Alignment.Center)
-    )
-    Window(
-        onCloseRequest = { exitApplication() },
-        state = windowState,
-        visible = true,
-        resizable = false,
-        title = "Ordo · 登录",
-        icon = windowIcon()
-    ) {
-        LaunchedEffect(Unit) {
-            runCatching { window.minimumSize = Dimension(LOGIN_WINDOW_MIN_WIDTH, LOGIN_WINDOW_MIN_HEIGHT) }
-        }
-        selfTestReport(selfTest, "step=login-window")
-        OrdoTheme(dark = WindowsTheme.isDark()) {
-            val loginState by controller.state.collectAsState()
-            LoginView(state = loginState, controller = controller)
-        }
-        if (selfTest != null) LoginSelfTestHook(window = window, file = selfTest)
-    }
-}
-
-/** 打包冒烟:登录窗口可见后写报告并退出(仅 `--selftest`) */
-@Composable
-private fun LoginSelfTestHook(window: ComposeWindow, file: File) {
-    LaunchedEffect(Unit) {
-        var shown = false
-        val start = System.currentTimeMillis()
-        while (!shown && System.currentTimeMillis() - start < SELFTEST_TIMEOUT_MILLIS) {
-            withFrameNanos { }
-            shown = runCatching { window.isShowing }.getOrDefault(false)
-        }
-        selfTestReport(
-            file,
-            "step=window showing=$shown waitedMs=${System.currentTimeMillis() - start} " +
-                "size=${window.width}x${window.height}"
-        )
-        selfTestReport(file, "step=gate=LOGIN(无会话:停在登录页,主界面与深链自检已跳过)")
-        kotlinx.coroutines.delay(SELFTEST_EXIT_DELAY_MILLIS)
-        selfTestReport(file, "step=done ok=$shown")
-        kotlin.system.exitProcess(0)
-    }
-}
-
-/** 登录窗口尺寸(独占一屏时也保持卡片居中、四周留白) */
-private const val LOGIN_WINDOW_WIDTH = 560
-private const val LOGIN_WINDOW_HEIGHT = 680
-private const val LOGIN_WINDOW_MIN_WIDTH = 460
-private const val LOGIN_WINDOW_MIN_HEIGHT = 560
-
-/**
- * 主界面:一个会话 = 一份数据目录 = N 个窗口。
- *
- * `key(account.userId)` 保证切换账号时整棵树(引擎 / 窗口 / 托盘 / 同步)按新账号重建,
- * 绝不会出现"两个账号共用同一份本地数据"(契约 §7.6.3 硬约束)。
+ * `key(dataDirId)` 保证数据目录切换时整棵树(引擎 / 窗口 / 托盘 / 同步)重建 ——
+ * 数据目录 id 是**钉住**的,所以后台重建匿名会话不会触发重建,用户无感。
  */
 @Composable
 private fun ApplicationScope.AppWindows(
@@ -313,25 +226,23 @@ private fun ApplicationScope.AppWindows(
     baseDir: File,
     bootstrap: JsonFileStorage,
     tokens: TokenStore,
-    authApi: KtorAuthApi,
+    session: SilentSessionKeeper,
     client: HttpClient,
     scope: CoroutineScope,
-    account: OrdoSession,
-    selfTest: File?,
-    onSignedOut: () -> Unit
+    dataDirId: String,
+    selfTest: File?
 ) {
-    key(account.userId) {
+    key(dataDirId) {
         AccountApp(
             args = args,
             baseDir = baseDir,
             bootstrap = bootstrap,
             tokens = tokens,
-            authApi = authApi,
+            session = session,
             client = client,
             scope = scope,
-            account = account,
-            selfTest = selfTest,
-            onSignedOut = onSignedOut
+            dataDirId = dataDirId,
+            selfTest = selfTest
         )
     }
 }
@@ -342,23 +253,21 @@ private fun ApplicationScope.AccountApp(
     baseDir: File,
     bootstrap: JsonFileStorage,
     tokens: TokenStore,
-    authApi: KtorAuthApi,
+    session: SilentSessionKeeper,
     client: HttpClient,
     scope: CoroutineScope,
-    account: OrdoSession,
-    selfTest: File?,
-    onSignedOut: () -> Unit
+    dataDirId: String,
+    selfTest: File?
 ) {
-    /* ---------------- 数据层:该账号专属目录 %APPDATA%\Ordo\<userId>(契约 §7.6.3) ---------------- */
-    val dataDir = remember(account.userId) { UserDataDirs.userDir(baseDir, account.userId) }
-    selfTestReport(selfTest, "step=data-dir user=${account.userId} dir=${dataDir.absolutePath}")
+    /* ---------------- 数据层:该数据目录专属子目录 %APPDATA%\Ordo\<id>(契约 §7.6.3) ---------------- */
+    val dataDir = remember(dataDirId) { UserDataDirs.userDir(baseDir, dataDirId) }
     val storage = remember(dataDir) { JsonFileStorage(dataDir) }
     val engine = remember(storage) { OrdoEngine(storage, SystemOrdoClock) }
 
     /* ---------------- 网络与同步(契约 §7.4 / §7.5) ---------------- */
     val syncApi = remember(client, tokens) { KtorSyncApi(client, tokens, engine.deviceId) }
     val realtime = remember(client, tokens) { KtorRealtimeChannel(client, tokens) }
-    selfTestReport(selfTest, "step=engine+net ready todos=${engine.snapshot.todos.size} guest=${account.isGuest}")
+    selfTestReport(selfTest, "step=engine+net ready todos=${engine.snapshot.todos.size}")
 
     /* ---------------- 窗口列表(多窗口:每个 id = 一份独立路由的窗口) ---------------- */
     val windowIds = remember { mutableStateListOf(FIRST_WINDOW_ID) }
@@ -415,10 +324,11 @@ private fun ApplicationScope.AccountApp(
         SyncCoordinator(
             engine = engine,
             syncApi = syncApi,
-            authApi = authApi,
             tokens = tokens,
             realtime = realtime,
             scope = scope,
+            // 同步遇 401:静默重建匿名会话后继续,不弹界面
+            sessionRecovery = session,
             onRemoteReminder = { push -> tray.notify(push.todoId, push.title, push.at) }
         )
     }
@@ -524,7 +434,6 @@ private fun ApplicationScope.AccountApp(
                 storage = storage,
                 scope = scope,
                 coordinator = coordinator,
-                authApi = authApi,
                 tokens = tokens,
                 selectionBus = selectionBus,
                 savedLayout = savedLayout,
@@ -539,7 +448,6 @@ private fun ApplicationScope.AccountApp(
                 onVisibilityChange = { visible -> windowVisible[windowId] = visible },
                 onVmReady = { vm -> vmRegistry[windowId] = vm },
                 onVmGone = { vmRegistry.remove(windowId) },
-                onSignedOut = onSignedOut,
                 onClose = { keepAlive ->
                     if (!keepAlive) {
                         windowIds.remove(windowId)
@@ -566,7 +474,6 @@ private fun ApplicationScope.DesktopWindow(
     storage: JsonFileStorage,
     scope: CoroutineScope,
     coordinator: SyncCoordinator,
-    authApi: KtorAuthApi,
     tokens: TokenStore,
     selectionBus: SharedSelection,
     savedLayout: WindowLayout,
@@ -581,7 +488,6 @@ private fun ApplicationScope.DesktopWindow(
     onVisibilityChange: (Boolean) -> Unit,
     onVmReady: (OrdoViewModel) -> Unit,
     onVmGone: (OrdoViewModel) -> Unit,
-    onSignedOut: () -> Unit,
     onClose: (keepAlive: Boolean) -> Unit
 ) {
     val vm = remember {
@@ -602,10 +508,8 @@ private fun ApplicationScope.DesktopWindow(
     }
 
     LaunchedEffect(Unit) {
-        vm.authApi = authApi
+        // 会话只被同步链路静默使用(产品决策:界面没有账号概念)
         vm.tokens = tokens
-        vm.onSignedOut = onSignedOut
-        vm.refreshAccount()
         // 系统集成:开机自启与 ordo:// 协议(拿不到 exe 路径时自动退化为不可用)
         vm.autoStart = WindowsAutoStart()
         vm.protocol = WindowsProtocolRegistrar()

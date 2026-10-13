@@ -20,16 +20,22 @@
 //    因此 iOS 侧绝不用 Swift 的 Codable 去写 `ordo.session`。
 //
 //  ─────────────────────────────────────────────────────────────────────────
-//  目录布局(契约 §7.6.3)
+//  目录布局(契约 §7.6.3 的「一个账号一个目录」;v1.3 起 userId = 本机账号标识)
 //  ─────────────────────────────────────────────────────────────────────────
 //    Application Support/Ordo/                  ← 应用级(设备级)
 //      ├── session.json                         ← kv 载体:ordo.session / ordo.deviceId
-//      ├── <userDataDirName(userId)>/           ← 账号 A 的全部本地数据
+//      │                                                  / ordo.localAccountId
+//      ├── <userDataDirName(userId)>/           ← 本机账号的全部本地数据
 //      │     └── Ordo.store(+ -shm / -wal)      ← SwiftData
-//      └── <userDataDirName(userId)>/           ← 账号 B 的独立目录(绝不复用 A 的)
+//      └── (历史账号目录)                        ← 不再产生新目录,但**永不删除**(不做迁移)
 //
-//  为什么会话在根目录:启动时必须**先读会话才知道 userId**,若会话也在 userId 子目录里就是死循环。
-//  目录名一律走核心 `userDataDirName(userId)`(Swift 侧不复制清洗规则)。
+//  为什么会话在根目录:启动时必须**先读会话(才知道 userId)**才能打开数据目录;
+//  若会话也在 userId 子目录里就是死循环。目录名一律走核心 `userDataDirName(userId)`
+//  (Swift 侧不复制清洗规则)。
+//
+//  为什么 userId 是本机标识而不是服务端账号 id:v1.3 没有登录界面,服务端身份(匿名令牌)
+//  可以被静默重建(离线首启 / refresh 令牌被否认),而**目录必须稳定**,否则用户会看到数据消失。
+//  详见 `OrdoSession.swift` 的 `OrdoLocalAccount`。
 //
 
 import Foundation
@@ -61,9 +67,10 @@ public enum OrdoAppDirectories {
         try root().appendingPathComponent(OrdoSessionDirectory.sessionFileName, isDirectory: false)
     }
 
-    /// 某个账号的数据目录:`Application Support/Ordo/<userDataDirName(userId)>/`。
+    /// 某个本机账号的数据目录:`Application Support/Ordo/<userDataDirName(userId)>/`。
     ///
     /// 目录名由核心清洗(见 `OrdoCoreSessionStore.userDataDirName`),这里只做拼接与创建。
+    /// `userId` 是会话里的本机账号标识(见 `OrdoLocalAccount`)。
     public static func userDirectory(userId: String) throws -> URL {
         let name = OrdoCoreSessionStore.userDataDirName(userId)
         let directory = try root().appendingPathComponent(name, isDirectory: true)
@@ -274,19 +281,16 @@ public actor OrdoSessionTokenStore: OrdoAccountTokenStore {
         await sessions.load()
     }
 
-    public func userEmail() async -> String? {
-        await sessions.load()?.email
-    }
-
-    public func userIsGuest() async -> Bool {
-        await sessions.load()?.isGuest ?? false
-    }
-
+    /// 「已连上云端」的判据 = 会话在**且**有非空 accessToken。
+    ///
+    /// v1.3 起会存在**离线占位会话**(有本机 userId、没有令牌,见 `OrdoSessionRecord.localOnly`),
+    /// 此时不能算已登录:同步层据此保持「本地模式」而不去发一个必然 401 的请求。
     public func isSignedIn() async -> Bool {
-        await sessions.load() != nil
+        guard let session = await sessions.load() else { return false }
+        return session.hasCloudTokens
     }
 
-    /// 契约 §7.6.3:退出登录**只清会话**,不清该 userId 的本地数据目录。
+    /// 清会话(**不动**本地数据目录);仅用于本地重置路径。
     public func signOut() async {
         await sessions.clear()
     }

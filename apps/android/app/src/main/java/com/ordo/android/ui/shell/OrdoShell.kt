@@ -1,13 +1,9 @@
 package com.ordo.android.ui.shell
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -41,14 +37,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import com.ordo.android.R
-import com.ordo.android.auth.AuthStage
 import com.ordo.android.nav.OrdoNavHost
 import com.ordo.android.nav.Routes
 import com.ordo.android.sync.RefreshController
 import com.ordo.android.sync.RefreshLabel
 import com.ordo.android.sync.RefreshTone
 import com.ordo.android.sync.RefreshUiState
-import com.ordo.android.ui.auth.LoginScreen
 import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconButton
 import com.ordo.android.ui.common.OrdoIconKind
@@ -69,14 +63,11 @@ import com.ordo.android.vm.UiState
 import com.ordo.android.vm.OrdoViewModel
 
 /**
- * 应用根：**登录门禁**（契约 §7.6.4）。
+ * 应用根（v1.3：**不再有登录门禁**）。
  *
- * ```
- * LOADING → 空白画布（正在读会话，不闪一下登录页）
- * LOGIN   → 登录页（登录 / 注册 / 游客登录 三个入口）
- * MAIN    → 三栏骨架
- * ```
- * 登录成功：卡片 fade out 160ms → 主界面 fade in 220ms（UI §5.1）。
+ * 产品决策「不再需要登录」：启动即进主界面，云同步走后台静默匿名会话
+ * （时序见 `auth/SilentSession.kt` 与 `di/ServiceLocator.ensureAnonymousSession`）。
+ * 因此这里没有任何 LOADING/LOGIN 分支——任何路径（首启、会话过期、401、离线）都是主界面。
  */
 @Composable
 fun OrdoRoot(
@@ -85,34 +76,13 @@ fun OrdoRoot(
     deepLink: String?,
     onDeepLinkConsumed: () -> Unit,
 ) {
-    AnimatedContent(
-        targetState = state.auth.stage,
-        transitionSpec = {
-            fadeIn(tween(OrdoMotionPageFadeIn)) togetherWith fadeOut(tween(OrdoMotionPageFadeOut))
-        },
-        label = "auth-gate",
-    ) { stage ->
-        when (stage) {
-            AuthStage.LOADING -> Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(OrdoTheme.colors.canvas),
-            )
-
-            AuthStage.LOGIN -> LoginScreen(state = state.auth, vm = vm)
-
-            AuthStage.MAIN -> MainShell(
-                state = state,
-                vm = vm,
-                deepLink = deepLink,
-                onDeepLinkConsumed = onDeepLinkConsumed,
-            )
-        }
-    }
+    MainShell(
+        state = state,
+        vm = vm,
+        deepLink = deepLink,
+        onDeepLinkConsumed = onDeepLinkConsumed,
+    )
 }
-
-private const val OrdoMotionPageFadeIn = 220
-private const val OrdoMotionPageFadeOut = 160
 
 /**
  * 三栏骨架（04 文档 §3）：

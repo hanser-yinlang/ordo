@@ -45,8 +45,8 @@ public enum OrdoRefreshOutcome: Equatable, Sendable {
             return .synced
         case .offline:
             return .failed("网络不可用")
-        case .signedOut:
-            return .failed("未登录")
+        case .localOnly:
+            return .failed("尚未连接云端")
         case .failed(let message):
             return .failed(message)
         case .syncing:

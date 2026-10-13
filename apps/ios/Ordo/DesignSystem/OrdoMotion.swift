@@ -70,48 +70,12 @@ public enum OrdoMotion {
         public static var ringPulse: Animation { .easeOut(duration: ringPulseDuration) }
     }
 
-    // MARK: 登录页(规范 §5.1)
+    // MARK: 启动与主界面(v1.3:登录页已移除,只留主界面淡入)
 
-    public enum Login {
-        /// 进入登录页:fade + 上移 12px,220ms,`motion.easing.standard`。
-        public static let enterOffset: CGFloat = 12
-        public static let enterDuration: Double = base
-        public static var enter: Animation { .timingCurve(0.2, 0.8, 0.2, 1, duration: enterDuration) }
-        /// 输入框聚焦:边框转 accent,120ms。
-        public static let focusDuration: Double = fast
-        public static var focus: Animation { .easeOut(duration: focusDuration) }
-        /// 主按钮按压 scale → 0.98(90ms)。
-        public static let pressScale: CGFloat = 0.98
-        public static let pressDuration: Double = 0.09
-        public static var press: Animation { .easeOut(duration: pressDuration) }
-        /// 登录成功:卡片 fade out 160ms → 主界面 fade in 220ms。
-        public static let cardOutDuration: Double = 0.16
-        public static var cardOut: Animation { .easeIn(duration: cardOutDuration) }
-        public static var mainIn: Animation { .easeIn(duration: base) }
-        /// 错误抖动:振幅 6px,320ms,衰减两次。
-        public static let shakeAmplitude: CGFloat = 6
-        public static let shakeDuration: Double = 0.32
-        public static let shakeCycles: Int = 2
-        /// 错误区固定预留高度(规范 §5.1)。
-        public static let errorReservedHeight: CGFloat = 20
-        /// 登录卡片宽度(规范 §5.1:宽 400)。
-        public static let cardWidth: CGFloat = 400
-        /// 提交中转圈尺寸(规范 §5.1:16dp 转圈)。
-        public static let spinnerSize: CGFloat = 16
-
-        // MARK: 邮箱验证码登录(规范 §5.1.1)
-
-        /// 第二行(口令行 ↔ 验证码行)固定行高:切换时卡片高度不跳变(规范 §5.1.1)。
-        public static let secondRowHeight: CGFloat = 56
-        /// 「口令登录 | 验证码登录」同级切换控件高度(触控目标 ≥44 由 `contentShape` 兜住)。
-        public static let methodSwitchHeight: CGFloat = 32
-        /// 验证码输入字距(规范 §5.1.1:数字等宽,字距 +1.5)。
-        public static let codeTracking: CGFloat = 1.5
-        /// 「获取验证码」次级按钮最小宽度(要容得下「60s 后重发」)。
-        public static let codeButtonMinWidth: CGFloat = 108
-        /// 重发倒计时的步长(秒)。
-        public static let countdownTick: Double = 1
-    }
+    /// 主界面淡入:220ms,`motion.easing.standard`。
+    ///
+    /// 启动即主界面(见 `OrdoApp.RootView`),因此不再有「登录卡片淡出 → 主界面淡入」的两段时序。
+    public static var mainIn: Animation { .easeIn(duration: base) }
 
     // MARK: 快加号集群(规范 §5.2)
 

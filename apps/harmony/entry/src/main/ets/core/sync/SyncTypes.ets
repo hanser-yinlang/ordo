@@ -237,41 +237,14 @@ export function apiErrorWithReason(
 /* ------------------------------------------------------------- 错误原因(§7.6.5) */
 
 /** 验证码错误 / 过期 / 尝试超限(均为 401 AUTH_INVALID_CREDENTIALS + reason) */
-export const REASON_CODE_INVALID: string = 'code_invalid';
-export const REASON_CODE_EXPIRED: string = 'code_expired';
-export const REASON_CODE_ATTEMPTS_EXCEEDED: string = 'code_attempts_exceeded';
-/** 请求过频(429 RATE_LIMITED + reason) */
-export const REASON_CODE_THROTTLED: string = 'code_throttled';
-
 /**
- * `details.reason` → 更精确的中文提示(契约 §7.6.5)。
- * 未命中的 reason 返回空串,由调用方回落到 `errorText(code)` 的通用文案。
- */
-export function reasonText(reason: string): string {
-  if (reason === REASON_CODE_INVALID) {
-    return '验证码不正确,请重新输入';
-  }
-  if (reason === REASON_CODE_EXPIRED) {
-    return '验证码已过期,请重新获取';
-  }
-  if (reason === REASON_CODE_ATTEMPTS_EXCEEDED) {
-    return '验证码错误次数过多已作废,请重新获取';
-  }
-  if (reason === REASON_CODE_THROTTLED) {
-    return '请求过于频繁,请稍后再试';
-  }
-  return '';
-}
-
-/** 错误码 + reason → 中文提示:reason 命中时优先于错误码的通用文案(§7.6.5 的 not_guest 同一手法) */
-export function errorTextWithReason(code: string, reason: string): string {
-  const detail: string = reasonText(reason);
-  return detail.length > 0 ? detail : errorText(code);
-}
-
-/**
- * `error.details` 里我们关心的字段(契约 §7.6.5):`reason` + `retryAfterSec`。
+ * `error.details` 里我们关心的字段:`reason` + `retryAfterSec`。
  * 两者都可能缺(不同错误只带其中一个),解析结果一律归一化:没有 → 空串 / 0。
+ *
+ * v1.4:登录/验证码界面移除后,客户端不再按 reason 生成界面文案
+ * (那套 `code_invalid / code_expired / code_attempts_exceeded / code_throttled` → 中文提示
+ * 的映射已随 §7.6.5 的验证码登录一起删除);这里保留的是**解析能力**,
+ * 供日志/排障与后续状态机使用。
  */
 export interface OrdoErrorDetails {
   reason: string;

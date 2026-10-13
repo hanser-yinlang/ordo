@@ -25,11 +25,12 @@ import kotlinx.coroutines.sync.withLock
 /**
  * 契约 §7.4 / §7.6.2 认证接口的 Ktor 实现（shared:core 的 [AuthApi] 接口）。
  *
- *   POST /v1/auth/register · /v1/auth/login · /v1/auth/guest · /v1/auth/refresh · /v1/auth/logout
- *   POST /v1/auth/email/code · /v1/auth/email/login（邮箱验证码登录，契约 §7.6.5）
- *   POST /v1/auth/upgrade（需带 Access Token；userId 与数据不变）
+ * v1.3（产品决策「不再需要登录」）后 Android 端**只用到** [guest] 与 [refresh]：
+ *   POST /v1/auth/guest     ← 启动时静默建匿名账号（[com.ordo.android.di.ServiceLocator.ensureAnonymousSession]）
+ *   POST /v1/auth/refresh   ← 令牌续期（轮换制：成功后立即持久化新的 accessToken + refreshToken）
+ * 其余方法（register / login / upgrade / requestEmailCode / emailLogin）是实现 shared 的
+ * [AuthApi] 接口所必需的（接口是冻结契约的一部分，不能在这里删除），但界面已没有入口调用它们。
  *
- * refresh 为轮换制：成功后立即持久化新的 accessToken + refreshToken。
  * 游客登录与正式登录在这里**完全同构**（都返回正常令牌、都写同一份会话）——
  * 游客不是"离线模式"，差别只有"没有邮箱口令"（契约 §7.6.1）。
  */
@@ -115,19 +116,6 @@ class OrdoAuthApi(
         val body: AuthResponse = response.body()
         tokens.saveSession(body)
         body
-    }
-
-    /** 退出登录：通知服务端（忽略失败）+ 清本地会话，保留本地数据（契约 §7.6.3） */
-    suspend fun logout() {
-        val refreshToken = tokens.refreshToken()
-        if (!refreshToken.isNullOrBlank()) {
-            runCatching {
-                client.post("${tokens.serverUrl()}/v1/auth/logout") {
-                    setBody(RefreshRequest(refreshToken))
-                }
-            }
-        }
-        tokens.clearSession()
     }
 
     /** 用已保存的 refreshToken 续期；无 refreshToken 时返回 null */

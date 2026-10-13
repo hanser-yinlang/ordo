@@ -10,11 +10,11 @@
 //                                          ↘ SyncCoordinator 异步 push
 //    远端 ops → engine.applyRemote(契约 §7.3 合并)→ snapshot 变化 → 重绘 + 提醒重排期
 //
-//  登录门禁与目录隔离(契约 §7.6.3 / §7.6.4):
-//    RootView 先读会话(`OrdoAuthService.restore()`)→ 有会话才打开
+//  静默会话与目录隔离(v1.3:不再有登录界面):
+//    RootView 先读会话(`OrdoAuthService.restore()`)→ 无论有没有云端令牌都直接打开
 //    `Application Support/Ordo/<userDataDirName(userId)>/Ordo.store`;
-//    换账号 = 换目录,两个账号**永不共用**同一份本地数据。
-//    退出登录只清会话(见 `signOut()`),目录原样保留。
+//    `userId` 是**本机稳定标识**(`OrdoLocalAccount`),因此匿名会话被重建时目录也不变。
+//    401 时由 `handleAuthExpired()` 静默重建匿名会话并继续同步,**不换目录、不丢数据**。
 //
 //  存储降级:SwiftData 容器创建失败时退回 `OrdoMemoryStorage`,并在状态栏提示(storageNotice)。
 //
@@ -34,7 +34,7 @@ public final class AppEnvironment {
     public let engine: OrdoEngineProtocol
     /// 令牌 / 设备标识(会话宿主)。
     public let tokenStore: OrdoAccountTokenStore
-    /// 登录态与三个入口(登录 / 注册 / 游客)。
+    /// 静默匿名会话(启动时建立;401 时静默重建)。
     public let auth: OrdoAuthService
     public let parser: OrdoNaturalLanguageParser
     public let clock: OrdoClock
@@ -45,13 +45,11 @@ public final class AppEnvironment {
     public let agenda: OrdoAgendaProviding
     public private(set) var sync: SyncCoordinator?
     public private(set) var realtime: OrdoRealtimeClient?
-    /// 本账号的本地数据目录(契约 §7.6.3;`nil` = 内存模式,未落盘)。
+    /// 本机账号的本地数据目录(`nil` = 内存模式,未落盘)。
     public let userDataDirectory: URL?
 
-    /// 当前会话(契约 §7.6.1)。直接读 `auth`,避免两处状态不一致。
+    /// 当前会话(v1.3:只有一种匿名会话)。直接读 `auth`,避免两处状态不一致。
     public var session: OrdoSessionRecord? { auth.session }
-
-    public var authAPI: OrdoAuthAPI { auth.authAPI }
 
     // MARK: 状态
 
@@ -68,6 +66,8 @@ public final class AppEnvironment {
 
     private var subscription: OrdoSubscription?
     private var notificationDelegate: OrdoNotificationDelegate?
+    /// 上一次静默重建匿名会话的时刻(防抖;见 `handleAuthExpired`)。
+    private var lastAnonymousRebuildMillis: Int64 = 0
 
     // MARK: 初始化
 
@@ -95,18 +95,18 @@ public final class AppEnvironment {
         self.agenda = agenda
     }
 
-    /// 组装整个应用(登录成功后的启动路径)。
+    /// 组装整个应用(启动路径)。
     ///
-    /// 步骤:打开**该 userId 专属**的本地库 → 预加载存储镜像 → 构造 KMP 引擎
+    /// 步骤:打开**该本机账号专属**的本地库 → 预加载存储镜像 → 构造 KMP 引擎
     /// → 首次运行写入演示数据 → 订阅 → 构造同步与提醒。
     ///
     /// - Parameters:
-    ///   - auth: 已完成登录鉴权的服务(提供会话 / 令牌 / 网络层)。
-    ///   - session: 当前会话;决定本地数据目录(契约 §7.6.3 硬约束)。
+    ///   - auth: 已建立静默会话的服务(提供会话 / 令牌 / 网络层)。
+    ///   - session: 当前会话;其 `userId` 决定本地数据目录(本机稳定标识,见 `OrdoLocalAccount`)。
     public static func bootstrap(
         auth: OrdoAuthService,
         session: OrdoSessionRecord,
-        apiBaseURL: URL = OrdoAPIEnvironment.default.baseURL,
+        apiBaseURL: URL = OrdoAPIEnvironment.resolved().baseURL,
         useInMemoryStorage: Bool = false,
         seedIfEmpty: Bool = true
     ) async -> AppEnvironment {
@@ -198,7 +198,8 @@ public final class AppEnvironment {
         coordinator.onSnapshotRequiresReschedule = { [weak environment] in
             environment?.rescheduleReminders()
         }
-        // 令牌被服务端判定失效(401 且 refresh 失败)→ 清会话回登录页,但**保留本地目录**
+        // 令牌被服务端判定失效(401 且 refresh 失败)→ **静默重建匿名会话**并继续同步;
+        // 本地目录与本环境都保持不变(目录绑定本机账号标识)。
         coordinator.onAuthExpired = { [weak environment] in
             await environment?.handleAuthExpired()
         }
@@ -207,7 +208,7 @@ public final class AppEnvironment {
         return environment
     }
 
-    /// 拆掉本环境(换账号 / 退回登录页时调用):停同步、取消引擎订阅。
+    /// 拆掉本环境(退出时调用):停同步、取消引擎订阅。
     public func shutdown() async {
         sync?.stop()
         subscription?.cancel()
@@ -617,23 +618,6 @@ public final class AppEnvironment {
         return OrdoThemePreference(rawValue: raw ?? "") ?? .system
     }
 
-    public func currentUserEmail() async -> String? {
-        await tokenStore.userEmail()
-    }
-
-    public func isSignedIn() async -> Bool {
-        await tokenStore.isSignedIn()
-    }
-
-    /// 当前账号是否为游客(契约 §7.6.1)。
-    public func isGuest() async -> Bool {
-        await tokenStore.userIsGuest()
-    }
-
-    public func deviceName() async -> String {
-        await tokenStore.deviceName()
-    }
-
     // MARK: 通知权限
 
     public func requestNotificationPermission() {
@@ -649,27 +633,40 @@ public final class AppEnvironment {
         }
     }
 
-    // MARK: 登录 / 登出(契约 §7.6.3 / §7.6.4)
+    // MARK: 静默会话(v1.3:没有登录 / 退出登录)
 
-    /// 登录成功后的收尾:把本地已有的数据推上去,或拉取远端快照(契约 §7.1)。
-    public func finishSignIn() async {
+    /// 启动收尾:远端为空则把本地推上去,否则拉取远端快照(契约 §7.1)。
+    public func bootstrapRemoteIfNeeded() async {
         await sync?.bootstrapFromRemoteIfEmpty()
     }
 
-    /// 退出登录:只清**会话**(契约 §7.6.3),该 userId 的本地数据目录原样保留,
-    /// 下次同一账号登录时数据仍在(离线可用,联网后增量同步)。
-    ///
-    /// 调用方(RootView)会在 `auth.session` 变为 nil 后拆掉本环境并回到登录页。
-    public func signOut() async {
-        await auth.signOut()
-        await sync?.handleSignedOut()
+    /// 后台重试拿到匿名令牌后调用:触发一次同步,把离线期间攒下的改动推上去。
+    public func adoptSilentlyRenewedSession(_ session: OrdoSessionRecord) async {
+        _ = session   // 令牌已由 `OrdoAuthService` 写入会话;这里只负责把同步推起来。
+        await sync?.syncNow(reason: "已连接云端")
+        await sync?.bootstrapFromRemoteIfEmpty()
     }
 
-    /// 令牌被服务端判定失效(401 + refresh 失败):清会话回登录页,但**不删数据目录**。
+    /// 令牌被服务端判定失效(401 + refresh 失败):**静默重建匿名会话**并继续同步。
+    ///
+    /// 与 v1.2 的「回登录页」不同,这里既不换本地目录也不拆环境:
+    /// 会话的 `userId` 是本机账号标识,重建匿名账号只换令牌,本地数据随后会被推到新账号上。
+    /// 重建失败(网络不可达)时保持本地可用,状态栏显示「本地模式」,下一次 401 会再试。
     public func handleAuthExpired() async {
-        await auth.invalidateSession()
-        await sync?.handleSignedOut()
+        // 防抖:一次同步失败会连续触发,避免在服务端持续 401 时反复建号。
+        let now = clock.nowMillis()
+        guard now - lastAnonymousRebuildMillis >= Self.anonymousRebuildMinimumIntervalMillis else { return }
+        lastAnonymousRebuildMillis = now
+        do {
+            let renewed = try await auth.startAnonymousSession()
+            await adoptSilentlyRenewedSession(renewed)
+        } catch {
+            await sync?.markLocalOnly()
+        }
     }
+
+    /// 两次静默重建之间的最小间隔(30s),避免在服务端持续否认时反复建号。
+    public static let anonymousRebuildMinimumIntervalMillis: Int64 = 30_000
 }
 
 // MARK: - 主题偏好

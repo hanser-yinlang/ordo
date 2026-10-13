@@ -2,14 +2,18 @@
 //  OrdoAuthService.swift
 //  Ordo
 //
-//  契约 §7.6「登录门禁」的应用层装配:
-//    · 会话读写(根目录 `session.json` → 核心 `OrdoSessionStore`);
-//    · 四个入口:登录 / 注册 / **以游客身份继续** / **邮箱验证码登录**(契约 §7.6.5);
-//    · 启动路由:有且未过期 → 直进;过期 → 先 refresh;refresh 失败 / 无 → 登录页;
-//    · refresh 轮换后的会话回写(令牌的唯一宿主就是会话)。
+//  **静默匿名会话**(v1.3:产品决定「不再需要登录」)。
 //
-//  本类**只依赖协议**(`OrdoSessionStoring` / `OrdoAccountTokenStore` / `OrdoAuthAPI`),
-//  因此可以在 XCTest 里用桩实现驱动全部状态机分支(见 `OrdoSessionTests`)。
+//  · 没有登录界面、没有门禁:App 启动后**任何路径都直接进主界面**;
+//  · 会话只有一种来源:后台 `POST /v1/auth/guest` 建匿名账号(契约 §7.6.2 的 guest,用户无感);
+//  · 启动:读会话 → 有 userId 直接用(令牌为空也行);accessToken 过期先 refresh;
+//    网络不可达 → 照常进主界面离线可用(后台退避重试);服务端明确否认或根本没有会话
+//    → 静默重建匿名会话;
+//  · 会话的 `userId` 是**本机稳定标识**(见 `OrdoLocalAccount`),服务端账号只提供令牌 ——
+//    这样「离线首启 → 联网认领」与「401 重建匿名会话」都不会换本地目录、不会丢数据(不做迁移)。
+//
+//  本类只依赖协议(`OrdoSessionStoring` / `OrdoAccountTokenStore` / `OrdoAuthAPI`),
+//  因此可以在 XCTest 里用桩实现驱动全部分支(见 `OrdoTests/SessionAndSilentAuthTests.swift`)。
 //
 
 import Foundation
@@ -21,12 +25,8 @@ public final class OrdoAuthService {
 
     // MARK: 状态
 
-    /// 当前会话(登录页/设置页/门禁都读它)。
+    /// 当前会话(令牌的唯一宿主)。`nil` 只会出现在「还没来得及建会话」的启动窗口里。
     public private(set) var session: OrdoSessionRecord?
-    /// 网络请求进行中(登录页用它禁用输入与三个入口)。
-    public private(set) var isBusy = false
-    /// 最近一次失败的**用户可读**提示(登录页的错误区文案)。
-    public private(set) var lastError: String?
 
     // MARK: 依赖
 
@@ -35,24 +35,31 @@ public final class OrdoAuthService {
     public let authAPI: OrdoAuthAPI
     /// 供同步用的 HTTP 客户端复用同一个刷新器(契约 §7.4:401 → refresh → 重放一次)。
     public let tokenRefresher: OrdoTokenRefresher?
+    /// 本机账号标识:决定本地数据目录,跨启动稳定(见 `OrdoLocalAccount`)。
+    public let localAccountId: String
     private let clock: OrdoClock
 
     public init(
         sessionStore: OrdoSessionStoring,
         tokenStore: OrdoAccountTokenStore,
         authAPI: OrdoAuthAPI,
+        localAccountId: String = OrdoLocalAccount.generate(),
         clock: OrdoClock = OrdoSystemClock()
     ) {
         self.sessionStore = sessionStore
         self.tokenStore = tokenStore
         self.authAPI = authAPI
+        self.localAccountId = localAccountId
         self.tokenRefresher = authAPI as? OrdoTokenRefresher
         self.clock = clock
     }
 
     /// 应用级装配:`Application Support/Ordo/session.json` + URLSession 网络层。
+    ///
+    /// 服务端地址走**隐藏覆盖**(`OrdoAPIEnvironment.resolved()`:UserDefaults 的
+    /// `ordo.apiBaseURL`,没有配置就是本机开发地址)。
     public static func makeAppLevel(
-        apiBaseURL: URL = OrdoAPIEnvironment.default.baseURL
+        apiBaseURL: URL = OrdoAPIEnvironment.resolved().baseURL
     ) throws -> OrdoAuthService {
         let kv = try OrdoFileKVStorage(fileURL: OrdoAppDirectories.sessionFileURL())
         let sessionStore = OrdoCoreSessionStore(kvStorage: kv)
@@ -65,21 +72,34 @@ public final class OrdoAuthService {
         let authAPI = URLSessionAuthApi(client: httpClient)
         // 契约 §7.4:401 时自动 refresh 并重放原请求一次。
         await httpClient.setRefresher(authAPI)
-        return OrdoAuthService(sessionStore: sessionStore, tokenStore: tokenStore, authAPI: authAPI)
+        return OrdoAuthService(
+            sessionStore: sessionStore,
+            tokenStore: tokenStore,
+            authAPI: authAPI,
+            localAccountId: OrdoLocalAccount.resolve(in: kv)
+        )
     }
 
-    // MARK: 启动(契约 §7.6.4)
+    // MARK: 启动(读会话 → 直接用 / 刷新 / 静默建匿名)
 
-    /// 读会话并按契约决定去向;`accessToken` 过期时**先 refresh**,失败则回登录页。
+    /// 读会话并决定去向。**任何分支都不会出现登录界面。**
     ///
-    /// 无论哪条分支,该 userId 的本地数据目录都**不会**被删除(契约 §7.6.3);
-    /// refresh 失败时只清掉这份已经不可用的会话。
+    /// | 本地状态 | 结果 |
+    /// |---|---|
+    /// | 有会话、未过期 | `.resume`(直接进主界面) |
+    /// | 有会话、已过期 | 先 refresh;成功 → `.resume` |
+    /// | refresh **网络失败** | `.resume`(离线可用,联网后再刷新) |
+    /// | refresh **被服务端否认** | 清掉死会话 → `.createAnonymous` |
+    /// | 无会话 / 无 userId | `.createAnonymous` |
+    ///
+    /// 只有「服务端明确否认令牌(401/403)」才算会话失效;网络类错误一律保留会话 ——
+    /// 这正是「断网时不会把用户挡在门外」的实现方式。
     public func restore() async -> OrdoStartupPlan {
         let stored = await sessionStore.load()
         switch OrdoStartupPlanner.plan(session: stored, nowMillis: clock.nowMillis()) {
-        case .showLogin:
+        case .createAnonymous:
             session = stored
-            return .showLogin
+            return .createAnonymous
 
         case .resume(let value):
             session = value
@@ -91,208 +111,95 @@ public final class OrdoAuthService {
                 session = refreshed
                 return .resume(refreshed)
             } catch {
-                lastError = Self.hint(for: error)
-                await sessionStore.clear()
-                session = nil
-                return OrdoStartupPlanner.planAfterRefreshFailure(session: expired)
+                let rejected = Self.isCredentialsRejected(error)
+                if rejected {
+                    await sessionStore.clear()
+                    session = nil
+                } else {
+                    // 网络不可达:会话仍在,继续离线用。
+                    session = expired
+                }
+                return OrdoStartupPlanner.planAfterRefreshFailure(
+                    session: expired,
+                    serverRejected: rejected
+                )
             }
         }
     }
 
-    /// 启动后的静默 refresh(规范 §7.6.4「有且未过期 → 后台静默 refresh」)。
+    /// 启动后的静默 refresh(有且未过期时后台跑一次)。
     ///
-    /// 失败不打扰用户:会话仍然可用,下一次 401 会再走一遍 refresh 或转登录页。
+    /// 失败不打扰任何人:会话仍然可用,下一次 401 会再走一遍 refresh 或重建匿名会话。
     public func refreshInBackground() async {
-        guard let current = session else { return }
+        guard let current = session, current.hasCloudTokens else { return }
         _ = try? await performRefresh(current)
     }
 
-    // MARK: 三个入口
+    // MARK: 静默匿名会话
 
-    @discardableResult
-    public func login(email: String, password: String) async throws -> OrdoSessionRecord {
-        try await authenticate { deviceName in
-            try await self.authAPI.login(email: email, password: password, deviceName: deviceName)
-        }
-    }
-
-    @discardableResult
-    public func register(email: String, password: String) async throws -> OrdoSessionRecord {
-        try await authenticate { deviceName in
-            try await self.authAPI.register(email: email, password: password, deviceName: deviceName)
-        }
-    }
-
-    /// 「以游客身份继续」:与正式登录**体验对等**(同一套令牌、同一套同步能力)。
-    @discardableResult
-    public func continueAsGuest() async throws -> OrdoSessionRecord {
-        try await authenticate { deviceName in
-            try await self.authAPI.guest(deviceName: deviceName)
-        }
-    }
-
-    // MARK: 邮箱验证码登录(契约 §7.6.5)
-
-    /// 请求邮箱验证码(免密登录第一步)。
+    /// **静默**(重)建匿名会话:调用 `POST /v1/auth/guest` 并落盘。
     ///
-    /// · 成功:`202` 受理,调用方按返回的 `retryAfter`(契约默认 60s)跑倒计时、置灰按钮;
-    /// · 60s 内重复 / 超限:`429 RATE_LIMITED`(`details.reason = code_throttled`,
-    ///   新秒数在 `details.retryAfterSec`,用 `retryAfterSeconds(from:)` 解析);
-    /// · 邮箱格式不合法:`400 VALIDATION_FAILED`。
+    /// `userId` 沿用本机既有值(老会话的 userId,或首次启动时的本机账号标识),因此:
+    /// · 首次启动 → 目录 = 本机账号标识;
+    /// · 401 之后重建 → **目录不变**,本地数据会在随后的同步里推到新的匿名账号上;
+    /// · 离线首启后联网 → 同样不换目录。
     ///
-    /// 这里**不写** `lastError`:该字段是登录门禁的进入页提示,验证码请求的失败只属于当前表单,
-    /// 由 `LoginView` 写进卡片错误区。
+    /// 失败(网络不可达 / 服务端 5xx)时**抛错但不改本地状态**:调用方据此进入离线模式并退避重试。
     @discardableResult
-    public func requestEmailCode(email: String) async throws -> OrdoEmailCodeSent {
-        try await authAPI.requestEmailCode(OrdoEmailCodeRequest(email: email))
-    }
-
-    /// 验证码登录(免密登录第二步):未注册邮箱由服务端**自动建号**,
-    /// 已注册邮箱直接登录该账号 —— 两者与口令登录共用同一 `userId` 与同一套 refreshToken 体系。
-    @discardableResult
-    public func loginWithEmailCode(email: String, code: String) async throws -> OrdoSessionRecord {
-        try await authenticate { deviceName in
-            try await self.authAPI.emailLogin(
-                OrdoEmailCodeLoginRequest(email: email, code: code, deviceName: deviceName)
-            )
-        }
-    }
-
-    /// 游客升级为正式账号(userId 与数据不变);邮箱被占用时抛 `AUTH_EMAIL_TAKEN`。
-    @discardableResult
-    public func upgrade(email: String, password: String) async throws -> OrdoSessionRecord {
-        guard let current = session else {
-            throw OrdoAPIError(code: .authRequired, message: "当前没有游客会话")
-        }
-        isBusy = true
-        defer { isBusy = false }
-        let response = try await authAPI.upgrade(
-            accessToken: current.accessToken,
-            OrdoUpgradeRequest(email: email, password: password)
+    public func startAnonymousSession() async throws -> OrdoSessionRecord {
+        let userId = session?.userId ?? localAccountId
+        let deviceName = await tokenStore.deviceName()
+        let response = try await authAPI.guest(OrdoGuestAuthRequest(deviceName: deviceName))
+        let record = OrdoSessionRecord(
+            session: response,
+            nowMillis: clock.nowMillis(),
+            userId: userId
         )
-        let upgraded = OrdoSessionRecord(
-            userId: response.user.id,
-            email: response.user.email,
-            isGuest: response.user.isGuest,
-            accessToken: current.accessToken,
-            refreshToken: current.refreshToken,
-            expiresAt: current.expiresAt
-        )
-        await sessionStore.save(upgraded)
-        session = upgraded
-        return upgraded
+        await sessionStore.save(record)
+        session = record
+        return record
     }
 
-    // MARK: 登出
-
-    /// 契约 §7.4 + §7.6.3:先尽力通知服务端,然后**只清会话**,本地数据目录原样保留。
-    public func signOut() async {
-        if let current = session {
-            try? await authAPI.logout(refreshToken: current.refreshToken)
+    /// 离线占位会话:还没有云端令牌,但需要立刻进主界面(「网络不可达也照常进主界面」)。
+    ///
+    /// 它会**落盘**,这样即使连续多次离线启动,本地目录也始终是同一个。
+    @discardableResult
+    public func startLocalOnlySession() async -> OrdoSessionRecord {
+        if let existing = session, !existing.userId.isEmpty {
+            return existing
         }
-        await sessionStore.clear()
-        session = nil
-    }
-
-    /// 令牌已被服务端判定失效(401 且 refresh 也失败)时的本地清理。
-    /// 只清会话,**不删**该 userId 的数据目录(契约 §7.6.3);
-    /// 登录页会通过 `lastError` 告知用户为什么回到了这里。
-    public func invalidateSession() async {
-        lastError = "登录已过期,请重新登录"
-        await sessionStore.clear()
-        session = nil
-    }
-
-    // MARK: 令牌
-
-    public func accessToken() async -> String? {
-        await tokenStore.load()?.accessToken
+        let record = OrdoSessionRecord.localOnly(userId: localAccountId)
+        await sessionStore.save(record)
+        session = record
+        return record
     }
 
     // MARK: 内部
 
-    private func authenticate(
-        _ operation: (String) async throws -> OrdoAuthSession
-    ) async throws -> OrdoSessionRecord {
-        isBusy = true
-        lastError = nil
-        defer { isBusy = false }
-        do {
-            let deviceName = await tokenStore.deviceName()
-            let response = try await operation(deviceName)
-            let record = OrdoSessionRecord(session: response, nowMillis: clock.nowMillis())
-            await sessionStore.save(record)
-            session = record
-            return record
-        } catch {
-            lastError = Self.hint(for: error)
-            throw error
-        }
-    }
-
     private func performRefresh(_ current: OrdoSessionRecord) async throws -> OrdoSessionRecord {
         let response = try await authAPI.refresh(refreshToken: current.refreshToken)
-        let refreshed = OrdoSessionRecord(session: response, nowMillis: clock.nowMillis())
+        let refreshed = OrdoSessionRecord(
+            session: response,
+            nowMillis: clock.nowMillis(),
+            userId: current.userId
+        )
         await sessionStore.save(refreshed)
         session = refreshed
         return refreshed
     }
 
-    /// 把错误翻译成登录页可读的中文(错误不靠颜色单独表达,规范 §5.1 硬约束)。
+    /// 服务端是否**明确否认**了令牌(而不是网络不可达 / 服务端故障)。
     ///
-    /// 优先看 `error.details.reason`(契约 §7.6.5 与 §7.6.2 的 `not_guest` 同一手法):
-    /// 同一个 `code`(如 `AUTH_INVALID_CREDENTIALS`)在验证码模式下要给出比「邮箱或密码不正确」
-    /// 精确得多的提示,规范 §5.1.1 已冻结这四条文案。
-    public nonisolated static func hint(for error: Error) -> String {
-        if let api = error as? OrdoAPIError {
-            if let mapped = codeHint(forReason: api.details?["reason"]?.stringValue) {
-                return mapped
-            }
-            switch api.code {
-            case .authInvalidCredentials: return "邮箱或密码不正确"
-            case .authEmailTaken: return "该邮箱已被注册"
-            case .validationFailed: return "请填写有效的邮箱,口令至少 8 位"
-            case .transport: return "网络不可用,请检查网络后重试"
-            case .rateLimited: return "操作过于频繁,请稍后再试"
-            default: return api.localizedHint
-            }
+    /// 只有明确否认才意味着会话真的没用了、必须重建匿名会话;
+    /// 网络类错误(transport)、5xx、解码失败一律返回 `false`,由调用方保留会话继续离线可用。
+    public nonisolated static func isCredentialsRejected(_ error: Error) -> Bool {
+        guard let api = error as? OrdoAPIError else { return false }
+        switch api.code {
+        case .authRequired, .authInvalidCredentials, .authTokenExpired:
+            return true
+        default:
+            // 错误体缺失或换了 code 时,按 HTTP 状态兜底。
+            return api.httpStatus == 401 || api.httpStatus == 403
         }
-        return error.localizedDescription
-    }
-
-    /// 契约 §7.6.5 / UI 规范 §5.1.1:`error.details.reason` → 中文文案。
-    ///
-    /// 未知 reason 一律返回 `nil`,由调用方回退到按 `code` 的通用提示(前向兼容)。
-    public nonisolated static func codeHint(forReason reason: String?) -> String? {
-        guard let reason else { return nil }
-        switch reason {
-        case "code_invalid": return "验证码不正确,请检查后重试"
-        case "code_expired": return "验证码已过期,请重新获取"
-        case "code_attempts_exceeded": return "尝试次数过多,请重新获取验证码"
-        case "code_throttled": return "发送过于频繁,请稍后再试"
-        // 契约 §7.6.5 的发信失败(500 INTERNAL / mail_failed)
-        case "mail_failed": return "验证码发送失败,请稍后再试"
-        default: return nil
-        }
-    }
-
-    // MARK: 重发倒计时秒数(契约 §7.6.5)
-
-    /// 从限流错误里取重发秒数(契约 §7.6.5)。
-    ///
-    /// · **错误体里的字段名是 `error.details.retryAfterSec`**(整数秒),
-    ///   与成功体顶层的 `retryAfter` 刻意不同,不要混用;
-    /// · 该字段缺失或非正数 → 回落到 `OrdoEmailCodePolicy.defaultRetryAfterSeconds`(60s);
-    /// · 超过 `OrdoEmailCodePolicy.maximumRetryAfterSeconds` → 夹取到上限;
-    /// · **不是限流错误**(网络失败、参数校验等)→ 返回 `nil`,
-    ///   调用方保持既有倒计时,符合规范 §5.1.1「失败可立即重发,除非服务端给了新的 retryAfter」。
-    public nonisolated static func retryAfterSeconds(from error: Error) -> Int64? {
-        guard let api = error as? OrdoAPIError else { return nil }
-        let reason = api.details?["reason"]?.stringValue
-        let isThrottled = api.code == .rateLimited || reason == "code_throttled"
-        guard isThrottled else { return nil }
-        let fallback = OrdoEmailCodePolicy.defaultRetryAfterSeconds
-        let raw = api.details?["retryAfterSec"]?.intValue ?? fallback
-        return min(raw > 0 ? raw : fallback, OrdoEmailCodePolicy.maximumRetryAfterSeconds)
     }
 }

@@ -169,7 +169,7 @@ public struct OrdoRefreshControlView: View {
         switch status {
         case .syncing:
             if !control.isSpinning { control.markSyncing() }
-        case .idle, .offline, .signedOut, .failed:
+        case .idle, .offline, .localOnly, .failed:
             if control.isSpinning { control.finish(OrdoRefreshOutcome.from(status: status)) }
         }
     }

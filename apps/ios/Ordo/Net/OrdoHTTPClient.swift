@@ -25,6 +25,33 @@ public struct OrdoAPIEnvironment: Sendable {
     public static let `default` = OrdoAPIEnvironment(baseURL: URL(string: "http://127.0.0.1:8787")!)
 }
 
+// MARK: - 服务端地址的隐藏覆盖(v1.3)
+
+public extension OrdoAPIEnvironment {
+
+    /// 隐藏覆盖键。设置页**不再**提供服务端地址输入框;需要指向别的后端时用这个键。
+    ///
+    /// 读取来源:`UserDefaults.standard` —— 因此 Xcode Scheme 的启动参数
+    /// `-ordo.apiBaseURL <自定义地址>` 与 `defaults write` 都直接生效。
+    /// 取值非法(空 / 非 URL / 缺 scheme 或 host)时**静默回落默认值**,确保「默认不动」:
+    /// 不配置就是本机开发地址(见 `default`)。改法见 `apps/ios/README.md`。
+    static let baseURLDefaultsKey = "ordo.apiBaseURL"
+
+    /// 解析实际使用的服务端环境(隐藏覆盖优先,否则默认)。
+    static func resolved(defaults: UserDefaults = .standard) -> OrdoAPIEnvironment {
+        guard let raw = defaults.string(forKey: baseURLDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty,
+            let url = URL(string: raw),
+            let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+            let host = url.host, !host.isEmpty
+        else {
+            return .default
+        }
+        return OrdoAPIEnvironment(baseURL: url)
+    }
+}
+
 /// 令牌刷新能力(由鉴权 API 实现,注入到 HTTP 客户端以打破循环依赖)。
 public protocol OrdoTokenRefresher: Sendable {
     func refreshTokens(using refreshToken: String) async throws -> OrdoTokens

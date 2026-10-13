@@ -196,18 +196,47 @@ export class RdbOrdoStore implements OrdoStore {
     }
   }
 
+  /**
+   * 单行写入。
+   *
+   * **为什么不用 `store.insert(table, bucket, conflict)`**(第六轮真机暴露的缺陷):
+   * 该 API 由 SDK 自己拼 `INSERT OR REPLACE INTO t(col1,col2,…) VALUES(?,…)`,列名**原样输出、不加引号**;
+   * 而 `order` / `when` 是 SQLite 保留字 → 真机上直接
+   * `E SqliteStatement: errno is:25 near "order": syntax error`(errno 25) →
+   * 任何实体/outbox/kv 写入全部失败。宿主用例走 `MemoryOrdoStore`(纯 JS)所以永远看不到。
+   *
+   * 这里改为手写 SQL + 绑定参数,并给**每一个列名**加双引号(与建表 DDL、SELECT 列清单的写法一致),
+   * 列名仍是契约 §8 要求的 `order` / `when`。
+   */
   private async insertRow(
     store: relationalStore.RdbStore,
     table: string,
-    bucket: relationalStore.ValuesBucket,
+    columns: string[],
+    values: relationalStore.ValueType[],
     conflict: relationalStore.ConflictResolution,
     what: string
   ): Promise<void> {
+    const verb: string = RdbOrdoStore.insertVerb(conflict);
+    const quoted: string[] = [];
+    const marks: string[] = [];
+    for (let i = 0; i < columns.length; i++) {
+      quoted.push('"' + columns[i] + '"');
+      marks.push('?');
+    }
+    const sql: string = verb + ' ' + table + '(' + quoted.join(',') + ') VALUES(' + marks.join(',') + ')';
     try {
-      await store.insert(table, bucket, conflict);
+      await store.executeSql(sql, values);
     } catch (e) {
       throw this.fail(what, e);
     }
+  }
+
+  /** ConflictResolution → SQL 动词(只用到 REPLACE / IGNORE;其余按 REPLACE 处理并保持显式) */
+  private static insertVerb(conflict: relationalStore.ConflictResolution): string {
+    if (conflict === relationalStore.ConflictResolution.ON_CONFLICT_IGNORE) {
+      return 'INSERT OR IGNORE INTO';
+    }
+    return 'INSERT OR REPLACE INTO';
   }
 
   private async deleteRows(store: relationalStore.RdbStore, predicates: relationalStore.RdbPredicates, what: string): Promise<void> {
@@ -550,87 +579,46 @@ export class RdbOrdoStore implements OrdoStore {
   /* ------------------------------------------- 单实体 upsert(事务内外共用) */
 
   private async upsertArea(store: relationalStore.RdbStore, a: Area): Promise<void> {
-    const bucket: relationalStore.ValuesBucket = {
-      'id': a.id,
-      'name': a.name,
-      'color': a.color,
-      'order': a.order,
-      'archived': this.toInt(a.archived),
-      'updatedAt': a.updatedAt,
-      'deleted': this.toInt(a.deleted)
-    };
-    await this.insertRow(store, 'areas', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存区域');
+    await this.insertRow(store, 'areas',
+      ['id', 'name', 'color', 'order', 'archived', 'updatedAt', 'deleted'],
+      [a.id, a.name, a.color, a.order, this.toInt(a.archived), a.updatedAt, this.toInt(a.deleted)],
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存区域');
   }
 
   private async upsertProject(store: relationalStore.RdbStore, p: Project): Promise<void> {
     const repeatJson: string = p.repeat === null ? '' : JSON.stringify(p.repeat);
-    const bucket: relationalStore.ValuesBucket = {
-      'id': p.id,
-      'areaId': p.areaId,
-      'name': p.name,
-      'note': p.note,
-      'when': p.when,
-      'date': p.date,
-      'deadline': p.deadline,
-      'tags': JSON.stringify(p.tags),
-      'order': p.order,
-      'status': p.status,
-      'completedAt': p.completedAt,
-      'repeat': repeatJson,
-      'createdAt': p.createdAt,
-      'updatedAt': p.updatedAt,
-      'deleted': this.toInt(p.deleted)
-    };
-    await this.insertRow(store, 'projects', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存项目');
+    await this.insertRow(store, 'projects',
+      ['id', 'areaId', 'name', 'note', 'when', 'date', 'deadline', 'tags', 'order', 'status',
+        'completedAt', 'repeat', 'createdAt', 'updatedAt', 'deleted'],
+      [p.id, p.areaId, p.name, p.note, p.when, p.date, p.deadline, JSON.stringify(p.tags), p.order,
+        p.status, p.completedAt, repeatJson, p.createdAt, p.updatedAt, this.toInt(p.deleted)],
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存项目');
   }
 
   private async upsertHeading(store: relationalStore.RdbStore, h: Heading): Promise<void> {
-    const bucket: relationalStore.ValuesBucket = {
-      'id': h.id,
-      'projectId': h.projectId,
-      'name': h.name,
-      'order': h.order,
-      'archived': this.toInt(h.archived),
-      'collapsed': this.toInt(h.collapsed),
-      'updatedAt': h.updatedAt
-    };
-    await this.insertRow(store, 'headings', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存标题');
+    await this.insertRow(store, 'headings',
+      ['id', 'projectId', 'name', 'order', 'archived', 'collapsed', 'updatedAt'],
+      [h.id, h.projectId, h.name, h.order, this.toInt(h.archived), this.toInt(h.collapsed), h.updatedAt],
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存标题');
   }
 
   private async upsertTodo(store: relationalStore.RdbStore, t: Todo): Promise<void> {
     const repeatJson: string = t.repeat === null ? '' : JSON.stringify(t.repeat);
-    const bucket: relationalStore.ValuesBucket = {
-      'id': t.id,
-      'title': t.title,
-      'note': t.note,
-      'when': t.when,
-      'date': t.date,
-      'reminder': t.reminder,
-      'deadline': t.deadline,
-      'tags': JSON.stringify(t.tags),
-      'checklist': JSON.stringify(t.checklist),
-      'projectId': t.projectId,
-      'areaId': t.areaId,
-      'headingId': t.headingId,
-      'repeat': repeatJson,
-      'order': t.order,
-      'status': t.status,
-      'createdAt': t.createdAt,
-      'updatedAt': t.updatedAt,
-      'completedAt': t.completedAt,
-      'deleted': this.toInt(t.deleted)
-    };
-    await this.insertRow(store, 'todos', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存待办');
+    await this.insertRow(store, 'todos',
+      ['id', 'title', 'note', 'when', 'date', 'reminder', 'deadline', 'tags', 'checklist',
+        'projectId', 'areaId', 'headingId', 'repeat', 'order', 'status',
+        'createdAt', 'updatedAt', 'completedAt', 'deleted'],
+      [t.id, t.title, t.note, t.when, t.date, t.reminder, t.deadline, JSON.stringify(t.tags),
+        JSON.stringify(t.checklist), t.projectId, t.areaId, t.headingId, repeatJson, t.order, t.status,
+        t.createdAt, t.updatedAt, t.completedAt, this.toInt(t.deleted)],
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存待办');
   }
 
   private async upsertTag(store: relationalStore.RdbStore, t: Tag): Promise<void> {
-    const bucket: relationalStore.ValuesBucket = {
-      'id': t.id,
-      'name': t.name,
-      'color': t.color,
-      'updatedAt': t.updatedAt
-    };
-    await this.insertRow(store, 'tags', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存标签');
+    await this.insertRow(store, 'tags',
+      ['id', 'name', 'color', 'updatedAt'],
+      [t.id, t.name, t.color, t.updatedAt],
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存标签');
   }
 
   async removeHeading(id: string): Promise<void> {
@@ -769,16 +757,10 @@ export class RdbOrdoStore implements OrdoStore {
   }
 
   async appendOutbox(op: Op): Promise<void> {
-    const bucket: relationalStore.ValuesBucket = {
-      'opId': op.opId,
-      'entity': op.entity,
-      'entityId': op.entityId,
-      'type': op.type,
-      'payload': op.payload,
-      'clientTs': op.clientTs,
-      'createdAt': op.clientTs
-    };
-    await this.insertRow(this.db(), 'outbox', bucket, relationalStore.ConflictResolution.ON_CONFLICT_IGNORE, '写入 outbox');
+    await this.insertRow(this.db(), 'outbox',
+      ['opId', 'entity', 'entityId', 'type', 'payload', 'clientTs', 'createdAt'],
+      [op.opId, op.entity, op.entityId, op.type, op.payload, op.clientTs, op.clientTs],
+      relationalStore.ConflictResolution.ON_CONFLICT_IGNORE, '写入 outbox');
   }
 
   async removeOutbox(opIds: string[]): Promise<void> {
@@ -830,13 +812,10 @@ export class RdbOrdoStore implements OrdoStore {
   }
 
   async saveTombstone(t: Tombstone): Promise<void> {
-    const bucket: relationalStore.ValuesBucket = {
-      'entity': t.entity,
-      'entityId': t.entityId,
-      'deletedAt': t.deletedAt,
-      'clientTs': t.clientTs
-    };
-    await this.insertRow(this.db(), 'tombstones', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存墓碑');
+    await this.insertRow(this.db(), 'tombstones',
+      ['entity', 'entityId', 'deletedAt', 'clientTs'],
+      [t.entity, t.entityId, t.deletedAt, t.clientTs],
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存墓碑');
   }
 
   async pruneTombstones(beforeMs: number): Promise<void> {
@@ -863,8 +842,10 @@ export class RdbOrdoStore implements OrdoStore {
   }
 
   async setKv(key: string, value: string): Promise<void> {
-    const bucket: relationalStore.ValuesBucket = { 'key': key, 'value': value };
-    await this.insertRow(this.db(), 'kv', bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存 kv');
+    await this.insertRow(this.db(), 'kv',
+      ['key', 'value'],
+      [key, value],
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE, '保存 kv');
   }
 
   async removeKv(key: string): Promise<void> {

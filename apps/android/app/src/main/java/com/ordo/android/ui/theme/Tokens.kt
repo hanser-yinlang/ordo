@@ -162,10 +162,8 @@ object OrdoLayout {
     /** 表单输入框（UI §5.1：浮动标签需要两行高度） */
     val fieldHeight: Dp = 52.dp
     val fieldHeightCompact: Dp = 44.dp
-    /** 主/次按钮高度（UI §5.1：高 44） */
+    /** 按钮高度（UI §5.1：高 44；v1.3 起登录页已移除，令牌保留供后续表单页复用） */
     val buttonHeight: Dp = 44.dp
-    /** 登录卡片宽度上限（UI §5.1：宽 400） */
-    val loginCardWidth: Dp = 400.dp
     val touchTarget: Dp = 44.dp
     val projectRingSize: Dp = 18.dp
     val sidebarIconSize: Dp = 18.dp

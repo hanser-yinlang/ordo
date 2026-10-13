@@ -36,7 +36,6 @@ import com.ordo.desktop.app.UiState
 import com.ordo.desktop.sync.SyncDiagnostics
 import com.ordo.desktop.ui.common.OrdoDivider
 import com.ordo.desktop.ui.common.OrdoTextButton
-import com.ordo.desktop.ui.common.OrdoTextField
 import com.ordo.desktop.ui.theme.OrdoRadius
 import com.ordo.desktop.ui.theme.OrdoSpace
 import com.ordo.desktop.ui.theme.OrdoType
@@ -47,7 +46,10 @@ import java.time.format.DateTimeFormatter
 
 /**
  * 设置浮层(04-UI规范 §4 组件规范 + §6 快捷键表)。
- * 五段:外观与启动 / 账号与同步 / 同步诊断 / 数据 / 快捷键。
+ * 四段:外观与启动 / 同步 / 同步诊断 / 数据 / 快捷键。
+ *
+ * 产品决策「不再需要登录」后,这里**没有**账号、退出登录与服务器地址:
+ * 会话在后台静默维护,服务器地址是隐藏覆盖(改 `%APPDATA%\Ordo\kv.json` 的 `ordo.serverUrl`)。
  */
 @Composable
 fun SettingsView(state: UiState, vm: OrdoViewModel) {
@@ -55,7 +57,6 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
     val scrim = remember { MutableInteractionSource() }
     val inner = remember { MutableInteractionSource() }
 
-    var serverUrl by remember { mutableStateOf(vm.serverUrl) }
     var message by remember { mutableStateOf<String?>(null) }
 
     var autoStartOn by remember { mutableStateOf(vm.isAutoStartEnabled()) }
@@ -197,46 +198,15 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
 
             SectionDivider()
 
-            /* ---------------- 账号与同步 ---------------- */
-            SectionTitle("账号与同步")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val account = state.account
-                Text(
-                    text = when {
-                        account == null -> "未登录(请先登录再使用同步)"
-                        account.isGuest -> "当前账号：游客（无邮箱口令，数据同样同步到云端）"
-                        else -> "当前账号：${account.displayName}"
-                    },
-                    style = OrdoType.caption,
-                    color = colors.textSecondary
-                )
-            }
-            state.account?.let { account ->
-                Spacer(Modifier.height(OrdoSpace.xs))
-                Text(
-                    text = "本地数据目录：%APPDATA%\\Ordo\\${account.dataDirName()}\\（按账号隔离；退出登录不会删除）",
-                    style = OrdoType.micro,
-                    color = colors.textTertiary
-                )
-            }
-            Spacer(Modifier.height(OrdoSpace.s))
-            OrdoTextField(
-                value = serverUrl,
-                onValueChange = { serverUrl = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = "服务器地址,如 http://127.0.0.1:8080"
-            )
-            Spacer(Modifier.height(OrdoSpace.s))
-
+            /* ---------------- 同步 ---------------- */
+            // 产品决策:不再需要登录 —— 这里没有账号 / 退出登录 / 服务器地址。
+            // 会话在后台静默维护(见 SilentSessionKeeper);服务器地址是隐藏覆盖,改 %APPDATA%\Ordo\kv.json。
+            SectionTitle("同步")
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(OrdoSpace.m)
             ) {
-                OrdoTextButton(text = "立即同步", onClick = { vm.setServerUrl(serverUrl); vm.syncNow() })
-                if (vm.isLoggedIn) {
-                    // 退出登录:只清会话、保留该 userId 的数据目录(契约 §7.6.3)
-                    OrdoTextButton(text = "退出登录", onClick = { vm.signOut() }, danger = true)
-                }
+                OrdoTextButton(text = "立即同步", onClick = { vm.syncNow() })
             }
 
             message?.let {
@@ -312,8 +282,8 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
             }
             Spacer(Modifier.height(OrdoSpace.xs))
             Text(
-                text = "本地数据位于 %APPDATA%\\Ordo\\<账号>\\（按账号隔离，契约 §7.6.3）；" +
-                    "清空只影响当前账号，云端数据需重新同步。",
+                text = "本地数据位于 %APPDATA%\\Ordo\\<数据目录 id>\\;" +
+                    "清空只影响本机这份数据，云端数据需重新同步。",
                 style = OrdoType.micro,
                 color = colors.textTertiary
             )

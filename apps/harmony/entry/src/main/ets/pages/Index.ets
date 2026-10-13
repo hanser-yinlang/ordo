@@ -1,8 +1,9 @@
 /**
  * Ordo · 主页面(路由入口)
- * 组装:登录门禁(未登录)/ 侧栏(窄屏为抽屉)+ 主列表 + 快加号 + 行内新建 + 排期面板 + 快找浮层 + 设置 + Toast
+ * 组装:侧栏(窄屏为抽屉)+ 主列表 + 快加号 + 行内新建 + 排期面板 + 快找浮层 + 设置 + Toast
  * 负责:初始化 AppStore、消费 ordo:// 深链、响应窗口宽度变化(04 §3 断点)、
- *      契约 §7.6.4 的启动门禁(无会话 → 登录页)、返回键取消拖拽(04 §5.4 取消路径)
+ *      启动过场(读会话/开库期间显示启动态,**没有登录门禁** —— v1.4 产品决策:启动即主界面)、
+ *      返回键取消拖拽(04 §5.4 取消路径)
  */
 
 import { common } from '@kit.AbilityKit';
@@ -13,7 +14,6 @@ import { QuickAddFab, QuickAddPanel } from '../view/QuickAddButton.ets';
 import { ScheduleSheet } from '../view/ScheduleSheet.ets';
 import { FastFindSheet } from '../view/FastFindSheet.ets';
 import { SettingsSheet } from './SettingsPage.ets';
-import { LoginGate } from '../view/LoginPage.ets';
 import { OrdoToast } from '../view/Common/OrdoToast.ets';
 import { OrdoColors, OrdoMotion, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 
@@ -47,18 +47,12 @@ struct Index {
   }
 
   /**
-   * 启动阶段变化:
-   *  - entering → 登录页正在播 160ms 淡出,到点切主界面(§5.1「卡片 fade out 160ms」)
-   *  - ready    → 主界面首帧透明,下一帧淡入 220ms(§5.1「主界面 fade in 220ms」)
+   * 启动阶段变化(v1.4 只有两态):
+   *  - booting → 启动过场(读会话 / 开本地库,通常几十毫秒)
+   *  - ready   → 主界面首帧透明,下一帧淡入 220ms
    */
   onAuthPhase(): void {
     const phase: string = this.store.authPhase;
-    if (phase === 'entering') {
-      setTimeout((): void => {
-        this.store.completeEnter();
-      }, OrdoMotion.loginCardFadeOut);
-      return;
-    }
     if (phase === 'ready') {
       setTimeout((): void => {
         this.mainIn = true;
@@ -105,39 +99,7 @@ struct Index {
     .height('100%')
   }
 
-  /** 登录门禁(契约 §7.6.4):未登录时整屏只有它,主界面根本不构造 */
-  @Builder
-  loginScreen() {
-    Stack() {
-      // 画布 + 极淡的品牌渐变光晕(透明度 ≤6%,不喧宾夺主,§5.1)
-      Column()
-        .width('100%')
-        .height('100%')
-        .linearGradient({
-          angle: 180,
-          colors: [['#0F5B5BD6', 0.0], ['#005B5BD6', 1.0]]
-        })
-      // 小屏 / 大字体时卡片可能高于可视区:用 Scroll 兜底,保证三个入口与服务器设置都够得着
-      Scroll() {
-        Column() {
-          LoginGate({ store: this.store, leaving: this.store.authPhase === 'entering' })
-        }
-        .width('100%')
-        .constraintSize({ minHeight: '100%' })
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .padding(OrdoSpace.l)
-      }
-      .width('100%')
-      .height('100%')
-      .scrollBar(BarState.Off)
-      .edgeEffect(EdgeEffect.None)
-    }
-    .width('100%')
-    .height('100%')
-  }
-
-  /** 读会话期间的过场(通常只有几十毫秒) */
+  /** 读会话/开库期间的过场(通常只有几十毫秒;v1.4 之后它是唯一的非主界面状态) */
   @Builder
   bootingScreen() {
     Column({ space: OrdoSpace.m }) {
@@ -266,10 +228,9 @@ struct Index {
     Stack() {
       if (this.store.authPhase === 'ready') {
         this.mainScreen()
-      } else if (this.store.authPhase === 'booting') {
-        this.bootingScreen()
       } else {
-        this.loginScreen()
+        // v1.4:没有登录页了 —— 未就绪时只可能是"启动过场"
+        this.bootingScreen()
       }
     }
     .width('100%')

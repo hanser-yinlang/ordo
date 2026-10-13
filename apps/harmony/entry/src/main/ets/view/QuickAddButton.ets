@@ -21,8 +21,43 @@ import { fmtMonthDay } from '../core/util/DateUtil.ets';
 import { nowMillis } from '../core/util/Ids.ets';
 import { AppStore } from '../viewmodel/AppStore.ets';
 import { LONG_PRESS_MS, PressTracker } from '../viewmodel/PressGesture.ets';
+import {
+  AREA_DOT_RADIUS,
+  AREA_LEFT,
+  AREA_RADIUS,
+  AREA_SIZE,
+  AREA_STROKE,
+  AREA_TOP,
+  FAB_ICON_SIZE,
+  FAB_ITEM_HEIGHT,
+  FAB_ITEM_ICON_GAP,
+  FAB_ITEM_PADDING_LEFT,
+  FAB_ITEM_RADIUS,
+  FAB_PANEL_MIN_WIDTH,
+  FAB_PANEL_RADIUS,
+  FabActionKind,
+  FabIconKind,
+  FabMenuItemModel,
+  HEADING_LINE_FROM_X,
+  HEADING_LINE_TO_X,
+  HEADING_LINE_YS,
+  HEADING_STROKE,
+  PLUS_H_FROM,
+  PLUS_H_TO,
+  PLUS_STROKE,
+  PLUS_V_FROM,
+  PLUS_V_TO,
+  PROJECT_BAR_FROM,
+  PROJECT_BAR_TO,
+  PROJECT_LEFT_FROM,
+  PROJECT_LEFT_TO,
+  PROJECT_RIGHT_FROM,
+  PROJECT_RIGHT_TO,
+  PROJECT_STROKE,
+  fabMenuItems
+} from '../viewmodel/FabMenu.ets';
 import { touchOf } from './Common/GestureUtil.ets';
-import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoIcons, OrdoMotion, OrdoRadius, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
+import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoMotion, OrdoRadius, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 
 /**
  * 快加输入框的组件 id。
@@ -31,11 +66,10 @@ import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoIcons, OrdoMotion, OrdoRadiu
  */
 const QUICK_ADD_INPUT_ID: string = 'ordo_quick_add_input';
 
-/** 快捷菜单项(§5.2:新建待办 / 项目 / 区域 / 标题) */
-interface FabMenuItem {
-  glyph: string;
-  label: string;
-}
+/** 快加号里那个白色「+」的画布与线宽(矢量,不用字体字符) */
+const FAB_PLUS_SIZE: number = 26;
+const FAB_PLUS_INSET: number = 5;
+const FAB_PLUS_STROKE: number = 2.6;
 
 @Component
 export struct QuickAddFab {
@@ -158,32 +192,25 @@ export struct QuickAddFab {
     action();
   }
 
-  private menuItems(): FabMenuItem[] {
-    const items: FabMenuItem[] = [
-      { glyph: OrdoIcons.plus, label: '新建待办' },
-      { glyph: '◎', label: '新建项目' },
-      { glyph: '▣', label: '新建区域' }
-    ];
-    if (this.store.list === 'project') {
-      items.push({ glyph: '▤', label: '新建标题' });
-    }
-    return items;
+  private menuItems(): FabMenuItemModel[] {
+    // §5.2:4 项;「新建标题」只在项目视图出现(heading 必属 project)
+    return fabMenuItems(this.store.list);
   }
 
-  private runItem(label: string): void {
-    if (label === '新建待办') {
+  private runItem(action: FabActionKind): void {
+    if (action === 'quickAdd') {
       this.act((): void => {
         this.store.openQuickAdd('', '', '');
       });
       return;
     }
-    if (label === '新建项目') {
+    if (action === 'createProject') {
       this.act((): void => {
         this.store.createProject('新项目', this.store.list === 'area' ? this.store.areaId : '');
       });
       return;
     }
-    if (label === '新建区域') {
+    if (action === 'createArea') {
       this.act((): void => {
         this.store.createArea('新区域');
       });
@@ -194,24 +221,96 @@ export struct QuickAddFab {
     });
   }
 
+  /**
+   * 菜单项图标:**全部用 ArkUI 形状组件矢量绘制**,不再用字体字符。
+   *
+   * 上一轮的 '→' 在鸿蒙上走了字体回退、渲染成别的形状,所以这里凡是"有语义的图形"都用
+   * `Line` / `Rect` / `Circle` 画:几何与线宽来自 `viewmodel/FabMenu.ets`(可被宿主机用例钉住),
+   * 颜色走 Tokens 的 accent(Ordo 靛紫)/ textSecondary。
+   */
   @Builder
-  menuItem(item: FabMenuItem, index: number) {
-    Row({ space: OrdoSpace.s }) {
-      Text(item.glyph)
-        .fontSize(OrdoFont.body.size)
-        .fontColor(this.c().textSecondary)
-        .width(20)
-        .textAlign(TextAlign.Center)
+  fabIcon(kind: FabIconKind) {
+    Stack() {
+      if (kind === 'plus') {
+        Line()
+          .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
+          .startPoint(PLUS_H_FROM).endPoint(PLUS_H_TO)
+          .stroke(this.c().accentPrimary).strokeWidth(PLUS_STROKE)
+          .strokeLineCap(LineCapStyle.Round)
+        Line()
+          .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
+          .startPoint(PLUS_V_FROM).endPoint(PLUS_V_TO)
+          .stroke(this.c().accentPrimary).strokeWidth(PLUS_STROKE)
+          .strokeLineCap(LineCapStyle.Round)
+      } else if (kind === 'projectH') {
+        Line()
+          .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
+          .startPoint(PROJECT_LEFT_FROM).endPoint(PROJECT_LEFT_TO)
+          .stroke(this.c().accentPrimary).strokeWidth(PROJECT_STROKE)
+          .strokeLineCap(LineCapStyle.Round)
+        Line()
+          .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
+          .startPoint(PROJECT_RIGHT_FROM).endPoint(PROJECT_RIGHT_TO)
+          .stroke(this.c().accentPrimary).strokeWidth(PROJECT_STROKE)
+          .strokeLineCap(LineCapStyle.Round)
+        Line()
+          .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
+          .startPoint(PROJECT_BAR_FROM).endPoint(PROJECT_BAR_TO)
+          .stroke(this.c().accentPrimary).strokeWidth(PROJECT_STROKE)
+          .strokeLineCap(LineCapStyle.Round)
+      } else if (kind === 'area') {
+        // 圆角方框 + 中心点(方框靠 Rect.radius,中心点靠实心 Circle)
+        Rect()
+          .width(AREA_SIZE).height(AREA_SIZE)
+          .radius(AREA_RADIUS)
+          .fillOpacity(0)
+          .stroke(this.c().accentPrimary)
+          .strokeWidth(AREA_STROKE)
+          .margin({ left: AREA_LEFT, top: AREA_TOP })
+        Circle()
+          .width(AREA_DOT_RADIUS * 2).height(AREA_DOT_RADIUS * 2)
+          .fill(this.c().accentPrimary)
+      } else {
+        // 标题:三横线
+        ForEach(HEADING_LINE_YS, (y: number) => {
+          Line()
+            .width(FAB_ICON_SIZE).height(FAB_ICON_SIZE)
+            .startPoint([HEADING_LINE_FROM_X, y]).endPoint([HEADING_LINE_TO_X, y])
+            .stroke(this.c().accentPrimary).strokeWidth(HEADING_STROKE)
+            .strokeLineCap(LineCapStyle.Round)
+        }, (y: number) => 'heading_' + y.toString())
+      }
+    }
+    .width(FAB_ICON_SIZE)
+    .height(FAB_ICON_SIZE)
+  }
+
+  @Builder
+  menuItem(item: FabMenuItemModel, index: number) {
+    Row({ space: FAB_ITEM_ICON_GAP }) {
+      this.fabIcon(item.icon)
       Text(item.label)
         .fontSize(OrdoFont.body.size)
         .fontColor(this.c().textPrimary)
+        .layoutWeight(1)
+      if (item.shortcut.length > 0) {
+        // §5.2:快捷键提示只有「新建待办」有
+        Text(item.shortcut)
+          .fontSize(OrdoFont.micro.size)
+          .fontColor(this.c().textSecondary)
+      }
     }
-    .width(168)
-    .height(OrdoSize.minTouchTarget)
-    .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
-    .backgroundColor(this.c().bgSurface)
+    .width('100%')
+    .height(FAB_ITEM_HEIGHT)
+    .padding({ left: FAB_ITEM_PADDING_LEFT, right: OrdoSpace.m })
+    .borderRadius(FAB_ITEM_RADIUS)
+    .stateStyles({
+      // 按下底 rowSelected(§5.2)
+      pressed: { .backgroundColor(this.c().rowSelected) },
+      normal: { .backgroundColor(Color.Transparent) }
+    })
     .onClick((): void => {
-      this.runItem(item.label);
+      this.runItem(item.action);
     })
     // 逐个错位 40ms 淡入并上移 6px(§5.2)
     .opacity(this.menuIn ? 1 : 0)
@@ -226,12 +325,15 @@ export struct QuickAddFab {
   @Builder
   menuPanel() {
     Column() {
-      ForEach(this.menuItems(), (item: FabMenuItem, index: number) => {
+      ForEach(this.menuItems(), (item: FabMenuItemModel, index: number) => {
         this.menuItem(item, index)
-      }, (item: FabMenuItem) => item.label)
+      }, (item: FabMenuItemModel) => item.label)
     }
+    // §5.2:最小宽 208、条目自带 radius 7,面板圆角 12 + 1px hairline + surface 底
+    .constraintSize({ minWidth: FAB_PANEL_MIN_WIDTH })
+    .padding(OrdoSpace.xs)
     .backgroundColor(this.c().bgSurface)
-    .borderRadius(OrdoRadius.card)
+    .borderRadius(FAB_PANEL_RADIUS)
     .border({ width: 1, color: this.c().lineHairline })
     .shadow({ radius: 24, color: 'rgba(0,0,0,0.14)', offsetY: 8 })
     .clip(true)
@@ -253,17 +355,26 @@ export struct QuickAddFab {
       }
 
       // 快加号本体:整个集群**只有这一个圆形按钮**(§5.2「删除独立的折叠箭头按钮」)
+      // 白色「+」同样用矢量画(不再用字体字符,避免字体回退把「+」渲染成别的形状)
       Stack() {
         Circle()
           .width(OrdoSize.quickAdd)
           .height(OrdoSize.quickAdd)
           .fill(this.c().accentPrimary)
-        Text(OrdoIcons.plus)
-          .fontSize(26)
-          .fontColor('#FFFFFF')
+        Line()
+          .width(FAB_PLUS_SIZE).height(FAB_PLUS_SIZE)
+          .startPoint([FAB_PLUS_INSET, FAB_PLUS_SIZE / 2]).endPoint([FAB_PLUS_SIZE - FAB_PLUS_INSET, FAB_PLUS_SIZE / 2])
+          .stroke('#FFFFFF').strokeWidth(FAB_PLUS_STROKE)
+          .strokeLineCap(LineCapStyle.Round)
+        Line()
+          .width(FAB_PLUS_SIZE).height(FAB_PLUS_SIZE)
+          .startPoint([FAB_PLUS_SIZE / 2, FAB_PLUS_INSET]).endPoint([FAB_PLUS_SIZE / 2, FAB_PLUS_SIZE - FAB_PLUS_INSET])
+          .stroke('#FFFFFF').strokeWidth(FAB_PLUS_STROKE)
+          .strokeLineCap(LineCapStyle.Round)
       }
       .width(OrdoSize.quickAdd)
       .height(OrdoSize.quickAdd)
+      .id('ordo_fab')
       .shadow({ radius: 8, color: 'rgba(0,0,0,0.20)', offsetY: 4 })
       // 长按到 400ms:放大到 1.06 并保持;按压 0.96(90ms)
       .scale({

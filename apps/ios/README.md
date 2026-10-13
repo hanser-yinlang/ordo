@@ -43,18 +43,18 @@ apps/ios/
 │   ├── verify_ios.sh                # **macOS 一条命令跑通**:探测任务名 → XCFramework → 构建 → 测试 → 自检
 │   └── ci-ios-job.yml               # 修正版 macOS CI job(供根目录 .github/workflows/ci.yml 合并)
 ├── Ordo/
-│   ├── App/            OrdoApp(登录门禁 + 深链)· AppEnvironment(组合根)· DeepLink
-│   ├── Auth/           **OrdoAuthService(会话/登录/注册/游客/升级)**· LoginView(§5.1)· LoginModel
+│   ├── App/            OrdoApp(启动即主界面 + 深链)· AppEnvironment(组合根)· DeepLink
+│   ├── Auth/           **OrdoAuthService(静默匿名会话:读会话 / refresh / 后台建号)**
 │   ├── Core/           OrdoModel(契约 §2 值类型)· OrdoEngineProtocol · **OrdoCoreBridge(KMP 桥)**
 │   │                   · OrdoCoreMapping · OrdoPayloadCoding · OrdoAPIProtocols · OrdoStorageProtocol
-│   │                   · **OrdoSession(§7.6 会话模型/门禁)**· **OrdoSessionBridge(会话 + 按用户分目录的 KMP 桥)**
+│   │                   · **OrdoSession(会话模型 + 本机账号标识 + 启动路由)**· **OrdoSessionBridge(会话 + 按目录隔离的 KMP 桥)**
 │   │                   · OrdoNaturalLanguage · OrdoDateFormatter · OrdoJSONValue
 │   ├── Data/           SwiftDataStorage(@ModelActor,契约 §8;每账号一个目录)
 │   │                   · **EventKitAgenda(只读系统日历)**· SeedData(示例日程)
-│   ├── Net/            OrdoHTTPClient(401 重放)· AuthApi(+guest/upgrade)· URLSessionSyncApi · RealtimeClient
-│   ├── Sync/           SyncCoordinator(30s / 场景切换 / 网络恢复)
+│   ├── Net/            OrdoHTTPClient(401 重放 + **隐藏地址覆盖**)· AuthApi(仅 guest/refresh)· URLSessionSyncApi · RealtimeClient
+│   ├── Sync/           SyncCoordinator(30s / 场景切换 / 网络恢复 · 401 → 静默重建匿名会话)
 │   ├── Notifications/  ReminderScheduler(UNUserNotificationCenter + 应用内兜底)
-│   ├── DesignSystem/   OrdoColor · OrdoFont · OrdoSpacing · OrdoRadius · OrdoMotion(含 §5.1~§5.4 令牌)
+│   ├── DesignSystem/   OrdoColor · OrdoFont · OrdoSpacing · OrdoRadius · OrdoMotion(§5.2~§5.4 令牌)
 │   ├── Shell/          OrdoShellView · SidebarView · StatusBarView(§5.3 刷新控件)· ShellViewModel
 │   │                   · **RefreshControlModel(刷新状态机,可单测)**
 │   ├── Lists/          ListScreenView(长按拖拽)· TodoRowView · **LongPressDrag(§5.4 手势 + 状态机)**
@@ -62,13 +62,14 @@ apps/ios/
 │   ├── Detail/         TodoDetailView(+ 全屏 TodoDetailScreen)
 │   ├── Schedule/       ScheduleSheet(排期 + 提醒,含 NLP 输入)
 │   ├── Search/         FastFindView(快找)
-│   ├── QuickAdd/       QuickAddButton(§5.2 单一快加号 + 长按 400ms 菜单)
-│   ├── Settings/       SettingsView(当前账号 + 退出登录 + 游客升级)
+│   ├── QuickAdd/       QuickAddButton(§5.2 单一快加号 + 长按 400ms 菜单)· QuickAddIcons(自绘图标)· QuickAddMenuItem
+│   ├── Settings/       SettingsView(外观 / 通知 / 同步 / 数据 / 快捷键 / 关于;**无账号与退出登录**)
 │   ├── Common/         EmptyStateView · OrdoToast · ProgressRingView · MarkdownNoteView
-│   ├── Intents/        OrdoAppIntents(App Intents / 快捷指令,按当前账号目录落库)
+│   ├── Intents/        OrdoAppIntents(App Intents / 快捷指令,按本机账号目录落库)
 │   └── Resources/      Assets.xcassets(AccentColor 与设计令牌一致)
 └── OrdoTests/          OrdoTestSupport · NlpParsingTests · QueryRulesTests · RepeatEngineTests · SyncMergeTests
-                        · **SessionAndGateTests(§7.6)**· **InteractionStateTests(§5.2~§5.4)**
+                        · **SessionAndSilentAuthTests(会话 / 启动路由 / 静默建号 / 隐藏地址覆盖)**
+                        · **InteractionStateTests(§5.2~§5.4)**· **QuickAddMenuTests(§5.2 图标与菜单)**
 ```
 
 ---
@@ -182,11 +183,14 @@ xcodebuild test -project Ordo.xcodeproj -scheme Ordo \
 ```
 
 测试覆盖契约 §4 / §5 / §6 / §7.3 / §7.6 与 UI 规范 §5.2~§5.4 的状态机,业务规则部分全部
-**通过 `OrdoCoreBridge` 驱动 KMP 核心**(见 §6);会话/门禁/交互状态机部分用纯 Swift 状态机与桩实现驱动。
-新增的三个文件:`OrdoTests/SessionAndGateTests.swift`(会话读写与游客标记 / §7.6.4 门禁 / 目录名隔离 /
-登录表单)/ `OrdoTests/InteractionStateTests.swift`(长按 400ms 与 6pt 阈值 / 刷新状态机 / §5.1~§5.4 令牌)/
-`OrdoTests/EmailCodeLoginTests.swift`(§7.6.5 免密登录:DTO 线格式 / 6 位码校验 / 重发倒计时 /
-`details.reason` 与 `details.retryAfterSec` 映射,纯 Swift,**不依赖 `OrdoCore`**)。
+**通过 `OrdoCoreBridge` 驱动 KMP 核心**(见 §6);会话/启动路由/交互状态机部分用纯 Swift 状态机与桩实现驱动。
+测试文件(8 个):`OrdoTests/SessionAndSilentAuthTests.swift`(会话读写 / 启动路由 /
+静默匿名建号 / 本机账号标识 / 目录隔离 / **服务端地址隐藏覆盖**)/ `InteractionStateTests.swift`
+(长按 400ms 与 6pt 阈值 / 刷新状态机 / §5.2~§5.4 令牌)/ `QuickAddMenuTests.swift`(§5.2 图标→形状映射与菜单尺寸)
++ `OrdoTestSupport` / `NlpParsingTests` / `QueryRulesTests` / `RepeatEngineTests` / `SyncMergeTests`(驱动 KMP 核心)。
+
+> **v1.3 已移除的测试**:`SessionAndGateTests.swift`(v1.2 的登录门禁/登录表单用例)与
+> `EmailCodeLoginTests.swift`(邮箱验证码登录用例)随登录系统一并删除。
 
 > ⚠️ 模块名有两条构建路径:SwiftPM 下 App 层模块是 `OrdoKit`,而 Xcode 工程
 > (`PRODUCT_NAME=Ordo`)是 `Ordo`。测试文件统一用
@@ -392,35 +396,71 @@ EventKit(EKEventStore,只读)──▶ OrdoCalendarEvent ──▶ AppEnvironmen
 4. 被拖拽的每条待办都会 `updatedAt = now` 并各产出一条 op;
    契约 §7.4 的限制(单次 push ≤ 500 ops)在小批量排序下不会触及。
 
-### 2.6 登录门禁、会话与「按用户分目录」(契约 §7.6)
+### 2.6 静默匿名会话、启动流程与「按目录隔离」(契约 §7.6.6:不再需要登录)
+
+> **产品决定(v1.4 / 契约 §7.6.6)**:不再需要登录。iOS 端已**移除全部登录界面与门禁**,启动即进主界面,
+> 但**保留云同步** —— 后台静默建立一个匿名账号。本节实现**已对齐契约 §7.6.6**
+> (docs/03 §7.6.6 + docs/04 v1.4 把 §5.1 / §5.1.1 标为已废弃;§7.6.4 的「三入口」
+> 仅对将来恢复账号体系有效)。
 
 ```
 启动 → OrdoAuthService.restore() 读会话(Application Support/Ordo/session.json)
-   ├─ 有且未过期            → 直接进主界面(随后后台静默 refresh)
-   ├─ 有但 accessToken 过期 → 先 refresh;失败 → 登录页(只清会话,目录保留)
-   └─ 无 / 坏数据           → 登录页:登录 · 注册 · **以游客身份继续**(三入口对等)
+   ├─ 有 userId(含离线占位会话)→ 直接进主界面;有令牌且已过期 → 先 refresh
+   │     ├─ refresh 成功            → 主界面(后台静默 refresh)
+   │     ├─ refresh 网络失败        → **仍然进主界面**(离线可用,联网后自动重试)
+   │     └─ refresh 被服务端否认    → 清死会话 → 静默 POST /v1/auth/guest 重建匿名会话
+   └─ 无 / userId 为空 → 静默 POST /v1/auth/guest 建匿名会话
+         └─ 连不上(无网首启)→ 用**本机账号标识**开主界面 + 后台退避重试(2s→4s→…→60s)
 
-有会话 → AppEnvironment.bootstrap(session:) → 打开 Application Support/Ordo/<userDataDirName(userId)>/
-                                             的 SwiftData(Ordo.store)→ 装配 KMP 引擎 → 同步
-换账号 / 退出登录 → 拆掉当前环境(停同步 + 取消订阅)→ 用新 userId 打开另一个目录
+AppEnvironment.bootstrap(session:) → 打开 Application Support/Ordo/<userDataDirName(userId)>/
+                                     的 SwiftData(Ordo.store)→ 装配 KMP 引擎 → 同步
+同步遇 401 → AppEnvironment.handleAuthExpired() → 静默重建匿名会话 → 继续同步(**目录不变**)
 ```
+
+**为什么会话的 `userId` 是「本机账号标识」而不是服务端返回的账号 id**(`OrdoLocalAccount`,根 kv `ordo.localAccountId`):
+
+- 本地数据目录 = `<userId>/`,所以它必须**跨启动稳定**;
+- 服务端身份是可静默重建的(离线首启、refresh 令牌被否认都会换一个新的匿名账号);
+- 若目录跟着服务端账号走,上面两种情况都会换目录,用户会看到「数据不见了」;
+- 保持本机 id 后:目录永不改变,本地数据还会在下次同步时被推到新账号上(`bootstrapFromRemoteIfEmpty`)。
+- 服务端**不消费**该字段(推送只带 `deviceId`,账号由令牌决定),因此这样做对同步协议无影响;
+- **不做迁移**:老版本留下的 `<服务端 userId>/` 目录原样保留并继续被使用(会话里存的就是它)。
 
 | 关注点 | 落地位置 | 说明 |
 |---|---|---|
-| 会话模型与门禁 | `Core/OrdoSession.swift` | `OrdoSessionRecord`(userId / email? / isGuest / accessToken / refreshToken / expiresAt、`isExpired(nowMillis:)`、`displayName()`)+ `OrdoStartupPlanner`(§7.6.4 纯函数路由) |
+| 静默会话服务 | `Auth/OrdoAuthService.swift` | `restore()`(读会话 → 直接用 / refresh / 建号)、`startAnonymousSession()`(静默 `POST /v1/auth/guest`,`userId` 沿用本机既有值)、`startLocalOnlySession()`(离线占位会话)、`isCredentialsRejected(_:)`(只有 401/403 才算会话失效) |
+| 启动路由 | `Core/OrdoSession.swift` | `OrdoStartupPlanner.plan(...)` → `.resume` / `.refresh` / `.createAnonymous`(**没有 login 分支**);`planAfterRefreshFailure(session:serverRejected:)` 区分「网络失败」与「服务端否认」 |
+| 本机账号标识 | `Core/OrdoSession.swift`(`OrdoLocalAccount`) | 首次启动生成 `local-<16 位十六进制>` 并落盘;`OrdoSessionRecord.localOnly(userId:)` 是离线占位会话 |
 | 会话落盘 | `Core/OrdoSessionBridge.swift` | `OrdoCoreSessionStore` 包核心 `OrdoSessionStore`(JSON 形状与清洗规则都在 Kotlin,Swift 只搬值);根目录 `session.json` 由 `OrdoFileKVStorage`(同步写)承载 |
 | 目录命名 | `OrdoCoreSessionStore.userDataDirName(_:)` | **直接调核心**(`OrdoSessionStore.companion.userDataDirName`),Swift 侧不复制清洗规则 |
-| 令牌宿主 | `OrdoSessionTokenStore` | 令牌只存在会话里(refresh 轮换 = 会话内换令牌);`X-Ordo-Device` 用**设备级** deviceId(根 kv `ordo.deviceId`,与核心 `OrdoEngine.KEY_DEVICE_ID` 同名) |
-| 三个入口 | `Auth/OrdoAuthService.swift` + `Auth/LoginView.swift` | 登录 / 注册 / 游客;`AuthApi` 新增 `guest(...)` 与 `upgrade(accessToken:_:)`;游客升级后 **userId 与数据不变**,只补邮箱口令 |
-| 邮箱验证码登录(§7.6.5) | `Net/AuthApi.swift` + `Core/OrdoAPIProtocols.swift` + `Auth/LoginModel.swift` + `Auth/LoginView.swift` | `requestEmailCode` / `emailLogin` 两个接口 + `OrdoEmailCodeRequest` / `OrdoEmailCodeSent` / `OrdoEmailCodeLoginRequest` DTO;卡片内「口令登录 \| 验证码登录」同级切换、6 位数字等宽输入、满 6 位自动提交、「获取验证码」按 `retryAfter` 倒计时置灰;失败按 `details.reason`(code_invalid / code_expired / code_attempts_exceeded / code_throttled)给中文;限流新秒数读 `details.retryAfterSec`(60s 兜底 + 3600s 夹取);`devCode` 只在开发模式回显时自动填入,生产路径不依赖 |
-| UI(§5.1) | `Auth/LoginView.swift` + `Auth/LoginModel.swift` | 卡片宽 400 · radius 16 · 浮动标签(聚焦上移 12px 转 accent)· 口令显隐 · 提交中 16dp 转圈并禁用全部入口 · 错误区固定 20 高 + 6px/320ms 衰减抖动 · 进入 fade + 上移 12px 220ms |
-| 退出登录 | `AppEnvironment.signOut()` | 只清会话(契约 §7.6.3),**不删**该 userId 的目录;设置页显示当前账号、账号类型、userId 与数据目录名,便于核对「两个账号是否共用目录」 |
-| 令牌失效 | `SyncCoordinator.onAuthExpired` → `AppEnvironment.handleAuthExpired()` | 401 且 refresh 失败 → 清会话回登录页(登录页给出「登录已过期,请重新登录」),目录同样保留 |
-| App Intents | `Intents/OrdoAppIntents.swift` | 写入器按**当前会话**打开对应账号目录,避免「Siri 记的一条落到别的目录」 |
+| 令牌宿主 | `OrdoSessionTokenStore` | 令牌只存在会话里(refresh 轮换 = 会话内换令牌);`isSignedIn()` = 会话在**且**有非空 accessToken(离线占位会话不算);`X-Ordo-Device` 用**设备级** deviceId(根 kv `ordo.deviceId`) |
+| 鉴权接口面 | `Core/OrdoAPIProtocols.swift` + `Net/AuthApi.swift` | **只剩 `guest` 与 `refresh`**(注册 / 口令登录 / 升级 / 邮箱验证码登录全部删除) |
+| 401 处理 | `SyncCoordinator.onAuthExpired` → `AppEnvironment.handleAuthExpired()` | 静默重建匿名会话(30s 防抖)→ 触发一次同步;重建失败保持本地模式,**不删任何数据** |
+| 设置页 | `Settings/SettingsView.swift` | 只有 外观 / 通知 / 同步 / 数据 / 快捷键 / 关于;**没有账号、退出登录、服务端地址输入框** |
+| App Intents | `Intents/OrdoAppIntents.swift` | 写入器按**当前会话**打开对应目录,避免「Siri 记的一条落到别的目录」 |
+
+**服务端地址:隐藏覆盖(v1.3 起设置页不再暴露)**
+
+默认仍是本机开发地址 `http://127.0.0.1:8787`(不配置就不变)。要指向别的后端,二选一:
+
+```bash
+# ① Xcode Scheme → Run → Arguments → Arguments Passed On Launch,加一行:
+-ordo.apiBaseURL https://api.example.com
+
+# ② 模拟器/真机的 UserDefaults(键名 ordo.apiBaseURL):
+xcrun simctl spawn booted defaults write com.ordo.app ordo.apiBaseURL "https://api.example.com"
+```
+
+读取实现是 `OrdoAPIEnvironment.resolved(defaults:)`(`Net/OrdoHTTPClient.swift`):
+**只接受 http/https + 有 host** 的取值,空值 / 相对路径 / `ftp:` 等一律**静默回落默认地址**。
+设置页不再显示该地址,因此改完请用「立即同步」或状态栏状态确认。
+
+> 契约 §7.6.6 写的是「读本地 kv」——iOS 侧对应的本地 kv 就是 `UserDefaults`
+> (键 `ordo.apiBaseURL`),因此上面的两种改法都直接生效;`default` 常量本身没有改动。
 
 > 会话为什么放在根目录而不是 `userId` 子目录:启动时必须**先读会话才知道 userId**,
-> 放在子目录会形成死循环;根目录只放**设备级**数据(会话 + deviceId),
-> 任何实体数据都只落在 `<userId>/` 里,因此不存在「两个账号共用一份数据」的路径。
+> 放在子目录会形成死循环;根目录只放**设备级**数据(会话 + deviceId + 本机账号标识),
+> 任何实体数据都只落在 `<userId>/` 里。
 
 ---
 
@@ -428,11 +468,12 @@ EventKit(EKEventStore,只读)──▶ OrdoCalendarEvent ──▶ AppEnvironmen
 
 | 规范要求 | 实现位置 | 状态 |
 |---|---|---|
-| **登录门禁:启动必须先登录(登录 / 注册 / 游客三入口)** | `Auth/OrdoAuthService.swift` + `Auth/LoginView.swift` + `Core/OrdoSession.swift` | ✅(契约 §7.6.4,未编译验证) |
-| **登录页 §5.1(400 宽卡片 / 浮动标签 / 口令显隐 / 转圈 / 抖动 / 进入动效)** | `Auth/LoginView.swift` + `Auth/LoginModel.swift` | ✅(未编译验证) |
-| **登录页 §5.1.1(邮箱验证码登录:同级切换 / 6 位数字等宽 / 满 6 位自动提交 / 60s 倒计时置灰 / 4 条 reason 中文)** | `Auth/LoginView.swift` + `Auth/LoginModel.swift` + `Net/AuthApi.swift` | ✅(契约 §7.6.5,未编译验证) |
-| **本地数据按 userId 隔离(`Application Support/<userId>/`)** | `Core/OrdoSessionBridge.swift`(`OrdoAppDirectories`)+ `Data/SwiftDataStorage.makeUserContainer(userId:)` | ✅(契约 §7.6.3 硬约束) |
-| **设置页:当前账号 + 退出登录(只清会话)+ 游客升级** | `Settings/SettingsView.swift` + `AppEnvironment.signOut()` | ✅ |
+| ~~登录门禁:启动必须先登录(登录 / 注册 / 游客三入口)~~ | — | **v1.3 移除**(产品决定:不再需要登录;启动即主界面 + 静默匿名会话) |
+| ~~登录页 §5.1(400 宽卡片 / 浮动标签 / 口令显隐 / 转圈 / 抖动 / 进入动效)~~ | — | **v1.3 移除**(`LoginView.swift` / `LoginModel.swift` 已删除) |
+| ~~登录页 §5.1.1(邮箱验证码登录)~~ | — | **v1.3 移除**(相关 view/model/DTO/XCTest 全部删除) |
+| **启动即主界面 + 后台静默匿名会话(离线也照常可用)** | `Auth/OrdoAuthService.swift` + `App/OrdoApp.swift` + `Core/OrdoSession.swift` | ✅(**未编译验证**) |
+| **本地数据按目录隔离(`Application Support/<本机账号标识>/`)** | `Core/OrdoSessionBridge.swift`(`OrdoAppDirectories`)+ `Data/SwiftDataStorage.makeUserContainer(userId:)` | ✅ |
+| **设置页:外观 / 通知 / 同步 / 数据 / 快捷键 / 关于(无账号与退出登录)** | `Settings/SettingsView.swift` | ✅ |
 | 三栏骨架(侧栏 248 + 列表 + 内联详情) | `Shell/OrdoShellView.swift` | ✅ |
 | iPhone 抽屉侧栏 + 全屏详情 | `Shell/OrdoShellView.swift`(`compactLayout`) | ✅ |
 | 大标题 28/34 + 计数 + 工具按钮 | `Lists/ListScreenView.swift` | ✅ |
@@ -458,7 +499,7 @@ EventKit(EKEventStore,只读)──▶ OrdoCalendarEvent ──▶ AppEnvironmen
 | 提醒兜底(无权限 / 前台 → 应用内横幅 + 角标 + 已触发记录去重) | `Notifications/ReminderScheduler.swift` + `Shell/StatusBarView.swift` | ✅ |
 | App Intents(新建待办 / 打开清单 / 完成待办) | `Intents/OrdoAppIntents.swift` | ✅ |
 | 深链 `ordo://`(+ Universal Links 解析兜底) | `App/DeepLink.swift` | ✅ |
-| 单元测试(契约 §4/§5/§6/§7.3 + §7.6 会话/门禁 + §5.2~§5.4 交互状态机) | `OrdoTests/` 7 个文件 | ✅(需 XCFramework 后方可编译运行;本机无 macOS,**未运行**) |
+| 单元测试(契约 §4/§5/§6/§7.3 + 会话/启动路由/静默建号 + §5.2~§5.4 交互状态机) | `OrdoTests/` 8 个文件 | ✅(需 XCFramework 后方可编译运行;本机无 macOS,**未运行**) |
 
 ---
 
@@ -482,15 +523,16 @@ EventKit(EKEventStore,只读)──▶ OrdoCalendarEvent ──▶ AppEnvironmen
 |---|---|---|
 | 1 | **部署目标 iOS 17.0** | 契约 §7 平台映射表写「iOS 16+」,但 SwiftData 与 `@Observable` 需要 iOS 17。**回退 iOS 16 的方案**:把 `Data/SwiftDataStorage.swift` 换成 JSON/SQLite 仓储(实现同一个 `OrdoStorageProtocol`),`IPHONEOS_DEPLOYMENT_TARGET` 改 `16.0`,`@Observable` 换成 `ObservableObject` + `@Published`(或把 `@Observable` 的用法限定在 iOS 17+ 分支);上层与 KMP 桥接层**无需改动**。另外 iOS 16 需要 `NSCalendarsUsageDescription` 走旧 API,该键已就位。 |
 | 2 | **未编译验证** | 本工程在 Windows 上编写,没有 macOS/Xcode,因此**未经编译**。已做的静态检查见 §6;真实编译需在 macOS 上执行 §1 的步骤。 |
+| 2b | **契约 §7.6.6「客户端不再要求交互式登录」—— 已对齐** | iOS 端删除了登录页与门禁,改为**启动即主界面 + 后台静默匿名会话**;docs/03 §7.6.6(v1.4)已把该产品决定写成跨端统一规则,docs/04 v1.4 把 §5.1 / §5.1.1 标为**已废弃**。本端实现逐条对齐:① 任何路径都不出现登录界面(含首装 / 会话过期 / 同步 401);② 401 静默重建匿名会话后继续;③ 设置页不暴露账号 / 退出登录 / 服务器地址;④ 接口全部保留、客户端只用 `guest` 与 `refresh`;⑤ 本地目录标识 = 本机稳定账号标识(`local-<16hex>`),永不因会话重建而改变、不迁移。**无契约偏差。** |
 | 3 | 契约 §7.3.6「标题为空视为删除」 | **已由核心补齐**:远端空标题 upsert 与本地 `setTitle(id, "")` 都写墓碑并置 `deleted`。iOS 侧不做补偿,已在 `SyncMergeTests` 加 4 条断言(空标题 / 纯空白 / 本地清空 / 墓碑防复活)。 |
 | 4 | 日历回退时展示示例数据 | 契约 §2.8 的 `CalendarEvent` 只读、本地、不同步。模拟器默认没有日历数据,因此首次启动通常看到的是示例日程,标题会标注「日程 · 示例」;有系统日历权限且当天有日程时自动切换为真实数据。 |
 | 5 | 拖拽排序仅限同容器 | 核心的 `order` 以 `(when, projectId, headingId)` 为作用域;「今天 / 计划 / 日志簿 / 标签」不读 `order`,因此不开放拖拽(见 §2.5)。 |
 | 6 | 项目内「拖到左边距建标题」未实现 | 快加号菜单提供「新建标题」等价入口。 |
-| 7 | 服务端地址默认 `http://127.0.0.1:8787` | 本地开发用;生产需替换为 HTTPS 域名并移除 Info.plist 的 ATS 例外。 |
+| 7 | 服务端地址默认 `http://127.0.0.1:8787` | 本地开发用;生产需替换为 HTTPS 域名并移除 Info.plist 的 ATS 例外。**v1.3 起设置页不再显示 / 不再提供输入框**,改为隐藏覆盖(见 §2.6:`ordo.apiBaseURL` 走 UserDefaults,非法值静默回落默认)。 |
 | 8 | 通知权限被拒时的体验 | 不再是「只在设置页提示」:提醒降级为**应用内横幅 + 状态栏角标**,并用 `ordo.reminder.fired` 记录去重(见 §2.5)。设置页仍会说明如何在系统中重新开启。 |
 | 9 | 应用内兜底的触发时机 | 无权限时的到点扫描发生在 `reschedule(snapshot:)`(每次数据变化 / 回到前台都会调用)。若 App 长时间被系统挂起,**不会**有后台任务主动弹出应用内横幅 —— 回到前台的第一次 `reschedule` 会补一次(仍受去重记录约束)。 |
 | 10 | 拖拽状态的兜底复位 | 手势力图统一为「长按 400ms 后拖动」,取消路径有:`Esc`(shell 转发)、拖出可视区域上下各 44pt、松手无目标行;另有 **10 秒静默兜底复位**(手势被系统中断时不会有 `onEnded`)。若真机上出现「行停在抬起态」,优先检查 `onChange(of: draggingTodoId)` 的兜底是否被 scenePhase 打断。 |
-| 11 | 会话文件的位置 | 契约 §7.6.1 写会话存于 `kv["ordo.session"]`。iOS 侧把它放在**根目录**的 `Application Support/Ordo/session.json`(由 `OrdoFileKVStorage` 这个「只承载 kv」的 `OrdoStorage` 实现承载,键名仍取核心 `OrdoSessionStore.KEY_SESSION`)。原因:启动时必须先读会话才知道 userId,放进入 userId 子目录就是死循环;实体数据仍严格按 `userId` 分目录。 |
+| 11 | 会话文件的位置与 `userId` 的语义 | 契约 §7.6.1 写会话存于 `kv["ordo.session"]`。iOS 侧把它放在**根目录**的 `Application Support/Ordo/session.json`(由 `OrdoFileKVStorage` 这个「只承载 kv」的 `OrdoStorage` 实现承载,键名仍取核心 `OrdoSessionStore.KEY_SESSION`)。原因:启动时必须先读会话才知道 userId,放进入 userId 子目录就是死循环;实体数据仍严格按 `userId` 分目录。**v1.3 起会话的 `userId` 是本机稳定标识**(`ordo.localAccountId`,见 §2.6)而不是服务端账号 id:这是「离线首启 / 401 重建匿名会话都不换目录、不丢数据」的前提;服务端不消费该字段。 |
 | 12 | 自定义长按手势与列表滚动 | 规范 §5.4 要求「长按 400ms 才拖动」,系统 `.onDrag` 无法满足(它同时带来预览与另一套长按判定)。现改为 `DragGesture(minimumDistance: 0)` + `simultaneousGesture`(保证列表照常滚动)+ 拖拽期间 `scrollDisabled`。这组搭配**必须在真机上确认手感**:若出现「拖拽时列表同时滚动」或「点击被吞掉」,把 `simultaneousGesture` 换成 `highPriorityGesture`(前者优先保滚动,后者优先保拖拽)。 |
 
 ### 5.2 首次编译风险清单(预计集中报错的地方)
@@ -629,3 +671,5 @@ bash apps/ios/tools/verify_ios.sh          # 探测任务名 → XCFramework →
 | 1.1.0 | 2026-10-10 | 客户试用后的四项要求(契约 v1.2 §7.6 + UI 规范 v1.1 §5.1~§5.4):① **登录门禁 + 游客登录**——`Auth/OrdoAuthService`、`Auth/LoginView`(§5.1 全量:400 宽卡片/浮动标签/口令显隐/提交转圈/错误抖动/进入动效)、`Core/OrdoSession`(会话模型 + §7.6.4 启动路由)、`AuthApi` 新增 `guest`/`upgrade` 与 `UserDto.isGuest`(Swift 侧 `OrdoUser.email` 改可选,匹配服务端游客 `email: null`);② **本地数据按 userId 隔离**(§7.6.3 硬约束)——`Core/OrdoSessionBridge`(`OrdoAppDirectories` + 根目录 `session.json` + `OrdoSessionTokenStore`),SwiftData 容器改 `<userId>/Ordo.store`,设置页显示当前账号/类型/userId/目录并可退出登录(只清会话)+ 游客升级,删除旧的 `Data/TokenStore.swift`;App Intents 也按当前会话目录落库;③ **快加号集群**(§5.2)只留一个 56pt 按钮、长按 400ms 菜单、展开旋转 45°、逐项错位 40ms,删除系统 contextMenu;④ **刷新控件**(§5.3)图标连续旋转 900ms/圈 + 已同步/同步失败(点击重试)+ 1.4s 防抖,`⌘R` 同源;⑤ **长按拖拽**(§5.4)统一为长按 400ms 后拖动(移动 <6pt 视为点击)、行抬起 1.02+12dp 投影+背景 surface、插入线 2dp+4dp 圆点、被拖行 alpha 0.55、取消路径(Esc/拖出可视区/无目标行)明确,删除 `.onDrag`/`.onDrop` 与 `OrdoReorderDropDelegate`;新增 `OrdoTests/SessionAndGateTests`(会话/门禁/目录名/升级)与 `OrdoTests/InteractionStateTests`(长按阈值/刷新状态机/§5.1~§5.4 令牌断言)。**全部为静态核对,未经编译**。 |
 | 1.2.0 | 2026-10-10 | **邮箱验证码登录(免密登录,契约 v1.3 §7.6.5 + UI 规范 v1.3 §5.1.1)**:① `OrdoAuthAPI` 协议、`URLSessionAuthApi` 与 `OrdoAuthService` 补 `requestEmailCode(_:)` / `emailLogin(_:)`(与核心 Kotlin `AuthApi` 的 `EmailCodeRequest` / `EmailCodeSent` / `EmailCodeLoginRequest` 逐字段对齐,`expiresIn`/`retryAfter` 用 `Int64` 且缺省回落 300/60);② `Auth/LoginModel` 新增 `OrdoLoginMethod`(口令 / 验证码同级切换,切换保留邮箱与两种凭据)、`OrdoEmailCodePolicy`(60s 兜底 / 3600s 上限)、验证码清洗(只收 ASCII 数字、截断 6 位)、重发倒计时(`tickCountdown` / `applyRetryAfter`);③ `Auth/LoginView` 新增分段切换、验证码行(等宽数字 + 字距 1.5 + `获取验证码` 次级按钮)、满 6 位自动提交、`.task(id:)` 逐秒倒计时、错误沿用 §5.1 抖动区;④ 错误映射优先读 `error.details.reason`(code_invalid / code_expired / code_attempts_exceeded / code_throttled / mail_failed),限流新秒数读 **`error.details.retryAfterSec`**(不是成功体的 `retryAfter`);⑤ 新增 `OrdoTests/EmailCodeLoginTests.swift`(DTO 线格式 / 码格式 / canSubmit / 倒计时 / reason 与 retryAfterSec 映射 / 服务层落会话);⑥ **修复既有构建阻塞**:测试文件的 `@testable import OrdoKit` 在 Xcode 工程下模块名应为 `Ordo`,改为 `#if canImport(OrdoKit)` 条件导入。**全部为静态核对,未经编译**(本机无 macOS)。 |
 | 1.2.1 | 2026-10-10 | **快加号菜单对齐参照原型(UI 规范 v1.3 §5.2「菜单项图标」)**:① 新增 `QuickAdd/QuickAddIcons.swift`——menu 前导图标 **四个全部用 SwiftUI `Path` 自绘**(20×20 viewBox:＋ 两条 2.1 圆头直线、项目 H 两竖一横 stroke 1.7、区域 14×14 圆角 4 描边方框 **stroke 1.5**(规范已定,取自参照原型 `i-area` 的原始 `stroke-width`)+ 中心 r2.6 实心点、标题 三横线 ≡ stroke 1.7),几何数值集中在 `QuickAddIconMetrics` 便于 XCTest 钉住;不再用形状不等价的 SF Symbols(`plus.circle` / `circle.dashed` / `square.grid.2x2` / `text.line.first…`);② 新增 `QuickAdd/QuickAddMenuItem.swift`——`QuickAddItem` 改为 `CaseIterable`(固定 4 项:新建待办/项目/区域/标题)+ `iconKind` 形状映射 + `shortcut`(仅待办 ⌘N)+ `menuItems(in:)`(「新建标题」只在项目视图出现,已写入规范,与 Windows 端一致);③ `QuickAdd/QuickAddButton.swift` 菜单面板改为最小宽 208 / radius 12 / 1px hairline / surface,条目高 44 / 左内边距 9 / 图标↔文字 8 / 字号 13.5 / 条目 radius 7 / 按下底色 `rowSelected`(`OrdoQuickAddItemStyle`),颜色全走 DesignSystem 令牌(菜单项图标 `textSecondary`,不引入参照原型蓝色);④ 令牌新增 `OrdoRadius.quickAddMenu(12)` / `quickAddItem(7)` / `OrdoColor.rowSelected` / `OrdoFont.quickAddItem(13.5)` / `OrdoMotion.QuickAdd.menuMinWidth 等`;⑤ 新增 `OrdoTests/QuickAddMenuTests.swift`(顺序/文案/图标→形状映射/快捷键/几何与 viewBox/四项线宽 2.1·1.7·1.5·1.7/面板条目尺寸/自绘路径边界)。**全部为静态核对,未经编译**。 |
+| 1.3.0 | 2026-10-13 | **移除登录系统:启动即主界面 + 后台静默匿名会话(产品决定「不再需要登录」)**:① **删除** `Auth/LoginView.swift`、`Auth/LoginModel.swift`(含 `OrdoLoginForm` / `OrdoLoginMode` / `OrdoLoginMethod` / `OrdoEmailCodePolicy`)、`OrdoTests/EmailCodeLoginTests.swift`、`OrdoTests/SessionAndGateTests.swift`(登录门禁与登录表单用例),`OrdoMotion.Login` 令牌整组删除(只留 `OrdoMotion.mainIn`);② `OrdoAuthAPI` / `URLSessionAuthApi` / `OrdoAuthService` 收敛为**只做静默匿名会话**:`guest` + `refresh`,新增 `OrdoStartupPlan.createAnonymous`、`restore()` 三分支(有效 → resume;过期 → refresh;网络失败 → 仍 resume 离线可用;服务端否认 / 无会话 → createAnonymous)、`startAnonymousSession()`(静默建号,`userId` 沿用本机既有值)、`startLocalOnlySession()`(离线占位会话)、`isCredentialsRejected(_:)`(只有 401/403 算失效);③ **本机账号标识** `OrdoLocalAccount`(根 kv `ordo.localAccountId`,首次启动生成)→ 会话的 `userId` 不再等于服务端账号 id,因此「离线首启 → 联网认领」与「401 重建匿名会话」都**不换本地目录、不丢数据**(不做迁移;老 `<服务端 userId>/` 目录继续沿用);④ `OrdoApp.RootView` 去掉 login 阶段:无会话时静默建号,连不上就用本机标识直接进主界面 + **后台退避重试(2s→4s→…→60s)**;⑤ 401 → `AppEnvironment.handleAuthExpired()` **静默重建匿名会话**(30s 防抖)并 `bootstrapFromRemoteIfEmpty()`,不再回登录页、不拆环境;`SyncCoordinator.Status.signedOut` 改名 `localOnly`(文案「本地模式」),`EmptyStateView.Kind.signedOut` 删除;⑥ 设置页删除「账号 / 退出登录 / 升级为正式账号 / 服务端地址」,服务器地址改**隐藏覆盖** `OrdoAPIEnvironment.resolved(defaults:)`(UserDefaults 键 `ordo.apiBaseURL`,只接受 http(s)+host,非法值静默回落默认;README §2.6 写明两种改法);⑦ 新增 `OrdoTests/SessionAndSilentAuthTests.swift`(会话模型 / 启动路由 / 本机账号标识稳定性 / 静默建号与 401 重建不换目录 / 离线占位会话不算已登录 / 隐藏地址覆盖的合法与非法取值)。**全部为静态核对,未经编译**(本机无 macOS)。 |
+| 1.4.0 | 2026-10-13 | **文档对齐契约 §7.6.6(v1.4),无代码改动**:① docs/03 新增 §7.6.6「客户端不再要求交互式登录」,并把「本地数据目录标识 = 本机稳定账号标识(各端自定形态,如 `local-<16hex>` / 永不因会话重建而改变 / 服务端不消费 / 不做迁移)」写成跨端统一规则 —— 与本端 `OrdoLocalAccount` 实现逐条一致;docs/04 v1.4 把 §5.1 / §5.1.1 标为**已废弃**,§7.6.4 的「三入口」注明仅对将来恢复账号体系有效。② README §2.6 标题与说明改为「已对齐契约 §7.6.6」,§5.1 的「已知偏差 2b」改写为**已对齐、无契约偏差**(并逐条列出对齐项);③ 补注契约 §7.6.6 所说的「本地 kv」在 iOS 侧即 `UserDefaults`(键 `ordo.apiBaseURL`),默认值与校验规则未变。**静态核对通过,仍未编译**。 |

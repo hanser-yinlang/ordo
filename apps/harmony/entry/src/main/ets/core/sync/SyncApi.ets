@@ -22,7 +22,6 @@ import {
   apiError,
   apiErrorWithReason,
   errorText,
-  errorTextWithReason,
   parseErrorDetails
 } from './SyncTypes.ets';
 
@@ -32,23 +31,6 @@ export interface AuthResult {
   tokens: AuthTokens;
 }
 
-/** 验证码有效期兜底(秒,契约 §7.6.5:300) */
-export const EMAIL_CODE_DEFAULT_TTL: number = 300;
-/** 再次请求的最小间隔兜底(秒,契约 §7.6.5:60) */
-export const EMAIL_CODE_DEFAULT_RETRY_AFTER: number = 60;
-
-/**
- * POST /v1/auth/email/code 的返回(契约 §7.6.5)。
- *
- * `devCode` **只在开发模式**(`ORDO_MAIL_TRANSPORT=console` 且 `ORDO_DEV_ECHO_CODE=1`)回显,
- * 生产环境恒为空串 —— 客户端只能把它当联调便利,**不得依赖**(为空时界面照常让用户手输)。
- */
-export interface EmailCodeSent {
-  sent: boolean;
-  expiresIn: number;
-  retryAfter: number;
-  devCode: string;
-}
 
 /** 被服务端拒绝的 op(兼容两种下发形态:纯 opId 字符串 或 对象) */
 export interface RejectedOp {
@@ -86,10 +68,6 @@ interface AuthBody {
   expiresIn: number;
 }
 
-/** POST /v1/auth/upgrade 的返回(契约 §7.6.2:userId 与数据都不变,只补邮箱口令) */
-interface UpgradeBody {
-  user: AuthUser;
-}
 
 interface PushBody {
   serverSeq: number;
@@ -118,14 +96,6 @@ interface ErrorDetail {
   code: string;
   message: string;
   details: Object;
-}
-
-/** 归一化后的验证码受理响应(缺字段一律回落到契约默认值) */
-interface EmailCodeSentBody {
-  sent: boolean;
-  expiresIn: number;
-  retryAfter: number;
-  devCode: string;
 }
 
 export class SyncApi {
@@ -226,8 +196,7 @@ export class SyncApi {
     if (parsedCode.length === 0) {
       parsedCode = code === 401 ? ERR_AUTH_REQUIRED : (code === 429 ? ERR_RATE_LIMITED : ERR_VALIDATION_FAILED);
     }
-    const fallback: string = errorTextWithReason(parsedCode, parsedReason);
-    const shown: string = parsedMessage.length > 0 ? parsedMessage : fallback;
+    const shown: string = parsedMessage.length > 0 ? parsedMessage : errorText(parsedCode);
     return apiErrorWithReason(parsedCode, shown, 'HTTP ' + code.toString(), parsedReason, parsedRetryAfterSec);
   }
 
@@ -257,28 +226,6 @@ export class SyncApi {
 
   /* ------------------------------------------------------------------ 鉴权 */
 
-  async register(email: string, password: string, deviceName: string): Promise<AuthResult> {
-    const payload: string = JSON.stringify({
-      email: email,
-      password: password,
-      deviceName: deviceName,
-      platform: 'harmony'
-    });
-    const text: string = await this.send(http.RequestMethod.POST, '/v1/auth/register', payload, false);
-    return this.parseAuth(text);
-  }
-
-  async login(email: string, password: string, deviceName: string): Promise<AuthResult> {
-    const payload: string = JSON.stringify({
-      email: email,
-      password: password,
-      deviceName: deviceName,
-      platform: 'harmony'
-    });
-    const text: string = await this.send(http.RequestMethod.POST, '/v1/auth/login', payload, false);
-    return this.parseAuth(text);
-  }
-
   private parseAuth(text: string): AuthResult {
     const body: AuthBody = JSON.parse(text) as AuthBody;
     const tokens: AuthTokens = {
@@ -292,8 +239,10 @@ export class SyncApi {
   }
 
   /**
-   * 游客登录(契约 §7.6.2 POST /v1/auth/guest)。
-   * 与 register/login 同构:同样拿到正常令牌,**不是离线模式**,游客数据照样入库、照样多端同步。
+   * 静默建匿名账号(契约 §7.6.2 POST /v1/auth/guest)。
+   *
+   * v1.4:登录界面移除后,这是**唯一**的登录入口 —— 启动时后台静默调用,
+   * 失败就退避重试,不阻塞、不弹界面。返回的是正常令牌,数据照样入库、照样多端同步。
    */
   async guest(deviceId: string, deviceName: string, platform: string): Promise<AuthResult> {
     const payload: string = JSON.stringify({
@@ -302,49 +251,6 @@ export class SyncApi {
       platform: platform
     });
     const text: string = await this.send(http.RequestMethod.POST, '/v1/auth/guest', payload, false);
-    return this.parseAuth(text);
-  }
-
-  /**
-   * 游客升级为正式账号(契约 §7.6.2 POST /v1/auth/upgrade,需带 Access Token)。
-   * userId 不变、数据不变,只把 email/password 补上;邮箱被占用时服务端返回 AUTH_EMAIL_TAKEN。
-   */
-  async upgrade(email: string, password: string): Promise<AuthUser> {
-    const payload: string = JSON.stringify({ email: email, password: password });
-    const text: string = await this.sendWithAuth(http.RequestMethod.POST, '/v1/auth/upgrade', payload);
-    const body: UpgradeBody = JSON.parse(text) as UpgradeBody;
-    return normalizeUser(body.user);
-  }
-
-  /**
-   * 请求邮箱登录验证码(契约 §7.6.5 POST /v1/auth/email/code)。
-   *
-   * 服务端对同一邮箱 60s 内重复请求返回 429 `RATE_LIMITED`(details.reason = `code_throttled`),
-   * 由调用方按"请求过频"提示并跑倒计时 —— 那不是"发信失败",不应提示用户重试发信。
-   */
-  async requestEmailCode(email: string): Promise<EmailCodeSent> {
-    const payload: string = JSON.stringify({ email: email });
-    const text: string = await this.send(http.RequestMethod.POST, '/v1/auth/email/code', payload, false);
-    const body: EmailCodeSentBody = JSON.parse(text) as EmailCodeSentBody;
-    return normalizeEmailCodeSent(body);
-  }
-
-  /**
-   * 邮箱验证码登录(契约 §7.6.5 POST /v1/auth/email/login)。
-   *
-   * 响应与 register / login / guest **同构**(user + device + accessToken + refreshToken + expiresIn),
-   * 因此后续流程与口令登录完全一致:同一 userId、同一份云端数据、同一套 refreshToken。
-   * 邮箱未注册时由服务端自动建号(正式账号、无口令),客户端不需要区分"登录"与"注册"。
-   */
-  async emailLogin(email: string, code: string, deviceId: string, deviceName: string): Promise<AuthResult> {
-    const payload: string = JSON.stringify({
-      email: email,
-      code: code,
-      deviceId: deviceId,
-      deviceName: deviceName,
-      platform: 'harmony'
-    });
-    const text: string = await this.send(http.RequestMethod.POST, '/v1/auth/email/login', payload, false);
     return this.parseAuth(text);
   }
 
@@ -376,19 +282,6 @@ export class SyncApi {
     };
     this.tokens = next;
     return next;
-  }
-
-  async logout(): Promise<void> {
-    if (this.tokens === null) {
-      return;
-    }
-    const payload: string = JSON.stringify({ refreshToken: (this.tokens as AuthTokens).refreshToken });
-    try {
-      await this.send(http.RequestMethod.POST, '/v1/auth/logout', payload, true);
-    } catch (e) {
-      // 退出登录以本地清理为准,服务端失败不阻塞
-    }
-    this.tokens = null;
   }
 
   /* ------------------------------------------------------------------ 同步 */
@@ -478,35 +371,6 @@ function normalizeUser(u: AuthUser): AuthUser {
     id: u.id === undefined || u.id === null ? '' : u.id,
     email: u.email === undefined || u.email === null ? '' : u.email,
     isGuest: u.isGuest === true
-  };
-  return out;
-}
-
-/**
- * 归一化 `POST /v1/auth/email/code` 的响应。
- * 缺字段时回落到契约默认值(expiresIn 300 / retryAfter 60 / devCode 空),避免服务端少给字段
- * 就把倒计时跑成 0 秒或把 undefined 填进输入框。
- *
- * 注意:`retryAfter` 是**成功响应顶层**的字段名;错误体里是 `details.retryAfterSec`
- * (见 SyncTypes.parseErrorDetails)。
- */
-function normalizeEmailCodeSent(body: EmailCodeSentBody): EmailCodeSent {
-  if (body === null || body === undefined) {
-    return {
-      sent: false,
-      expiresIn: EMAIL_CODE_DEFAULT_TTL,
-      retryAfter: EMAIL_CODE_DEFAULT_RETRY_AFTER,
-      devCode: ''
-    };
-  }
-  const ttl: number = body.expiresIn === undefined || body.expiresIn === null ? 0 : body.expiresIn;
-  const retry: number = body.retryAfter === undefined || body.retryAfter === null ? 0 : body.retryAfter;
-  const dev: string = body.devCode === undefined || body.devCode === null ? '' : body.devCode;
-  const out: EmailCodeSent = {
-    sent: body.sent !== false,
-    expiresIn: ttl > 0 ? ttl : EMAIL_CODE_DEFAULT_TTL,
-    retryAfter: retry > 0 ? retry : EMAIL_CODE_DEFAULT_RETRY_AFTER,
-    devCode: dev
   };
   return out;
 }

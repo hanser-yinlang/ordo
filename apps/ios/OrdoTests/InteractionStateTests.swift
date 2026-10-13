@@ -219,11 +219,11 @@ final class OrdoRefreshControlTests: XCTestCase {
         XCTAssertEqual(control.phase, .syncing)
     }
 
-    /// 同步协调器的状态 → 刷新结果(离线/未登录都按失败表达)。
+    /// 同步协调器的状态 → 刷新结果(离线 / 还没连上云端都按失败表达)。
     func testOutcomeMapping() {
         XCTAssertEqual(OrdoRefreshOutcome.from(status: .idle), .synced)
         XCTAssertEqual(OrdoRefreshOutcome.from(status: .offline), .failed("网络不可用"))
-        XCTAssertEqual(OrdoRefreshOutcome.from(status: .signedOut), .failed("未登录"))
+        XCTAssertEqual(OrdoRefreshOutcome.from(status: .localOnly), .failed("尚未连接云端"))
         XCTAssertEqual(OrdoRefreshOutcome.from(status: .failed("x")), .failed("x"))
         XCTAssertEqual(OrdoRefreshOutcome.from(status: nil), .failed("同步未启用"))
     }
@@ -240,11 +240,11 @@ final class OrdoRefreshControlTests: XCTestCase {
         XCTAssertTrue(control.isSpinning)
     }
 
-    /// 退出登录时复位,避免残留失败文案。
+    /// 会话/环境重建时复位,避免残留失败文案。
     func testReset() {
         let (control, _) = makeControl()
         _ = control.begin()
-        control.finish(.failed("未登录"))
+        control.finish(.failed("尚未连接云端"))
         control.reset()
         XCTAssertEqual(control.phase, .idle)
         XCTAssertNil(control.lastFailureReason)
@@ -288,14 +288,15 @@ final class OrdoQuickAddSpecTests: XCTestCase {
         XCTAssertEqual(OrdoMotion.Drag.clickSlop, 6, accuracy: 0.0001)
     }
 
-    /// 变焦/动画令牌不得为负(避免误写)。
+    /// 动效令牌不得为负(避免误写)。登录页已随 v1.3 移除,这里只校验仍在使用的令牌。
     func testMotionTokensAreSane() {
-        XCTAssertGreaterThan(OrdoMotion.Login.cardWidth, 0)
-        XCTAssertEqual(OrdoMotion.Login.cardWidth, 400, accuracy: 0.0001)
-        XCTAssertEqual(OrdoMotion.Login.shakeAmplitude, 6, accuracy: 0.0001)
-        XCTAssertEqual(OrdoMotion.Login.shakeDuration, 0.32, accuracy: 0.0001)
-        XCTAssertEqual(OrdoMotion.Login.shakeCycles, 2)
-        XCTAssertEqual(OrdoMotion.Login.pressScale, 0.98, accuracy: 0.0001)
-        XCTAssertEqual(OrdoMotion.Login.errorReservedHeight, 20, accuracy: 0.0001)
+        XCTAssertGreaterThan(OrdoMotion.base, 0)
+        XCTAssertGreaterThan(OrdoMotion.fast, 0)
+        XCTAssertGreaterThan(OrdoMotion.slow, 0)
+        XCTAssertGreaterThan(OrdoMotion.QuickAdd.menuMinWidth, 0)
+        XCTAssertGreaterThan(OrdoMotion.QuickAdd.menuItemHeight, 0)
+        XCTAssertGreaterThan(OrdoSpacing.minTouchTarget, 0)
+        XCTAssertGreaterThan(OrdoRadius.quickAddMenu, 0)
+        XCTAssertGreaterThan(OrdoRadius.quickAddItem, 0)
     }
 }

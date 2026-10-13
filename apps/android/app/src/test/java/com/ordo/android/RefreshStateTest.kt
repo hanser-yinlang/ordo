@@ -110,15 +110,20 @@ class RefreshStateTest {
     }
 
     @Test
-    fun `未登录时禁用且文案为未登录`() {
+    fun `还没有会话时禁用且文案为未连接`() {
         val control = controller()
 
         control.onNotLoggedIn()
 
         val state = control.state.value
         assertEquals(RefreshLabel.NEVER, state.label)
-        assertFalse("未登录时点了也没有意义，按钮禁用", state.enabled)
+        assertFalse("还没有会话时点了也没有意义，按钮禁用", state.enabled)
         assertFalse(control.onClick())
+        assertEquals(
+            "v1.3 已无登录概念：文案必须是「未连接」，不得再出现「未登录」",
+            "未连接",
+            TestStrings.value("sync_never"),
+        )
     }
 
     @Test

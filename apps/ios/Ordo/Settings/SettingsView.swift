@@ -4,9 +4,13 @@
 //
 //  设置(设计规范 §2.1 外观 / §4 状态 / §7 平台映射 / §8 无障碍)。
 //
-//  分区:外观 · 通知 · 同步与账号 · 数据 · 快捷键 · 关于。
-//  「同步与账号」显示**当前账号**(邮箱或「游客」)、账号类型、userId、本地数据目录与退出登录
-//  (契约 §7.6.3:退出只清会话、保留目录);游客额外提供「升级为正式账号」。
+//  分区:外观 · 通知 · 同步 · 数据 · 快捷键 · 关于。
+//
+//  v1.3 移除项(产品决定:不再需要登录):「账号」区块(当前账号 / 账号类型 / userId / 本地数据目录)、
+//  「退出登录」、「升级为正式账号」表单、以及「服务端地址」显示行。
+//  服务端地址改为**隐藏覆盖**:读 `UserDefaults` 的 `ordo.apiBaseURL`,默认仍是本机开发地址;
+//  改法见 `apps/ios/README.md`(设置页不再提供输入框)。
+//
 //  所有文案为简体中文;通知权限说明与 Info.plist 的 NSUserNotificationUsageDescription 一致。
 //
 
@@ -18,9 +22,6 @@ public struct SettingsView: View {
     private let environment: AppEnvironment
 
     @Environment(\.dismiss) private var dismiss
-    @State private var upgradeEmail = ""
-    @State private var upgradePassword = ""
-    @State private var isUpgrading = false
     @State private var showsResetConfirm = false
 
     public init(shell: ShellViewModel, environment: AppEnvironment) {
@@ -128,10 +129,10 @@ public struct SettingsView: View {
         environment.notificationAuthorized ? "已开启" : "未开启"
     }
 
-    // MARK: 同步与账号(契约 §7.6)
+    // MARK: 同步(v1.3:没有账号,只有静默匿名会话)
 
     private var syncSection: some View {
-        section("同步与账号") {
+        section("同步") {
             HStack {
                 Text("状态")
                     .font(OrdoFont.body)
@@ -141,123 +142,20 @@ public struct SettingsView: View {
                     .foregroundStyle(shell.syncIsProblem ? OrdoColor.danger : OrdoColor.textSecondary)
             }
 
-            if let session = environment.session {
-                HStack {
-                    Text("当前账号")
-                        .font(OrdoFont.body)
-                    Spacer()
-                    Text(session.displayName())
-                        .font(OrdoFont.caption)
-                        .foregroundStyle(OrdoColor.textSecondary)
+            HStack(spacing: OrdoSpacing.m) {
+                Button("立即同步") {
+                    Task { await environment.sync?.syncNow(reason: "手动") }
                 }
-
-                HStack {
-                    Text("账号类型")
-                        .font(OrdoFont.body)
-                    Spacer()
-                    Text(session.isGuest ? "游客(数据同样云端同步)" : "正式账号")
-                        .font(OrdoFont.caption)
-                        .foregroundStyle(OrdoColor.textSecondary)
-                }
-
-                HStack(alignment: .firstTextBaseline) {
-                    Text("userId")
-                        .font(OrdoFont.body)
-                    Spacer()
-                    Text(session.userId)
-                        .font(OrdoFont.micro)
-                        .foregroundStyle(OrdoColor.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                // 契约 §7.6.3 硬约束的可核对证据:每个账号一个目录,换账号必然换目录。
-                HStack(alignment: .firstTextBaseline) {
-                    Text("本地数据目录")
-                        .font(OrdoFont.body)
-                    Spacer()
-                    Text(environment.userDataDirectory?.lastPathComponent ?? "内存模式(未落盘)")
-                        .font(OrdoFont.micro)
-                        .foregroundStyle(OrdoColor.textTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                HStack(spacing: OrdoSpacing.m) {
-                    Button("立即同步") {
-                        Task { await environment.sync?.syncNow(reason: "手动") }
-                    }
-                    .font(OrdoFont.captionEmphasis)
-                    .foregroundStyle(OrdoColor.accent)
-                    .buttonStyle(.plain)
-
-                    Button("退出登录") {
-                        Task { await environment.signOut() }
-                    }
-                    .font(OrdoFont.captionEmphasis)
-                    .foregroundStyle(OrdoColor.danger)
-                    .buttonStyle(.plain)
-                }
-
-                Text("退出登录只清除登录态,本地数据目录会保留;下次同一账号登录时数据仍在(离线可用)。")
-                    .font(OrdoFont.micro)
-                    .foregroundStyle(OrdoColor.textTertiary)
-
-                if session.isGuest {
-                    upgradeForm
-                }
-            } else {
-                Text("当前没有登录会话。回到登录页可以选择登录、注册或以游客身份继续。")
-                    .font(OrdoFont.caption)
-                    .foregroundStyle(OrdoColor.textSecondary)
+                .font(OrdoFont.captionEmphasis)
+                .foregroundStyle(OrdoColor.accent)
+                .buttonStyle(.plain)
             }
 
-            Text("服务端地址:\(OrdoAPIEnvironment.default.baseURL.absoluteString)")
+            Text("云端同步在后台自动进行:首次启动会静默建立一个匿名账号,不需要注册或登录。")
                 .font(OrdoFont.micro)
                 .foregroundStyle(OrdoColor.textTertiary)
-        }
-    }
 
-    /// 游客 → 正式账号(契约 §7.6.2:`userId` 与数据不变,只补邮箱口令)。
-    private var upgradeForm: some View {
-        VStack(alignment: .leading, spacing: OrdoSpacing.s) {
-            Text("升级为正式账号")
-                .font(OrdoFont.captionEmphasis)
-                .foregroundStyle(OrdoColor.textPrimary)
-
-            TextField("邮箱", text: $upgradeEmail)
-                .textFieldStyle(.plain)
-                .font(OrdoFont.body)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.emailAddress)
-                .padding(OrdoSpacing.s)
-                .background(
-                    RoundedRectangle(cornerRadius: OrdoRadius.field, style: .continuous)
-                        .fill(OrdoColor.canvas)
-                )
-                .accessibilityLabel("升级邮箱")
-
-            SecureField("口令(至少 8 位)", text: $upgradePassword)
-                .textFieldStyle(.plain)
-                .font(OrdoFont.body)
-                .padding(OrdoSpacing.s)
-                .background(
-                    RoundedRectangle(cornerRadius: OrdoRadius.field, style: .continuous)
-                        .fill(OrdoColor.canvas)
-                )
-                .accessibilityLabel("升级口令")
-
-            Button("升级") { upgrade() }
-                .font(OrdoFont.captionEmphasis)
-                .foregroundStyle(.white)
-                .padding(.horizontal, OrdoSpacing.m)
-                .padding(.vertical, OrdoSpacing.xs)
-                .background(Capsule().fill(OrdoColor.accent))
-                .buttonStyle(.plain)
-                .disabled(isUpgrading)
-
-            Text("升级后 userId 与全部数据不变,只是补上邮箱口令,可在其他设备登录。")
+            Text("即使暂时连不上服务器,本地清单也照常可用,联网后会自动同步。")
                 .font(OrdoFont.micro)
                 .foregroundStyle(OrdoColor.textTertiary)
         }
@@ -395,30 +293,6 @@ public struct SettingsView: View {
                 RoundedRectangle(cornerRadius: OrdoRadius.card, style: .continuous)
                     .stroke(OrdoColor.hairline, lineWidth: 1)
             )
-        }
-    }
-
-    // MARK: 动作
-
-    /// 契约 §7.6.2:游客升级为正式账号。邮箱被占用时服务端返回 `AUTH_EMAIL_TAKEN`。
-    private func upgrade() {
-        let email = upgradeEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard OrdoLoginForm.looksLikeEmail(email), upgradePassword.count >= OrdoLoginForm.minimumPasswordLength else {
-            environment.toast("请输入有效邮箱,口令至少 \(OrdoLoginForm.minimumPasswordLength) 位", kind: .failure)
-            return
-        }
-        isUpgrading = true
-        Task {
-            defer { isUpgrading = false }
-            do {
-                let session = try await environment.auth.upgrade(email: email, password: upgradePassword)
-                environment.toast("已升级为正式账号:\(session.displayName())", kind: .success)
-                upgradePassword = ""
-            } catch let error as OrdoAPIError {
-                environment.toast(error.localizedHint, kind: .failure)
-            } catch {
-                environment.toast(error.localizedDescription, kind: .failure)
-            }
         }
     }
 }

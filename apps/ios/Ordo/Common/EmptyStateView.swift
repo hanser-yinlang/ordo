@@ -15,7 +15,6 @@ public struct EmptyStateView: View {
         case noResults(String)
         case offline
         case error(String)
-        case signedOut
 
         var title: String {
             switch self {
@@ -23,7 +22,6 @@ public struct EmptyStateView: View {
             case .noResults(let text): return text.isEmpty ? "没有匹配结果" : "没有匹配「\(text)」的结果"
             case .offline: return "当前离线"
             case .error: return "出了点问题"
-            case .signedOut: return "尚未登录 Ordo Sync"
             }
         }
 
@@ -33,7 +31,6 @@ public struct EmptyStateView: View {
             case .noResults: return "换个关键词,或检查标签拼写。"
             case .offline: return "本地改动已保存,联网后会自动同步。"
             case .error(let detail): return detail
-            case .signedOut: return "登录后可在 iPhone / iPad / Mac 之间同步;不登录也可以正常使用本地清单。"
             }
         }
 
@@ -43,7 +40,6 @@ public struct EmptyStateView: View {
             case .noResults: return "magnifyingglass"
             case .offline: return "wifi.slash"
             case .error: return "exclamationmark.triangle"
-            case .signedOut: return "person.crop.circle.badge.questionmark"
             }
         }
 

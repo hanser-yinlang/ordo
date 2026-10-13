@@ -2,9 +2,11 @@ package com.ordo.android.di
 
 import android.app.Application
 import android.content.Context
+import com.ordo.android.data.LocalAccount
 import com.ordo.android.data.SettingsStore
 import com.ordo.android.data.SqliteStorage
 import com.ordo.android.data.UserDataDir
+import com.ordo.android.auth.SilentSessionRules
 import com.ordo.android.net.HttpClientFactory
 import com.ordo.android.net.KtorSyncApi
 import com.ordo.android.net.OrdoAuthApi
@@ -14,13 +16,18 @@ import com.ordo.android.notify.Notifier
 import com.ordo.android.sync.SyncScheduler
 import com.ordo.core.storage.InMemoryStorage
 import com.ordo.core.store.OrdoEngine
+import com.ordo.core.sync.GuestAuthRequest
+import com.ordo.core.sync.OrdoSession
 import com.ordo.core.sync.OrdoSessionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -29,11 +36,13 @@ import java.io.File
  *
  * 两层存储（契约 §7.6.3 硬约束）：
  * ```
- * 引导层 filesDir/ordo-bootstrap.db   会话 + 服务器地址 + 设备标识（跨账号唯一，登录前就要读）
+ * 引导层 filesDir/ordo-bootstrap.db   会话 + 服务器地址 + 设备标识（跨账号唯一，需要先于账号读到）
  * 账号层 filesDir/<userId>/ordo.db    实体 / outbox / 墓碑 / 同步游标（每个账号一份，绝不共用）
  * ```
- * 未登录时不打开任何账号目录：[engine] 退化为**纯内存**引擎（不落盘、不种演示数据、不参与同步），
- * 于是"登录前"这条路径上不可能把 A 的数据写进 B 的目录。
+ * v1.3（不再有登录界面）：**引导层必须保留**——「读会话」本身需要一份不属于任何账号的存储，
+ * 设备标识也必须跨账号稳定；去掉它会造成"先有 userId 才能读 session、先有 session 才知道 userId"
+ * 的循环依赖，而不是简化。改动只是：没有会话时不再有「未登录」这条界面路径，
+ * 而是先挂**临时工作区** `filesDir/local-<deviceId>/`（离线可用），再静默建匿名账号后认领（改名）。
  */
 object ServiceLocator {
 
@@ -50,19 +59,24 @@ object ServiceLocator {
     fun init(app: Application) {
         application = app
 
-        // ① 有会话就先挂载该账号的本地目录（离线可用，不发任何网络请求；退出登录后目录保留）
-        val session = runCatching { sessions.load() }.getOrNull()
-        if (session != null && session.userId.isNotBlank()) {
-            runCatching { bindUser(session.userId, seedIfEmpty = false) }
-        }
+        // ① 钉住本机数据目录 id（契约 §7.6.6）：与会话无关；首次运行生成并持久化，此后永不改变。
+        //    升级场景（升级前已登录过）由 LocalAccount.resolve 沿用既有的服务端 userId 目录，不做迁移。
+        val dirId = dataDirId
+        val firstRun = !UserDataDir.dbFileFor(appContext.filesDir, dirId).exists()
+        runCatching { bindDataDir(dirId, seedIfEmpty = firstRun) }
 
         // ② 同步调度：网络恢复时同步（未绑定时不发请求）
         scheduler.start(applicationScope)
         scheduler.onNetworkAvailable = {
-            if (isBound) applicationScope.launch { runCatching { scheduler.syncOnce() } }
+            // 网络恢复：先把会话补上（首启离线时可能还没有），再同步
+            ensureAnonymousSession()
+            if (isBound && tokens.isLoggedIn()) applicationScope.launch { runCatching { scheduler.syncOnce() } }
         }
         // ③ 实时通道只在有会话时建立（契约 §7.5）
-        if (session != null) startRealtime()
+        val session = runCatching { sessions.load() }.getOrNull()
+        if (session != null && tokens.isLoggedIn()) startRealtime()
+        // ④ 没有可用会话：静默建匿名账号（不阻塞启动、不弹界面，失败按 1s→2s→…→60s 退避重试）
+        if (session == null || !tokens.isLoggedIn()) ensureAnonymousSession()
         _ready.value = true
     }
 
@@ -88,10 +102,90 @@ object ServiceLocator {
             }
     }
 
-    /* ------------------------------ 账号层 ------------------------------ */
+    /**
+     * 本机数据目录 id（契约 §7.6.6）：首次运行解析后**写进引导库钉住**，此后
+     * 静默建号 / 401 重建 / 续期等任何会话变化都**不再改动它**。
+     *
+     * 优先级见 [LocalAccount.resolve]：已钉住 > 升级前会话的 userId 目录 > 唯一既有目录 > 新生成。
+     * 服务端 `userId` 只用于鉴权与同步，不参与目录选择。
+     */
+    val dataDirId: String by lazy {
+        val pinned = bootstrapStorage.kvGet(LocalAccount.KEY_LOCAL_ACCOUNT_ID)
+        val sessionUserId = runCatching { sessions.load() }.getOrNull()?.userId
+        val existing = runCatching { UserDataDir.existingDirIds(appContext.filesDir) }.getOrDefault(emptyList())
+        val resolved = LocalAccount.resolve(pinned, sessionUserId, existing)
+            ?: LocalAccount.newId(java.util.UUID.randomUUID().toString().replace("-", ""))
+        bootstrapStorage.kvSet(LocalAccount.KEY_LOCAL_ACCOUNT_ID, resolved)
+        resolved
+    }
+
+    /* ------------------------- 静默匿名会话（v1.3） ------------------------- */
+
+    private val _session = MutableStateFlow<OrdoSession?>(null)
+
+    /** 静默建号成功后的会话：界面据此重新挂引擎并补一次同步（null = 还在重试） */
+    val session: StateFlow<OrdoSession?> = _session.asStateFlow()
+
+    private var bootstrapJob: Job? = null
+
+    /**
+     * 静默建匿名账号（**没有登录界面**）：没有可用会话、或服务端否认了旧会话时调用。
+     *
+     * 在 applicationScope 里按 1s→2s→…→60s 退避重试，直到拿到会话；不阻塞启动、不弹任何界面。
+     * 已经在重试时重复调用是空操作。
+     *
+     * @param replaceExisting true = 先丢掉当前（已被服务端否认的）会话再建新的
+     */
+    fun ensureAnonymousSession(replaceExisting: Boolean = false) {
+        if (bootstrapJob?.isActive == true) return
+        bootstrapJob = applicationScope.launch {
+            if (replaceExisting) runCatching { tokens.clearSession() }
+            var attempt = 0
+            while (isActive) {
+                if (tokens.isLoggedIn()) {
+                    onSessionReady()
+                    return@launch
+                }
+                val created = runCatching {
+                    authApi.guest(
+                        GuestAuthRequest(
+                            deviceId = deviceId,
+                            deviceName = deviceName(),
+                            platform = PLATFORM,
+                        ),
+                    )
+                }.isSuccess
+                if (created) {
+                    onSessionReady()
+                    return@launch
+                }
+                delay(SilentSessionRules.backoffMillis(attempt))
+                attempt++
+            }
+        }
+    }
+
+    /**
+     * 会话就绪（静默建号成功 / 续期成功）：起实时通道 → 通知界面补一次同步。
+     *
+     * **不切换本地数据目录**（契约 §7.6.6）：目录 id 是本机钉住的，会话重建只换令牌。
+     */
+    private fun onSessionReady() {
+        val session = runCatching { sessions.load() }.getOrNull() ?: return
+        startRealtime()
+        _session.value = session
+    }
+
+    private fun deviceName(): String =
+        runCatching { "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim() }
+            .getOrDefault("Android 设备")
+
+    private const val PLATFORM = "android"
+
+    /* ------------------------------ 工作区层 ------------------------------ */
 
     @Volatile
-    private var boundUserId: String? = null
+    private var boundDataDirId: String? = null
 
     @Volatile
     private var userStorageRef: SqliteStorage? = null
@@ -103,46 +197,44 @@ object ServiceLocator {
     @Volatile
     private var realtimeStarted = false
 
-    /** 未登录时的占位引擎：纯内存、不落盘（任何误访问都不会污染账号目录） */
+    /** 还没挂上工作区时的占位引擎：纯内存、不落盘（任何误访问都不会污染工作区目录） */
     private val memoryFallback: OrdoEngine by lazy { OrdoEngine(InMemoryStorage(), deviceId = deviceId) }
 
-    val activeUserId: String?
-        get() = boundUserId
+    /** 当前挂着的本机数据目录 id；未绑定时 null */
+    val activeDataDirId: String?
+        get() = boundDataDirId
 
     val isBound: Boolean
-        get() = boundUserId != null
+        get() = boundDataDirId != null
 
-    /** 当前账号的数据目录 `filesDir/<userId>/`；未绑定时 null */
-    fun userDir(userId: String? = boundUserId): File? =
-        userId?.takeIf { it.isNotBlank() }?.let { UserDataDir.dirFor(appContext.filesDir, it) }
-
-    /** 当前账号的本地库（提醒扫描等后台任务用）；未绑定时退化为引导库（其中没有待办） */
+    /** 当前工作区的本地库（提醒扫描等后台任务用）；未绑定时退化为引导库（其中没有待办） */
     val storage: SqliteStorage
         get() = userStorageRef ?: bootstrapStorage
 
-    /** 当前账号的引擎；未登录时是内存引擎 */
+    /** 当前工作区的引擎；未绑定时是内存引擎 */
     val engine: OrdoEngine
         get() = userEngineRef ?: memoryFallback
 
     /**
-     * 绑定账号：把本地数据目录切到 `filesDir/<userId>/`（契约 §7.6.3）。
+     * 绑定本机工作区：把本地数据目录切到 `filesDir/<dirId>/`（契约 §7.6.3 / §7.6.6）。
      *
-     * 幂等：同一 userId 重复调用不会重开数据库、不会覆盖内存中的快照。
-     * 换账号：先把旧账号解绑（关闭句柄，**保留其目录**），再挂新目录。
+     * [dirId] 是**本机钉住的标识**（[dataDirId]），不是服务端 userId；
+     * 正常流程只在启动时绑定一次，会话重建不会调用它。
      *
-     * @param seedIfEmpty 仅在「首次登录某账号且本地无数据」时写演示数据（契约 §7.6.3）；
-     *   启动恢复会话时传 false —— 本地为空应该等服务端快照，而不是先造一批演示数据再推上去。
+     * 幂等：同一 dirId 重复调用不会重开数据库、不会覆盖内存中的快照。
+     *
+     * @param seedIfEmpty 仅在「首次运行且本地无数据」时写演示数据（契约 §7.6.3）。
      */
     @Synchronized
-    fun bindUser(userId: String, seedIfEmpty: Boolean = false): OrdoEngine {
-        require(userId.isNotBlank()) { "userId 不能为空：数据目录必须按账号隔离" }
-        userEngineRef?.let { if (boundUserId == userId) return it }
+    fun bindDataDir(dirId: String, seedIfEmpty: Boolean = false): OrdoEngine {
+        require(dirId.isNotBlank()) { "数据目录 id 不能为空：本地数据必须按工作区隔离" }
+        userEngineRef?.let { if (boundDataDirId == dirId) return it }
 
-        if (boundUserId != null) unbindUser()   // 换账号：先关旧句柄（其目录保留）
+        if (boundDataDirId != null) unbindDataDir()   // 换工作区：先关旧句柄（其目录保留）
 
-        val storage = SqliteStorage(appContext, UserDataDir.dbFileFor(appContext.filesDir, userId))
+        val storage = SqliteStorage(appContext, UserDataDir.dbFileFor(appContext.filesDir, dirId))
         val engine = OrdoEngine(storage, deviceId = deviceId)
-        boundUserId = userId
+        boundDataDirId = dirId
         userStorageRef = storage
         userEngineRef = engine
 
@@ -152,14 +244,14 @@ object ServiceLocator {
         return engine
     }
 
-    /** 解绑（退出登录）：停实时通道、关闭句柄；**目录与数据一律保留**（契约 §7.6.3） */
+    /** 解绑工作区：停实时通道、关闭句柄；**目录与数据一律保留**（契约 §7.6.3） */
     @Synchronized
-    fun unbindUser() {
+    fun unbindDataDir() {
         stopRealtime()
         userStorageRef?.let { runCatching { it.close() } }
         userStorageRef = null
         userEngineRef = null
-        boundUserId = null
+        boundDataDirId = null
     }
 
     /* ------------------------------ 网络层 ------------------------------ */
@@ -188,7 +280,7 @@ object ServiceLocator {
         )
     }
 
-    /** 登录成功后启动实时通道（契约 §7.5） */
+    /** 会话就绪后启动实时通道（契约 §7.5） */
     fun startRealtime() {
         if (!isBound) return
         realtimeStarted = true

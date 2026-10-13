@@ -4,21 +4,12 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ordo.android.R
-import com.ordo.android.auth.AuthFieldError
-import com.ordo.android.auth.AuthMethod
-import com.ordo.android.auth.AuthMode
-import com.ordo.android.auth.AuthStage
-import com.ordo.android.auth.EmailCodeAction
-import com.ordo.android.auth.EmailCodeError
-import com.ordo.android.auth.EmailCodeErrorMapper
-import com.ordo.android.auth.EmailCodeRules
-import com.ordo.android.auth.SessionGate
-import com.ordo.android.auth.SessionVerdict
+import com.ordo.android.auth.SessionPlan
+import com.ordo.android.auth.SilentSessionRules
 import com.ordo.android.data.SeedData
 import com.ordo.android.data.whenValue
 import com.ordo.android.di.ServiceLocator
 import com.ordo.android.net.OrdoAuthApi
-import com.ordo.android.net.OrdoAuthError
 import com.ordo.android.sync.RefreshController
 import com.ordo.android.sync.RefreshPhase
 import com.ordo.android.sync.SyncState
@@ -40,13 +31,7 @@ import com.ordo.core.query.ListSection
 import com.ordo.core.query.SectionKind
 import com.ordo.core.query.SidebarCounts
 import com.ordo.core.store.OrdoEngine
-import com.ordo.core.sync.AuthRequest
-import com.ordo.core.sync.EmailCodeLoginRequest
-import com.ordo.core.sync.EmailCodeRequest
-import com.ordo.core.sync.GuestAuthRequest
-import com.ordo.core.sync.OrdoApiException
 import com.ordo.core.sync.OrdoSession
-import com.ordo.core.sync.UpgradeRequest
 import com.ordo.core.util.OrdoDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -89,11 +74,8 @@ class OrdoViewModel : ViewModel() {
     private var toastJob: Job? = null
     private var settleJob: Job? = null
 
-    /** 「获取验证码」倒计时协程（每次重新请求都重启） */
-    private var codeCooldownJob: Job? = null
-
-    /** 退出登录中：避免"会话被清 → NOT_LOGGED_IN"被误判为令牌失效而重复跳登录页 */
-    private var loggingOut = false
+    /** 会话修复（网络抖动 vs 服务端否认）正在判定中，避免并发重复请求 */
+    private var sessionRepairJob: Job? = null
 
     /** 区域折叠是设备本地 UI 偏好（契约 §2.3 的同类本地状态），由界面层持有 */
     private val collapsedAreas = mutableSetOf<String>()
@@ -111,6 +93,10 @@ class OrdoViewModel : ViewModel() {
         viewModelScope.launch {
             refreshController.state.collect { value -> _state.update { it.copy(refresh = value) } }
         }
+        // 静默建号 / 续期成功后：ServiceLocator 已起实时通道，这里重新挂引擎并补一次同步
+        viewModelScope.launch {
+            ServiceLocator.session.collect { session -> if (session != null) onSessionReady() }
+        }
         viewModelScope.launch {
             _state.update {
                 it.copy(
@@ -118,7 +104,7 @@ class OrdoViewModel : ViewModel() {
                     loading = false,
                 )
             }
-            startGate()
+            startSilentSession()
         }
     }
 
@@ -127,57 +113,66 @@ class OrdoViewModel : ViewModel() {
         super.onCleared()
     }
 
-    /* ============================ 登录门禁 ============================ */
+    /* ======================= 静默会话（v1.3：无登录界面） ======================= */
 
     /**
-     * 启动流程（契约 §7.6.4）：
+     * 启动流程（产品决策 v1.3，取代旧的登录门禁）：
      * ```
-     * 读 session
+     * 读 session（本地数据目录已由 ServiceLocator 按"钉住的本机 id"挂好，与会话无关）
      *   ├─ 有且未过期            → 直接进主界面（后台静默 refresh）
-     *   ├─ 有但 accessToken 过期 → 先 refresh；失败 → 登录页（保留 userId 目录）
-     *   └─ 无                    → 登录页（登录 / 注册 / 游客登录）
+     *   ├─ 有但 accessToken 过期 → 先 refresh；成功用新会话
+     *   │                          失败且是 401（服务端否认）→ 静默重建匿名会话
+     *   │                          失败但不是 401（网络不可达）→ 继续离线用旧会话
+     *   └─ 无                    → 直接进主界面（离线可用），后台静默建匿名账号
      * ```
+     * 三个分支都**直接进主界面**：不再有登录页，网络不可达也不阻塞启动。
      */
-    private suspend fun startGate() {
+    private fun startSilentSession() {
         val session = runCatching { sessions.load() }.getOrNull()
-        when (val verdict = SessionGate.decide(session, System.currentTimeMillis())) {
-            SessionVerdict.NoSession -> showLogin()
+        when (val plan = SilentSessionRules.plan(session, System.currentTimeMillis())) {
+            is SessionPlan.UseExisting ->
+                enterMain(sessionReady = true, silentRefresh = plan.silentRefresh)
 
-            is SessionVerdict.Ready -> enterMain(verdict.session, silentRefresh = true)
+            is SessionPlan.RefreshFirst -> viewModelScope.launch {
+                val outcome = runCatching { authApi.refresh(plan.session.refreshToken) }
+                when {
+                    // 续期成功：AuthApi 已把新会话写进引导库（本地工作区不变，契约 §7.6.6）
+                    outcome.isSuccess -> enterMain(sessionReady = true, silentRefresh = false)
 
-            is SessionVerdict.RefreshFirst -> {
-                val refreshed = runCatching { authApi.refresh(verdict.session.refreshToken) }.getOrNull()
-                val stored = runCatching { sessions.load() }.getOrNull()
-                when (val after = SessionGate.afterRefresh(refreshed != null, stored, verdict.session)) {
-                    is SessionVerdict.Ready -> enterMain(after.session, silentRefresh = false)
-                    // refresh 失败：回登录页，但只清会话、不清目录（契约 §7.6.3）
-                    else -> showLogin()
+                    // 服务端否认了旧会话：静默建匿名账号（本地目录不动，用户数据不"消失"）
+                    SilentSessionRules.isSessionDenied(SilentSessionRules.errorCodeOf(outcome.exceptionOrNull())) -> {
+                        enterMain(sessionReady = false, silentRefresh = false)
+                        ServiceLocator.ensureAnonymousSession(replaceExisting = true)
+                    }
+
+                    // 网络不可达 / 5xx：按「暂时同步不上」处理，离线继续用旧会话
+                    else -> enterMain(sessionReady = false, silentRefresh = false)
                 }
+            }
+
+            SessionPlan.CreateAnonymous -> {
+                // 还没有账号：本机工作区立刻可用（离线也能写）；建号成功后 ServiceLocator 通知界面
+                enterMain(sessionReady = false, silentRefresh = false)
+                ServiceLocator.ensureAnonymousSession()
             }
         }
     }
 
-    /** 进入主界面：绑定该账号的数据目录 → 订阅引擎 → 起实时通道 → 静默同步 */
-    private fun enterMain(session: OrdoSession, silentRefresh: Boolean) {
-        runCatching { ServiceLocator.bindUser(session.userId, seedIfEmpty = false) }
-            .onFailure { showLogin(); return }
-
+    /**
+     * 进入主界面（唯一入口）：订阅引擎 → 渲染本地数据 → 起实时通道 → 静默同步。
+     *
+     * 本地数据目录由 ServiceLocator 在启动时按**钉住的本机 id**（契约 §7.6.6）挂好，
+     * 这里**不切换任何目录**：会话重建（静默建号 / 401）只换令牌，用户数据原地不动。
+     *
+     * @param sessionReady 是否已拿到可用会话（否则只渲染本地数据、不发请求，等静默建号）
+     */
+    private fun enterMain(sessionReady: Boolean, silentRefresh: Boolean) {
         unsubscribe?.invoke()
         unsubscribe = runCatching { engine.subscribe { snapshot -> rebuild(snapshot) } }.getOrNull()
 
-        _state.update {
-            it.copy(
-                auth = AuthUi(
-                    stage = AuthStage.MAIN,
-                    displayName = session.displayName(),
-                    isGuest = session.isGuest,
-                    userId = session.userId,
-                    email = session.email.orEmpty(),
-                ),
-                loading = false,
-            )
-        }
+        _state.update { it.copy(loading = false) }
         rebuild(runCatching { engine.snapshot }.getOrNull())
+        if (!sessionReady) return
 
         ServiceLocator.startRealtime()
         if (silentRefresh) {
@@ -187,354 +182,14 @@ class OrdoViewModel : ViewModel() {
         viewModelScope.launch { runCatching { scheduler.syncOnce() } }
     }
 
-    /** 回到登录页：清空界面数据（**不动**任何用户目录） */
-    private fun showLogin(notice: String? = null) {
-        unsubscribe?.invoke()
-        unsubscribe = null
-        ServiceLocator.stopRealtime()
-        codeCooldownJob?.cancel()
-        codeCooldownJob = null
-        _state.update {
-            it.copy(
-                auth = it.auth.copy(
-                    stage = AuthStage.LOGIN,
-                    submitting = false,
-                    password = "",
-                    // 回登录页时旧验证码已失效：清空验证码与倒计时（令牌失效不需要用户等 60s）
-                    code = "",
-                    codeRequesting = false,
-                    codeCooldownSeconds = 0,
-                    devCodeFilled = false,
-                    error = notice,
-                    errorNonce = if (notice == null) it.auth.errorNonce else it.auth.errorNonce + 1,
-                ),
-                sections = emptyList(),
-                agenda = emptyList(),
-                areas = emptyList(),
-                tags = emptyList(),
-                projectHeader = null,
-                detail = null,
-                selectedTodoId = null,
-                totalCount = 0,
-                doneCount = 0,
-                loading = false,
-            )
-        }
-    }
-
-    fun onAuthEmailChange(value: String) = _state.update {
-        it.copy(auth = it.auth.copy(email = value, error = null))
-    }
-
-    fun onAuthPasswordChange(value: String) = _state.update {
-        it.copy(auth = it.auth.copy(password = value, error = null))
-    }
-
-    /** 验证码输入：即时过滤成 6 位数字（粘贴/输入法带杂字符也不会把校验卡死） */
-    fun onAuthCodeChange(value: String) = _state.update {
-        it.copy(auth = it.auth.copy(code = EmailCodeRules.sanitizeCode(value), error = null))
-    }
-
-    fun togglePasswordVisible() = _state.update {
-        it.copy(auth = it.auth.copy(passwordVisible = !it.auth.passwordVisible))
-    }
-
     /**
-     * 切换登录方式：口令 ⇄ 邮箱验证码（契约 §7.6.5，两者同级）。
-     *
-     * 切到验证码时强制回到「登录」语义（未注册邮箱自动建号，注册由服务端隐式完成）；
-     * 同时清空上一种方式残留的验证码与错误，避免切换后立即触发自动提交。
+     * 会话就绪（静默建号成功 / 续期成功）后重新挂引擎并补一次同步。
+     * ServiceLocator 已完成实时通道启动；本地目录不变，所以这里只做界面侧的重新订阅。
      */
-    fun switchAuthMethod(method: AuthMethod) = _state.update {
-        it.copy(
-            auth = it.auth.copy(
-                loginMethod = method,
-                mode = if (method == AuthMethod.EMAIL_CODE) AuthMode.LOGIN else it.auth.mode,
-                code = "",
-                devCodeFilled = false,
-                error = null,
-            ),
-        )
+    private fun onSessionReady() {
+        _state.update { it.copy(loading = false) }
+        enterMain(sessionReady = true, silentRefresh = false)
     }
-
-    /** 底部文本链接：登录态「还没有账号？注册」/ 注册态「已有账号？登录」（口令模式内切换） */
-    fun switchAuthMode() = _state.update {
-        it.copy(auth = it.auth.copy(mode = it.auth.mode.toggled(), error = null))
-    }
-
-    /**
-     * 底部文本链接（UI §5.1 三入口硬约束）：
-     * 口令模式下切换登录/注册；验证码模式下回到「口令 + 注册」——注册入口任何时候都点得到。
-     */
-    fun switchAuthLink() {
-        val target = EmailCodeRules.linkTarget(_state.value.auth.loginMethod, _state.value.auth.mode)
-        _state.update {
-            it.copy(
-                auth = it.auth.copy(
-                    loginMethod = target.method,
-                    mode = target.mode,
-                    code = "",
-                    devCodeFilled = false,
-                    error = null,
-                ),
-            )
-        }
-    }
-
-    /** 主按钮：按当前登录方式走口令（登录/注册）或验证码登录（UI §5.1 / §7.6.5） */
-    fun submitAuth() {
-        val auth = _state.value.auth
-        if (auth.loginMethod == AuthMethod.EMAIL_CODE) {
-            submitEmailCode()
-            return
-        }
-        when (auth.mode) {
-            AuthMode.LOGIN -> login(auth.email, auth.password)
-            AuthMode.REGISTER -> register(auth.email, auth.password)
-        }
-    }
-
-    /** 次要按钮「以游客身份继续」：与正式登录**体验对等**（同样写会话、同样同步） */
-    fun continueAsGuest() {
-        if (_state.value.auth.submitting) return
-        setSubmitting(true)
-        viewModelScope.launch {
-            runCatching { authApi.guest(GuestAuthRequest(deviceId = ServiceLocator.deviceId, deviceName = deviceName(), platform = PLATFORM)) }
-                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
-                .onFailure { error -> onAuthFailure(error) }
-        }
-    }
-
-    /* -------------------- 邮箱验证码登录（契约 §7.6.5） -------------------- */
-
-    /**
-     * 「获取验证码」：请求 6 位数字码，成功后按响应 `retryAfter` 跑倒计时并置灰按钮。
-     *
-     * 开发模式服务端可能回显 `devCode`，此处仅**自动填入**（方便联调），
-     * 生产恒为 null，界面与流程都不得依赖它。
-     */
-    fun requestEmailCode() {
-        val auth = _state.value.auth
-        if (auth.loginMethod != AuthMethod.EMAIL_CODE) return
-        if (auth.codeRequesting || auth.submitting) return
-        EmailCodeRules.requestBlocker(auth.email)?.let { blocker ->
-            failWith(emailCodeErrorText(blocker, null))
-            return
-        }
-        if (auth.codeCooldownSeconds > 0) return // 倒计时中按钮已置灰，这里只是兜底（契约 §7.6.5：60s 内重复请求会被 429）
-        setCodeRequesting(true)
-        viewModelScope.launch {
-            runCatching { authApi.requestEmailCode(EmailCodeRequest(auth.email.trim())) }
-                .onSuccess { sent ->
-                    val seconds = EmailCodeRules.normalizedRetryAfter(sent.retryAfter)
-                    val devCode = sent.devCode
-                        ?.let { EmailCodeRules.sanitizeCode(it) }
-                        ?.takeIf { it.isNotEmpty() }
-                    _state.update {
-                        it.copy(
-                            auth = it.auth.copy(
-                                codeRequesting = false,
-                                codeCooldownSeconds = seconds,
-                                code = devCode ?: it.auth.code,
-                                devCodeFilled = devCode != null,
-                                error = null,
-                            ),
-                        )
-                    }
-                    startCodeCooldown()
-                }
-                .onFailure { error -> onEmailCodeFailure(error, EmailCodeAction.REQUEST_CODE) }
-        }
-    }
-
-    /**
-     * 「验证码登录」：邮箱 + 6 位码提交（界面在满 6 位时**自动提交**，也支持手动点主按钮）。
-     * 未注册邮箱由服务端自动建号，成功后与口令登录写同一份会话。
-     */
-    fun submitEmailCode() {
-        val auth = _state.value.auth
-        if (auth.loginMethod != AuthMethod.EMAIL_CODE) return
-        if (auth.submitting || auth.codeRequesting) return
-        EmailCodeRules.submitBlocker(auth.email, auth.code)?.let { blocker ->
-            failWith(emailCodeErrorText(blocker, null))
-            return
-        }
-        setSubmitting(true)
-        viewModelScope.launch {
-            val request = EmailCodeLoginRequest(
-                email = auth.email.trim(),
-                code = auth.code,
-                deviceId = ServiceLocator.deviceId,
-                deviceName = deviceName(),
-                platform = PLATFORM,
-            )
-            runCatching { authApi.emailLogin(request) }
-                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
-                .onFailure { error -> onEmailCodeFailure(error, EmailCodeAction.SUBMIT_CODE) }
-        }
-    }
-
-    /** 验证码流程失败：映射成中文文案 + 抖动；429 时按 retryAfter 直接开始倒计时 */
-    private fun onEmailCodeFailure(error: Throwable, action: EmailCodeAction) {
-        val kind = EmailCodeErrorMapper.fromThrowable(error, action)
-        val retryAfter = EmailCodeErrorMapper.retryAfterOf(error)
-        _state.update {
-            it.copy(
-                auth = it.auth.copy(
-                    submitting = false,
-                    codeRequesting = false,
-                    code = if (EmailCodeRules.clearsCode(kind)) "" else it.auth.code,
-                    devCodeFilled = if (EmailCodeRules.clearsCode(kind)) false else it.auth.devCodeFilled,
-                ),
-            )
-        }
-        if (kind == EmailCodeError.THROTTLED && retryAfter > 0) {
-            _state.update { it.copy(auth = it.auth.copy(codeCooldownSeconds = retryAfter)) }
-            startCodeCooldown()
-        }
-        failWith(emailCodeErrorText(kind, retryAfter))
-    }
-
-    /** 倒计时每秒 -1，到 0 自动结束（界面据 codeCooldownSeconds 置灰按钮） */
-    private fun startCodeCooldown() {
-        codeCooldownJob?.cancel()
-        codeCooldownJob = viewModelScope.launch {
-            while (true) {
-                delay(1_000L)
-                val next = EmailCodeRules.tick(_state.value.auth.codeCooldownSeconds)
-                _state.update { it.copy(auth = it.auth.copy(codeCooldownSeconds = next)) }
-                if (next <= 0) break
-            }
-        }
-    }
-
-    private fun setCodeRequesting(value: Boolean) = _state.update {
-        it.copy(auth = it.auth.copy(codeRequesting = value, error = if (value) null else it.auth.error))
-    }
-
-    /** 验证码流程失败类型 → 中文文案（错误不靠颜色单独表达，UI §5.1） */
-    private fun emailCodeErrorText(error: EmailCodeError, retryAfterSeconds: Int?): String = when (error) {
-        EmailCodeError.EMAIL_REQUIRED -> context.getString(R.string.auth_error_email_empty)
-        EmailCodeError.EMAIL_INVALID -> context.getString(R.string.auth_error_email_invalid)
-        EmailCodeError.CODE_INCOMPLETE -> context.getString(R.string.auth_error_code_incomplete)
-        EmailCodeError.CODE_INVALID -> context.getString(R.string.auth_error_code_invalid)
-        EmailCodeError.CODE_EXPIRED -> context.getString(R.string.auth_error_code_expired)
-        EmailCodeError.CODE_ATTEMPTS_EXCEEDED -> context.getString(R.string.auth_error_code_attempts)
-        EmailCodeError.THROTTLED -> context.getString(
-            R.string.auth_error_code_throttled,
-            retryAfterSeconds ?: EmailCodeRules.DEFAULT_RETRY_AFTER_SECONDS,
-        )
-        EmailCodeError.MAIL_FAILED -> context.getString(R.string.auth_error_code_mail_failed)
-        EmailCodeError.NETWORK -> context.getString(R.string.auth_error_code_network)
-        EmailCodeError.UNKNOWN -> context.getString(R.string.auth_error_code_unknown)
-    }
-
-    private fun login(email: String, password: String) {
-        if (_state.value.auth.submitting) return
-        when (val invalid = SessionGate.validate(AuthMode.LOGIN, email, password)) {
-            AuthFieldError.NONE -> Unit
-            else -> {
-                failWith(localErrorText(invalid))
-                return
-            }
-        }
-        setSubmitting(true)
-        viewModelScope.launch {
-            runCatching { authApi.login(AuthRequest(email.trim(), password, deviceName(), PLATFORM)) }
-                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
-                .onFailure { error -> onAuthFailure(error) }
-        }
-    }
-
-    private fun register(email: String, password: String) {
-        if (_state.value.auth.submitting) return
-        when (val invalid = SessionGate.validate(AuthMode.REGISTER, email, password)) {
-            AuthFieldError.NONE -> Unit
-            else -> {
-                failWith(localErrorText(invalid))
-                return
-            }
-        }
-        setSubmitting(true)
-        viewModelScope.launch {
-            runCatching { authApi.register(AuthRequest(email.trim(), password, deviceName(), PLATFORM)) }
-                .onSuccess { response -> onAuthSuccess(response.user.id, seedIfEmpty = true) }
-                .onFailure { error -> onAuthFailure(error) }
-        }
-    }
-
-    /** 游客升级为正式账号（契约 §7.6.2）：userId 与数据都不变 */
-    fun upgradeGuest(email: String, password: String) {
-        val token = tokens.accessToken() ?: return
-        when (val invalid = SessionGate.validate(AuthMode.REGISTER, email, password)) {
-            AuthFieldError.NONE -> Unit
-            else -> {
-                failWith(localErrorText(invalid))
-                return
-            }
-        }
-        viewModelScope.launch {
-            runCatching { authApi.upgrade(token, UpgradeRequest(email.trim(), password)) }
-                .onSuccess { response ->
-                    _state.update {
-                        it.copy(
-                            auth = it.auth.copy(
-                                isGuest = response.user.isGuest,
-                                // 游客没有邮箱 → 退回 userId 作为展示名(契约 §7.6.1)
-                                displayName = response.user.email?.takeIf { it.isNotBlank() }
-                                    ?: response.user.id,
-                                error = null,
-                            ),
-                        )
-                    }
-                    showToast(context.getString(R.string.toast_upgrade_ok))
-                }
-                .onFailure { error -> failWith(loginErrorMessage(error)) }
-        }
-    }
-
-    /** 登录/注册/游客成功后：绑定该账号的数据目录并进入主界面（契约 §7.6.3） */
-    private fun onAuthSuccess(userId: String, seedIfEmpty: Boolean) {
-        val session = runCatching { sessions.load() }.getOrNull()
-        if (session == null) {
-            onAuthFailure(IllegalStateException(context.getString(R.string.auth_error_no_session)))
-            return
-        }
-        runCatching { ServiceLocator.bindUser(userId, seedIfEmpty = seedIfEmpty) }
-            .onFailure { error -> onAuthFailure(error); return }
-        enterMain(session, silentRefresh = false)
-        showToast(context.getString(R.string.toast_login_ok))
-    }
-
-    private fun onAuthFailure(error: Throwable) {
-        _state.update { it.copy(auth = it.auth.copy(submitting = false)) }
-        failWith(loginErrorMessage(error))
-    }
-
-    private fun setSubmitting(value: Boolean) = _state.update {
-        it.copy(auth = it.auth.copy(submitting = value, error = if (value) null else it.auth.error))
-    }
-
-    /** 失败：文案 + 抖动（errorNonce 递增，界面据此重放抖动动画） */
-    private fun failWith(message: String) = _state.update {
-        it.copy(
-            auth = it.auth.copy(
-                submitting = false,
-                error = message,
-                errorNonce = it.auth.errorNonce + 1,
-            ),
-        )
-    }
-
-    private fun localErrorText(error: AuthFieldError): String = context.getString(
-        when (error) {
-            AuthFieldError.EMAIL_EMPTY -> R.string.auth_error_email_empty
-            AuthFieldError.EMAIL_INVALID -> R.string.auth_error_email_invalid
-            AuthFieldError.PASSWORD_EMPTY -> R.string.auth_error_password_empty
-            AuthFieldError.PASSWORD_TOO_SHORT -> R.string.auth_error_password_short
-            AuthFieldError.NONE -> R.string.auth_error_email_empty
-        },
-    )
 
     private fun deviceName(): String =
         runCatching { "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}".trim() }
@@ -1274,62 +929,46 @@ class OrdoViewModel : ViewModel() {
 
             SyncState.NOT_LOGGED_IN -> {
                 refreshController.onNotLoggedIn()
-                // 令牌失效（refresh 也失败）→ 转登录态，但**本地数据目录保留**（契约 §7.4 / §7.6.3）
-                if (!loggingOut && _state.value.auth.stage == AuthStage.MAIN) {
-                    ServiceLocator.unbindUser()
-                    showLogin(context.getString(R.string.auth_error_session_expired))
-                }
+                // 没有会话（首启离线）→ 引导任务已在退避重试；
+                // 有会话却被判为未登录 → 先确认服务端是否真的否认了令牌（见 repairSessionIfDenied）
+                if (tokens.isLoggedIn()) repairSessionIfDenied()
+            }
+        }
+    }
+
+    /**
+     * 同步被判为「未登录」时的**静默**修复（绝不弹登录界面，契约 §7.6.6 下也不会换目录）：
+     *   ① 令牌其实还能续期（刚才只是网络抖动）→ 直接用新会话补一次同步；
+     *   ② 服务端明确否认（401）→ 静默重建匿名会话（本地数据原地不动）；
+     *   ③ 网络不可达 → 什么都不做，保持离线可用，等下次重试。
+     */
+    private fun repairSessionIfDenied() {
+        if (sessionRepairJob?.isActive == true) return
+        val refreshToken = tokens.refreshToken() ?: return
+        sessionRepairJob = viewModelScope.launch {
+            val outcome = runCatching { authApi.refresh(refreshToken) }
+            when {
+                outcome.isSuccess -> enterMain(sessionReady = true, silentRefresh = false)
+
+                SilentSessionRules.isSessionDenied(SilentSessionRules.errorCodeOf(outcome.exceptionOrNull())) ->
+                    ServiceLocator.ensureAnonymousSession(replaceExisting = true)
+
+                else -> Unit // 网络问题：保持会话离线，等下次同步重试
             }
         }
     }
 
     fun onAppForeground() {
         scheduler.onForeground()
-        if (!tokens.isLoggedIn()) return
+        if (!tokens.isLoggedIn()) {
+            // 首启离线（还没有匿名会话）：回前台再试一次建号（幂等，正在重试时是空操作）
+            ServiceLocator.ensureAnonymousSession()
+            return
+        }
         ServiceLocator.applicationScope.launch { runCatching { scheduler.syncOnce() } }
     }
 
     fun onAppBackground() = scheduler.onBackground()
-
-    /* ============================== 账号 ============================== */
-
-    /**
-     * 退出登录（契约 §7.6.3）：**只清会话，保留该 userId 的数据目录**。
-     * 下次同一账号登录时数据仍在（离线可用，联网后增量同步）。
-     */
-    fun logout() {
-        loggingOut = true
-        codeCooldownJob?.cancel()
-        codeCooldownJob = null
-        viewModelScope.launch {
-            runCatching { authApi.logout() }
-            ServiceLocator.unbindUser()
-            unsubscribe?.invoke()
-            unsubscribe = null
-            val themeMode = _state.value.themeMode
-            _state.value = UiState(
-                themeMode = themeMode,
-                auth = AuthUi(stage = AuthStage.LOGIN),
-                refresh = refreshController.state.value,
-                eventList = _state.value.eventList,
-            )
-            loggingOut = false
-            showToast(context.getString(R.string.toast_logout))
-        }
-    }
-
-    fun setServerUrl(url: String) {
-        tokens.saveServerUrl(url)
-        showToast(context.getString(R.string.toast_server_saved))
-    }
-
-    /** 当前服务器地址（登录页与设置页共用同一份配置） */
-    fun currentServerUrl(): String = tokens.serverUrl()
-
-    private fun loginErrorMessage(error: Throwable): String {
-        val message = (error as? OrdoApiException)?.message ?: error.message.orEmpty()
-        return context.getString(R.string.toast_login_failed, message.ifBlank { error::class.java.simpleName })
-    }
 
     /* ============================== Toast ============================== */
 

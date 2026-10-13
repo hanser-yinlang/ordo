@@ -105,6 +105,15 @@ export class KvKeys {
    * 写在**用户目录**里:换账号等于换目录,标记天然互不影响。
    */
   static readonly SEEDED: string = 'ordo.seeded';
-  /** 上一次登录的邮箱(应用级;登录页回填用,不属于会话) */
+  /** 上一次登录的邮箱(应用级;登录页回填用,不属于会话)。v1.4 登录被移除后仅保留兼容,不再写入 */
   static readonly LAST_EMAIL: string = 'ordo.lastEmail';
+  /**
+   * **本机稳定账号目录标识**(契约 §7.6.6,v1.4 引入)。
+   *
+   * 形态 `local-<16hex>`,首次运行生成并持久化,**此后永不因会话重建而改变**。
+   * 为什么不能用服务端 `userId` 当目录名:没有登录界面之后,"离线首启 → 联网拿会话"与
+   * "同步 401 → 静默重建匿名会话"都会拿到**新的** userId;目录跟着变,用户就会觉得数据丢了。
+   * 升级前已在用的目录(老版本按 `userDataDirName(userId)` 建的那份)**继续沿用**,不做迁移。
+   */
+  static readonly LOCAL_ACCOUNT_ID: string = 'ordo.localAccountId';
 }

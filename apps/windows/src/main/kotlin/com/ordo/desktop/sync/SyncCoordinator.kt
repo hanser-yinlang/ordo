@@ -2,13 +2,12 @@ package com.ordo.desktop.sync
 
 import com.ordo.core.model.Op
 import com.ordo.core.store.OrdoEngine
-import com.ordo.core.sync.AuthApi
-import com.ordo.core.sync.OrdoApiException
 import com.ordo.core.sync.RealtimeChannel
 import com.ordo.core.sync.ReminderPush
 import com.ordo.core.sync.SyncApi
 import com.ordo.core.sync.SyncEngine
 import com.ordo.core.sync.SyncResult
+import com.ordo.desktop.app.SessionRecovery
 import com.ordo.desktop.net.TokenStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -21,16 +20,20 @@ import kotlinx.coroutines.launch
  *
  * - 启动后立即同步一次,之后每 30 秒一次;
  * - 任何写操作后 2 秒防抖触发一次(界面调用 [requestSync]);
- * - 401 自动 refresh 并重放一次;refresh 失败则转离线但保留本地数据(契约 §7.4);
+ * - **401 静默恢复**:交给 [sessionRecovery](先 refresh、失败再建匿名会话),拿到会话后重放一次,
+ *   全程不弹界面(产品决策:不再需要登录);
+ * - 启动时可能还没有会话(全新安装 / 离线首启):[start] 会等 [SessionRecovery.awaitSession]
+ *   就位后再连实时通道并同步一次,因此**离线启动也不会把同步永久卡死**;
  * - 实时通道的 ops 直接 `applyRemote`,提醒走 Fastlane 回调。
  */
 class SyncCoordinator(
     private val engine: OrdoEngine,
     private val syncApi: SyncApi,
-    private val authApi: AuthApi,
     private val tokens: TokenStore,
     private val realtime: RealtimeChannel?,
     private val scope: CoroutineScope,
+    /** 会话失效时的静默恢复能力(默认不做恢复:测试与不需要同步的场景) */
+    private val sessionRecovery: SessionRecovery = SessionRecovery.NONE,
     private val onRemoteReminder: (ReminderPush) -> Unit = {},
     private val periodicMillis: Long = 30_000L,
     private val debounceMillis: Long = 2_000L
@@ -56,20 +59,29 @@ class SyncCoordinator(
     private var tickerJob: Job? = null
     private var debounceJob: Job? = null
     private var realtimeJob: Job? = null
+    private var bootJob: Job? = null
 
     /** 最近一次同步的错误(成功即清空),供设置页「同步诊断」展示 */
     private var lastError: String? = null
-
-    val isLoggedIn: Boolean get() = tokens.isLoggedIn
 
     fun start() {
         stop()
         tickerJob = scope.launch {
             while (isActive) {
-                if (tokens.isLoggedIn) syncOnce()
+                if (tokens.hasSession) syncOnce()
                 delay(periodicMillis)
             }
         }
+        // 静默匿名会话可能还在后台重试:等到会话就位再拉实时通道 + 同步一次
+        bootJob = scope.launch {
+            if (!tokens.hasSession) sessionRecovery.awaitSession()
+            startRealtime()
+            if (tokens.hasSession) syncOnce()
+        }
+    }
+
+    private fun startRealtime() {
+        realtimeJob?.cancel()
         realtimeJob = scope.launch {
             realtime?.connect(
                 deviceId = engine.deviceId,
@@ -77,19 +89,19 @@ class SyncCoordinator(
                 onReminder = { push -> onRemoteReminder(push) }
             )
         }
-        if (tokens.isLoggedIn) requestSync(immediate = true)
     }
 
     fun stop() {
         tickerJob?.cancel(); tickerJob = null
         debounceJob?.cancel(); debounceJob = null
         realtimeJob?.cancel(); realtimeJob = null
+        bootJob?.cancel(); bootJob = null
         runCatching { realtime?.close() }
     }
 
     /** 写操作后调用:2 秒防抖合并多次写 */
     fun requestSync(immediate: Boolean = false) {
-        if (!tokens.isLoggedIn) return
+        if (!tokens.hasSession) return
         debounceJob?.cancel()
         debounceJob = scope.launch {
             if (!immediate) delay(debounceMillis)
@@ -100,14 +112,13 @@ class SyncCoordinator(
     suspend fun syncOnce(): SyncResult {
         var result = syncEngine.syncOnce()
 
-        // 401:刷新令牌后重放一次(契约 §7.4)
+        // 401:静默重建会话(先 refresh,失败再建匿名)后重放一次(契约 §7.4;产品决策:不弹界面)
         if (!result.ok && codeOf(result.error) in AUTH_CODES) {
             result = runCatching {
-                val refreshed = authApi.refresh(tokens.refreshToken ?: return@runCatching result)
-                tokens.save(refreshed)
+                if (!sessionRecovery.recover()) return@runCatching result
                 syncEngine.syncOnce()
             }.getOrElse { error ->
-                SyncResult(ok = false, error = error.message ?: "refresh failed")
+                SyncResult(ok = false, error = error.message ?: "session recovery failed")
             }
         }
 
@@ -132,8 +143,8 @@ class SyncCoordinator(
     /** 错误码 → 客户端处置(契约 §7.4 全量错误码) */
     @Suppress("unused")
     private fun handlingOf(code: String): String = when (code) {
-        "AUTH_REQUIRED", "AUTH_TOKEN_EXPIRED" -> "刷新令牌并重放一次"
-        "AUTH_INVALID_CREDENTIALS", "AUTH_EMAIL_TAKEN" -> "提示用户重新登录 / 更换邮箱"
+        "AUTH_REQUIRED", "AUTH_TOKEN_EXPIRED" -> "静默刷新令牌并重放一次;刷新失败则重建匿名会话"
+        "AUTH_INVALID_CREDENTIALS", "AUTH_EMAIL_TAKEN" -> "本端已无登录入口,按会话失效处置(重建匿名会话)"
         "SYNC_SEQ_GAP" -> "全量快照重建"
         "SYNC_OP_TOO_LARGE" -> "该批次已被服务端拒绝,已从 outbox 出队并提示用户"
         "VALIDATION_FAILED" -> "客户端或数据版本不兼容:提示升级,并保留本地数据"
@@ -146,17 +157,6 @@ class SyncCoordinator(
         val applied = engine.applyRemote(ops)
         if (serverSeq > 0) engine.setLastServerSeq(maxOf(engine.lastServerSeq(), serverSeq))
         if (applied > 0) publish(SyncResult(ok = true, pulled = applied, serverSeq = engine.lastServerSeq()))
-    }
-
-    /** 登录成功后调用:建立实时通道并做一次全量同步 */
-    fun onLoggedIn() {
-        start()
-    }
-
-    /** 退出登录:停止同步并清空令牌(本地数据保留,契约 §7.4) */
-    fun onLoggedOut() {
-        stop()
-        tokens.clear()
     }
 
     /** 换设备/数据修复 */
@@ -175,13 +175,10 @@ class SyncCoordinator(
     fun currentError(): String? = lastError
 
     companion object {
-        /** 需要"刷新令牌 + 重放"的错误码 */
+        /** 需要"恢复会话 + 重放"的错误码 */
         private val AUTH_CODES = setOf("AUTH_TOKEN_EXPIRED", "AUTH_REQUIRED")
 
         /** 被限流后的退避时长(下一次周期触发前不再打服务端) */
         private const val RATE_LIMIT_BACKOFF_MILLIS = 15_000L
-
-        fun isAuthError(t: Throwable): Boolean = t is OrdoApiException &&
-            (t.code == "AUTH_TOKEN_EXPIRED" || t.code == "AUTH_REQUIRED")
     }
 }

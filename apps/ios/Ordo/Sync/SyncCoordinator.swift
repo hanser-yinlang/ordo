@@ -32,7 +32,8 @@ public final class SyncCoordinator {
         case idle
         case syncing
         case offline
-        case signedOut
+        /// 还没有云端令牌(离线首启 / 重建匿名会话失败):本地照常可用,联网后自动补上。
+        case localOnly
         case failed(String)
 
         public var label: String {
@@ -40,7 +41,7 @@ public final class SyncCoordinator {
             case .idle: return "已同步"
             case .syncing: return "同步中"
             case .offline: return "离线"
-            case .signedOut: return "未登录"
+            case .localOnly: return "本地模式"
             case .failed(let message): return "同步失败:\(message)"
             }
         }
@@ -193,7 +194,7 @@ public final class SyncCoordinator {
 
     public func syncNow(reason: String) async {
         guard let syncAPI else {
-            status = await tokenStore.isSignedIn() ? .idle : .signedOut
+            status = await tokenStore.isSignedIn() ? .idle : .localOnly
             return
         }
         guard isNetworkAvailable else {
@@ -202,7 +203,7 @@ public final class SyncCoordinator {
         }
         guard !isSyncing else { return }
         guard await tokenStore.isSignedIn() else {
-            status = .signedOut
+            status = .localOnly
             return
         }
 
@@ -243,8 +244,8 @@ public final class SyncCoordinator {
             case .transport:
                 status = .offline
             case .authRequired, .authInvalidCredentials:
-                status = .signedOut
-                // 契约 §7.6.4:令牌被服务端判定失效 → 交回登录页(本地数据目录保留)。
+                status = .localOnly
+                // v1.3:令牌被服务端判定失效 → **静默重建匿名会话**(App 层注入),本地目录保留。
                 await onAuthExpired?()
             default:
                 status = .failed(error.localizedHint)
@@ -277,27 +278,30 @@ public final class SyncCoordinator {
 
     private func refreshSignInState() async {
         if !(await tokenStore.isSignedIn()) {
-            status = .signedOut
+            status = .localOnly
         } else if !isNetworkAvailable {
             status = .offline
         }
     }
 
-    // MARK: 登录 / 登出
+    // MARK: 会话(静默匿名;没有登录 / 登出)
 
-    /// 令牌失效时的回调(由 `AppEnvironment` 注入:清会话 + 回登录页)。
+    /// 令牌失效时的回调(由 `AppEnvironment` 注入:**静默重建匿名会话**后继续同步)。
     public var onAuthExpired: (@MainActor () async -> Void)?
 
-    /// 契约 §7.4:refresh 也失败 → 转登录态但**保留本地数据**(目录按 userId 保留,只清会话)。
-    public func handleSignedOut() async {
-        await tokenStore.signOut()
-        status = .signedOut
-        await realtime?.stop(reason: "已登出")
+    /// 明确把状态标成「本地模式」(重建匿名会话失败时由 `AppEnvironment` 调用)。
+    ///
+    /// 不删任何本地数据:目录由本机账号标识决定,联网后下一次同步会自动补齐令牌。
+    public func markLocalOnly() async {
+        status = .localOnly
     }
 
     // MARK: 远端全量快照
 
-    /// 登录后拉一次全量快照:服务端为空则把本地推上去,否则用远端快照替换本地(保留 outbox)。
+    /// 拿到云端令牌后拉一次全量快照:服务端为空则把本地推上去,否则用远端快照替换本地(保留 outbox)。
+    ///
+    /// 适用两种时机:启动即连上云端(首次匿名建号),以及 401 后静默重建匿名会话
+    /// (新账号远端为空 → 把本地数据推上去,用户无感)。
     public func bootstrapFromRemoteIfEmpty() async {
         guard let syncAPI else { return }
         guard await tokenStore.isSignedIn() else { return }

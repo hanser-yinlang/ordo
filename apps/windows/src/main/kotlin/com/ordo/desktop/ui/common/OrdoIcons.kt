@@ -34,8 +34,6 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Undo
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -77,9 +75,6 @@ object OrdoIcons {
     /** 状态栏刷新控件(04-UI规范 §5.3):点一下连续旋转到同步结束 */
     val Refresh: ImageVector = Icons.Outlined.Refresh
 
-    /** 口令显示 / 隐藏(登录页 §5.1) */
-    val Visible: ImageVector = Icons.Outlined.Visibility
-    val Hidden: ImageVector = Icons.Outlined.VisibilityOff
     val Edit: ImageVector = Icons.Outlined.Edit
     val Restore: ImageVector = Icons.Outlined.Undo
     val Back: ImageVector = Icons.Outlined.ArrowBack

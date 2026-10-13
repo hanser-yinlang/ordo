@@ -1,12 +1,7 @@
 package com.ordo.desktop.net
 
 import com.ordo.core.model.Op
-import com.ordo.core.sync.AuthApi
-import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
-import com.ordo.core.sync.EmailCodeLoginRequest
-import com.ordo.core.sync.EmailCodeRequest
-import com.ordo.core.sync.EmailCodeSent
 import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.OrdoApiException
 import com.ordo.core.sync.OrdoSession
@@ -19,12 +14,9 @@ import com.ordo.core.sync.RealtimeChannel
 import com.ordo.core.sync.ReminderPush
 import com.ordo.core.sync.SnapshotResponse
 import com.ordo.core.sync.SyncApi
-import com.ordo.core.sync.UpgradeRequest
-import com.ordo.core.sync.UpgradeResponse
 import com.ordo.core.storage.OrdoStorage
 import com.ordo.core.util.OrdoJson
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -50,12 +42,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.atomic.AtomicBoolean
 
 /* ============================================================================
- * 网络层(契约 §7.4 / §7.5):Ktor CIO 客户端 + 四个接口实现
+ * 网络层(契约 §7.4 / §7.5):Ktor CIO 客户端 + 同步 / 实时通道 / 静默匿名会话
  * ========================================================================== */
 
 /** 服务端错误信封 `{ "error": { "code", "message", "details" } }` */
@@ -66,27 +56,19 @@ data class ErrorEnvelope(val error: ErrorBody)
 data class ErrorBody(val code: String, val message: String, val details: JsonElement? = null)
 
 /**
- * 带 `details` 的服务端错误(契约 §7.4 / §7.6.2 / §7.6.5)。
+ * 服务端错误(契约 §7.4 错误模型)。
  *
- * 共享核心的 [OrdoApiException] 只冻结了 `code` / `message`(而且是 final,不能继承),但契约
- * §7.6.2、§7.6.5 明确规定**不新增错误码**,而是用 `details.reason` 区分同一 code 下的细分场景
- * (`not_guest` / `code_throttled` / `code_invalid` / `code_expired` / `code_attempts_exceeded`),
- * 429 还带一个等待秒数。共享核心冻结、本轮不得修改,所以这里在 Windows 网络层并列一个更完整的
- * 错误类型把 reason 与 retryAfterSec 透出来 —— 界面据此给中文文案与倒计时秒数。
- *
- * 老代码判断 `error is OrdoApiException` 依然成立:改用 [errorCodeOf] 取码,语义完全一致。
+ * 共享核心的 [OrdoApiException] 只有 `code` / `message` 且是 `final`(不能继承)。本端要按错误码
+ * 分流(401 刷令牌、`SYNC_SEQ_GAP` 全量重建…),所以并列一个同形状的类型,并补一个
+ * [httpCode] 兜底:服务端没给出业务错误码时(网关 502、非 JSON 响应体)也能定位。
  */
 class OrdoHttpException(
-    /** 契约 §7.4 的冻结错误码,例如 `AUTH_INVALID_CREDENTIALS` / `RATE_LIMITED` */
+    /** 契约 §7.4 的冻结错误码,例如 `AUTH_REQUIRED` / `RATE_LIMITED`;兜底为 `HTTP_<status>` */
     val code: String,
-    override val message: String,
-    /** `details.reason`,例如 `code_invalid`;缺失为 null */
-    val reason: String? = null,
-    /** 限流时的等待秒数:来自 `details.retryAfterSec`(或顶层 `retryAfter`) */
-    val retryAfterSec: Long? = null
+    override val message: String
 ) : Exception(message) {
 
-    /** HTTP 层没给出业务错误码时的兜底(如 `HTTP_500`) */
+    /** HTTP 层没给出业务错误码时的兜底(如 `HTTP_502`) */
     val httpCode: String? get() = code.takeIf { it.startsWith("HTTP_") }
 }
 
@@ -96,33 +78,6 @@ fun errorCodeOf(error: Throwable): String? = when (error) {
     is OrdoApiException -> error.code
     else -> null
 }
-
-/** 从任意异常里取 `details.reason`(只有 [OrdoHttpException] 带得动) */
-fun errorReasonOf(error: Throwable): String? = (error as? OrdoHttpException)?.reason
-
-/**
- * 限流错误里的等待秒数(契约 §7.6.5:`error.details.retryAfterSec`)。
- *
- * 缺失 / 非正数时回落到 [DEFAULT_RETRY_AFTER_SECONDS](与成功体顶层 `retryAfter` 的默认值一致),
- * 并且夹在 (0, [MAX_RETRY_AFTER_SECONDS]] 内 —— 服务端给出离谱值时也不至于把按钮永久锁死。
- */
-fun retryAfterSecondsOf(error: Throwable): Long {
-    val raw = (error as? OrdoHttpException)?.retryAfterSec ?: return DEFAULT_RETRY_AFTER_SECONDS
-    return raw.coerceIn(1L, MAX_RETRY_AFTER_SECONDS)
-}
-
-/** 契约 §7.6.5:同一邮箱再次请求的最小间隔默认 60 秒 */
-const val DEFAULT_RETRY_AFTER_SECONDS = 60L
-
-/** 上限只是防御离谱响应,不是契约值 */
-const val MAX_RETRY_AFTER_SECONDS = 3_600L
-
-/** `details` 里的字段(全部可选:服务端只保证是对象) */
-private fun JsonElement?.detailString(key: String): String? =
-    runCatching { this?.jsonObject?.get(key)?.jsonPrimitive?.content }.getOrNull()
-
-private fun JsonElement?.detailLong(key: String): Long? =
-    runCatching { this?.jsonObject?.get(key)?.jsonPrimitive?.content?.toLongOrNull() }.getOrNull()
 
 object OrdoHttp {
 
@@ -141,20 +96,14 @@ object OrdoHttp {
     }
 }
 
-/** 解析响应体;非 2xx 抛出结构化的 [OrdoHttpException](带 `details.reason` 与 `retryAfterSec`) */
+/** 解析响应体;非 2xx 抛出结构化的 [OrdoHttpException] */
 suspend fun <T> HttpResponse.bodyOrThrow(deserializer: (String) -> T): T {
     val text = bodyAsText()
     if (status.isSuccess()) return deserializer(text)
     val envelope = runCatching { OrdoJson.instance.decodeFromString(ErrorEnvelope.serializer(), text) }.getOrNull()
-    val details = envelope?.error?.details
     throw OrdoHttpException(
         code = envelope?.error?.code ?: "HTTP_${status.value}",
-        message = envelope?.error?.message ?: text.take(300).ifBlank { "请求失败" },
-        // 契约 §7.6.5:`details.reason` 用来区分同一错误码下的细分场景
-        reason = details.detailString("reason"),
-        // 契约 §7.6.5 的 429:`{error:{code:RATE_LIMITED,details:{reason:code_throttled,retryAfterSec:42}}}`
-        // —— 错误体里是 **details.retryAfterSec**(与成功体顶层的 retryAfter 位置不同、含义相同)
-        retryAfterSec = details.detailLong("retryAfterSec")
+        message = envelope?.error?.message ?: text.take(300).ifBlank { "请求失败" }
     )
 }
 
@@ -188,21 +137,22 @@ class TokenStore(private val storage: OrdoStorage) {
 
     val email: String? get() = currentSession()?.email
 
-    /** 游客账号(契约 §7.6.1:游客也持有正常令牌,只是没有邮箱口令) */
+    /** 匿名账号(契约 §7.6.1:匿名会话同样持有正常令牌,不是"受限模式") */
     val isGuest: Boolean get() = currentSession()?.isGuest == true
 
     val userId: String? get() = currentSession()?.userId
 
-    val isLoggedIn: Boolean get() = !refreshToken.isNullOrBlank()
+    /** 有 refreshToken 即视为有会话(是否过期交给 [SilentSessionKeeper] 判定与续期) */
+    val hasSession: Boolean get() = !refreshToken.isNullOrBlank()
 
-    /** 登录 / 注册 / 游客登录 / refresh 的统一落库入口 */
+    /** 静默会话的统一落库入口(建匿名账号 / 续期) */
     fun save(response: AuthResponse, nowMillis: Long = System.currentTimeMillis()) {
         sessionStore.save(OrdoSessionStore.from(response, nowMillis))
     }
 
     fun saveSession(session: OrdoSession) = sessionStore.save(session)
 
-    /** 退出登录:只清会话,保留该 userId 的数据目录(契约 §7.6.3 硬约束) */
+    /** 清会话(只清凭据,不动数据目录 —— 数据目录 id 与本机绑定,契约 §7.6.6) */
     fun clear() = sessionStore.clear()
 
     /** `https://host:port` → `wss://host:port/v1/ws?token=…`(契约 §7.5) */
@@ -264,30 +214,35 @@ class KtorSyncApi(
         }
 }
 
-/** [AuthApi] 的 Ktor 实现 */
+/**
+ * 静默匿名会话需要的**全部**网络能力(产品决策:不再需要登录)。
+ *
+ * 共享核心的 `AuthApi` 还冻着 register / login / upgrade / emailCode 等接口,但本端已经不需要它们;
+ * 与其实现一堆"永不调用"的方法,不如在这里声明一个窄接口 —— 客户端只依赖真正会用的两件事,
+ * 且登录相关的 HTTP 代码(端点、DTO、错误分流)一并从本端消失。
+ */
+interface SilentAuthApi {
+
+    /** 用 refreshToken 换新会话(启动静默续期 / 401 恢复) */
+    suspend fun refresh(refreshToken: String): AuthResponse
+
+    /**
+     * 建匿名账号(契约 §7.6.2):服务端返回的是**正常令牌** ——
+     * 匿名不是"离线模式",数据同样入库、同样多端同步。
+     */
+    suspend fun guest(request: GuestAuthRequest): AuthResponse
+}
+
+/** [SilentAuthApi] 的 Ktor 实现 */
 class KtorAuthApi(
     private val client: HttpClient,
     private val tokens: TokenStore
-) : AuthApi {
+) : SilentAuthApi {
 
     private fun HttpRequestBuilder.baseHeaders() {
         header("X-Ordo-Schema", OrdoHttp.SCHEMA_VERSION)
         header("X-Ordo-Client", OrdoHttp.CLIENT_ID)
     }
-
-    override suspend fun register(request: AuthRequest): AuthResponse =
-        client.post("${tokens.serverUrl}/v1/auth/register") {
-            baseHeaders()
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
-
-    override suspend fun login(request: AuthRequest): AuthResponse =
-        client.post("${tokens.serverUrl}/v1/auth/login") {
-            baseHeaders()
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
 
     override suspend fun refresh(refreshToken: String): AuthResponse =
         client.post("${tokens.serverUrl}/v1/auth/refresh") {
@@ -296,72 +251,12 @@ class KtorAuthApi(
             setBody(RefreshRequest(refreshToken))
         }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
 
-    /**
-     * 游客登录(契约 §7.6.2):服务端建匿名账号并返回**正常令牌** ——
-     * 游客不是离线模式,数据同样入库、同样多端同步,只是没有邮箱口令。
-     */
     override suspend fun guest(request: GuestAuthRequest): AuthResponse =
         client.post("${tokens.serverUrl}/v1/auth/guest") {
             baseHeaders()
             contentType(ContentType.Application.Json)
             setBody(request)
         }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
-
-    /**
-     * 游客升级为正式账号(契约 §7.6.2):`userId` 与数据都不变。
-     *
-     * 与其它 auth 接口不同,这个必须带 Access Token(走 Authorization 头,不是 body)。
-     */
-    override suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse =
-        client.post("${tokens.serverUrl}/v1/auth/upgrade") {
-            baseHeaders()
-            header("Authorization", "Bearer $accessToken")
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(UpgradeResponse.serializer(), text) }
-
-    /**
-     * 请求邮箱登录验证码(契约 §7.6.5):`POST /v1/auth/email/code` → 202
-     * `{sent,expiresIn,retryAfter}`。**响应绝不回显验证码**,唯一例外是开发模式(`console` 通道 +
-     * 显式开关)会带 `devCode` —— 界面只把它当作联调便利自动填入,绝不依赖它。
-     *
-     * 同一邮箱 60s 内重复请求 → 429 `RATE_LIMITED`(details.reason = `code_throttled`,带等待秒数),
-     * 这个 `retryAfterSec` 由 [OrdoHttpException] 透出,交给登录页跑倒计时。
-     */
-    override suspend fun requestEmailCode(request: EmailCodeRequest): EmailCodeSent =
-        client.post("${tokens.serverUrl}/v1/auth/email/code") {
-            baseHeaders()
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(EmailCodeSent.serializer(), text) }
-
-    /**
-     * 邮箱验证码登录(契约 §7.6.5):`POST /v1/auth/email/login` → 200,响应与 register / login / guest
-     * **同构**(同一 userId、同一份云端数据、同一套 refreshToken 体系);未注册邮箱由服务端自动建号。
-     */
-    override suspend fun emailLogin(request: EmailCodeLoginRequest): AuthResponse =
-        client.post("${tokens.serverUrl}/v1/auth/email/login") {
-            baseHeaders()
-            contentType(ContentType.Application.Json)
-            setBody(request)
-        }.bodyOrThrow { text -> OrdoJson.instance.decodeFromString(AuthResponse.serializer(), text) }
-
-    /**
-     * 退出登录(204 无响应体)。
-     *
-     * 显式传 refreshToken:退出时我们**先清本地会话再发请求**(不能因为网络阻塞就不退),
-     * 所以这里不能依赖读 [TokenStore] 的当前值。
-     */
-    suspend fun logout(refreshToken: String? = tokens.refreshToken) {
-        val token = refreshToken ?: return
-        runCatching {
-            client.post("${tokens.serverUrl}/v1/auth/logout") {
-                baseHeaders()
-                contentType(ContentType.Application.Json)
-                setBody(RefreshRequest(token))
-            }
-        }
-    }
 }
 
 /* ---------------------------------------------------------------- WebSocket DTO */

@@ -4,20 +4,14 @@ import com.ordo.core.model.Op
 import com.ordo.core.query.ListQuery
 import com.ordo.core.storage.InMemoryStorage
 import com.ordo.core.store.OrdoEngine
-import com.ordo.core.sync.AuthApi
-import com.ordo.core.sync.AuthRequest
 import com.ordo.core.sync.AuthResponse
-import com.ordo.core.sync.EmailCodeLoginRequest
-import com.ordo.core.sync.EmailCodeRequest
-import com.ordo.core.sync.EmailCodeSent
 import com.ordo.core.sync.GuestAuthRequest
 import com.ordo.core.sync.PullResponse
 import com.ordo.core.sync.PushRequest
 import com.ordo.core.sync.PushResponse
 import com.ordo.core.sync.SnapshotResponse
 import com.ordo.core.sync.SyncApi
-import com.ordo.core.sync.UpgradeRequest
-import com.ordo.core.sync.UpgradeResponse
+import com.ordo.desktop.net.SilentAuthApi
 import com.ordo.desktop.net.TokenStore
 import com.ordo.desktop.sync.SyncCoordinator
 import kotlinx.coroutines.CoroutineScope
@@ -48,19 +42,13 @@ class MultiWindowTest {
         override suspend fun fetchSnapshot() = SnapshotResponse(serverSeq = 0L)
     }
 
-    private class FakeAuthApi : AuthApi {
-        override suspend fun register(request: AuthRequest): AuthResponse = error("测试不使用注册")
-        override suspend fun login(request: AuthRequest): AuthResponse = error("测试不使用登录")
+    /**
+     * 静默匿名会话只需要 guest / refresh(产品决策:不再需要登录)。
+     * 本用例不涉网(同步 API 是假的、会话已塞好),所以这两个方法直接抛错以防误调用。
+     */
+    private class FakeSilentAuthApi : SilentAuthApi {
         override suspend fun refresh(refreshToken: String): AuthResponse = error("测试不使用刷新")
-        override suspend fun guest(request: GuestAuthRequest): AuthResponse = error("测试不使用游客登录")
-        override suspend fun upgrade(accessToken: String, request: UpgradeRequest): UpgradeResponse =
-            error("测试不使用游客升级")
-
-        override suspend fun requestEmailCode(request: EmailCodeRequest): EmailCodeSent =
-            error("测试不使用验证码")
-
-        override suspend fun emailLogin(request: EmailCodeLoginRequest): AuthResponse =
-            error("测试不使用验证码登录")
+        override suspend fun guest(request: GuestAuthRequest): AuthResponse = error("测试不使用匿名会话")
     }
 
     private fun setup(): Triple<InMemoryStorage, OrdoEngine, CoroutineScope> {
@@ -113,7 +101,6 @@ class MultiWindowTest {
         val coordinator = SyncCoordinator(
             engine = engine,
             syncApi = FakeSyncApi(),
-            authApi = FakeAuthApi(),
             tokens = tokens,
             realtime = null,
             scope = scope

@@ -1,10 +1,5 @@
 package com.ordo.android.vm
 
-import com.ordo.android.auth.AuthMethod
-import com.ordo.android.auth.AuthMode
-import com.ordo.android.auth.AuthStage
-import com.ordo.android.auth.CodeSendState
-import com.ordo.android.auth.EmailCodeRules
 import com.ordo.android.sync.RefreshUiState
 import com.ordo.android.sync.SyncState
 import com.ordo.android.ui.theme.ThemeMode
@@ -152,66 +147,6 @@ data class ScheduleTargetUi(
     val forDeadline: Boolean,
 )
 
-/**
- * 登录门禁的界面状态（契约 §7.6.4 / §7.6.5 · UI §5.1）。
- *
- * [errorNonce] 每失败一次 +1：界面据此**重放一次抖动动画**（同样的错误文案也要有反馈）。
- * 验证码登录与口令登录**同级**：[loginMethod] 切换，判定规则全部复用
- * [EmailCodeRules]（纯逻辑，可单测）。
- */
-data class AuthUi(
-    val stage: AuthStage = AuthStage.LOADING,
-    val mode: AuthMode = AuthMode.LOGIN,
-    /** 登录方式：口令 / 邮箱验证码（§7.6.5） */
-    val loginMethod: AuthMethod = AuthMethod.PASSWORD,
-    val email: String = "",
-    val password: String = "",
-    val passwordVisible: Boolean = false,
-    /** 验证码（只保留数字，最多 6 位） */
-    val code: String = "",
-    /** 正在请求验证码：「获取验证码」转圈并禁用输入 */
-    val codeRequesting: Boolean = false,
-    /** 再次获取验证码的剩余秒数（取服务端 retryAfter，默认 60）；>0 时按钮置灰 */
-    val codeCooldownSeconds: Int = 0,
-    /** 开发模式服务端回显的 devCode 已自动填入（仅提示，界面不依赖，契约 §7.6.5） */
-    val devCodeFilled: Boolean = false,
-    /** 提交中：主按钮禁用 + 16dp 转圈；输入框与游客按钮一并禁用 */
-    val submitting: Boolean = false,
-    /** 错误文案（位于主按钮下方固定 20dp 高的错误区） */
-    val error: String? = null,
-    val errorNonce: Int = 0,
-    /** 当前账号展示名：正式账号 = 邮箱，游客 = 「游客」 */
-    val displayName: String = "",
-    val isGuest: Boolean = false,
-    val userId: String? = null,
-) {
-    /** 是否已进入主界面 */
-    val loggedIn: Boolean get() = stage == AuthStage.MAIN
-
-    /**
-     * 主按钮是否可点。
-     *
-     * 口令模式沿用原语义（空表单也允许点，点后给本地校验文案）；
-     * 验证码模式必须邮箱合法 + 满 6 位码（也让「满 6 位自动提交」有统一判据）。
-     */
-    val canSubmit: Boolean
-        get() = when {
-            stage != AuthStage.LOGIN || submitting || codeRequesting -> false
-            loginMethod == AuthMethod.EMAIL_CODE -> EmailCodeRules.submitBlocker(email, code) == null
-            else -> true
-        }
-
-    /** 「获取验证码」按钮状态（倒计时/请求中/邮箱非法都置灰） */
-    val codeSendState: CodeSendState
-        get() = EmailCodeRules.sendState(email, codeCooldownSeconds, codeRequesting, submitting)
-
-    /** 「获取验证码」是否可点 */
-    val canRequestCode: Boolean
-        get() = stage == AuthStage.LOGIN &&
-            loginMethod == AuthMethod.EMAIL_CODE &&
-            codeSendState == CodeSendState.IDLE
-}
-
 data class UiState(
     val loading: Boolean = true,
     val routeKey: String = ROUTE_TODAY,
@@ -227,8 +162,6 @@ data class UiState(
     val detail: DetailUi? = null,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val syncState: SyncState = SyncState.IDLE,
-    /** 登录门禁：LOADING → LOGIN / MAIN（契约 §7.6.4） */
-    val auth: AuthUi = AuthUi(),
     /** 状态栏刷新控件（UI §5.3）：同步中连续旋转、成功 1.4s 后回常态、失败常驻 */
     val refresh: RefreshUiState = RefreshUiState(),
     val searchQuery: String = "",
@@ -246,9 +179,6 @@ data class UiState(
     /** 设备本地只读日历事件（契约 §2.8，不上传） */
     val eventList: List<CalendarEvent> = emptyList(),
 ) {
-    /** 已进入主界面（登录门禁通过）；设置页与侧栏据此展示账号区 */
-    val loggedIn: Boolean get() = auth.loggedIn
-
     companion object {
         const val ROUTE_INBOX = "inbox"
         const val ROUTE_TODAY = "today"

@@ -90,8 +90,6 @@ data class UiState(
     val highlightId: String? = null,
     val themeMode: ThemeMode = ThemeMode.AUTO,
     val dark: Boolean = false,
-    /** 当前账号(邮箱或"游客";设置页显示,契约 §7.6) */
-    val account: AccountInfo? = null,
     val syncStatus: SyncStatus = SyncStatus.LOCAL,
     val syncDetail: String? = null,
     val fastFindOpen: Boolean = false,

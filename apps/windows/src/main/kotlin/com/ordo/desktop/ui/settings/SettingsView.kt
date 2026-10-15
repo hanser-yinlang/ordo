@@ -32,7 +32,10 @@ import com.ordo.desktop.app.OrdoViewModel
 import com.ordo.desktop.app.ThemeMode
 import com.ordo.desktop.app.UiState
 import com.ordo.desktop.ui.common.OrdoDivider
+import com.ordo.desktop.ui.common.OrdoOverlay
+import com.ordo.desktop.ui.common.OrdoOverlaySpec
 import com.ordo.desktop.ui.common.OrdoTextButton
+import com.ordo.desktop.ui.common.rememberLastState
 import com.ordo.desktop.ui.theme.OrdoRadius
 import com.ordo.desktop.ui.theme.OrdoSpace
 import com.ordo.desktop.ui.theme.OrdoType
@@ -47,8 +50,24 @@ import com.ordo.desktop.ui.theme.ordoColors
  */
 @Composable
 fun SettingsView(state: UiState, vm: OrdoViewModel) {
+    // 宿主无条件组合:设置页关闭时整棵子树若被移除,退场就播不出来(§5.5)。
+    // 遮罩沿用旧值 40% 黑;退场期间用快照继续画关闭前那一帧。
+    val lastOpen = rememberLastState<UiState>()
+    if (state.settingsOpen) lastOpen.value = state
+    OrdoOverlay(
+        visible = state.settingsOpen,
+        onDismiss = vm::closeSettings,
+        scrim = OrdoOverlaySpec.SCRIM_HEAVY,
+        alignment = Alignment.Center
+    ) {
+        lastOpen.value?.let { SettingsPanel(state = it, vm = vm) }
+    }
+}
+
+/** 面板本体:只由 [SettingsView] 的宿主调用 */
+@Composable
+private fun SettingsPanel(state: UiState, vm: OrdoViewModel) {
     val colors = ordoColors
-    val scrim = remember { MutableInteractionSource() }
     val inner = remember { MutableInteractionSource() }
 
     var autoStartOn by remember { mutableStateOf(vm.isAutoStartEnabled()) }
@@ -57,10 +76,7 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
     var followSelection by remember { mutableStateOf(vm.followSelection()) }
 
     Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0x66000000))
-            .clickable(interactionSource = scrim, indication = null) { vm.closeSettings() },
+        Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(

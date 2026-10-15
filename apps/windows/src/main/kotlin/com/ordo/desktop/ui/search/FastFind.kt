@@ -47,7 +47,9 @@ import com.ordo.desktop.app.OrdoViewModel
 import com.ordo.desktop.app.UiState
 import com.ordo.desktop.ui.common.OrdoFormat
 import com.ordo.desktop.ui.common.OrdoIcons
+import com.ordo.desktop.ui.common.OrdoOverlay
 import com.ordo.desktop.ui.common.OrdoTextField
+import com.ordo.desktop.ui.common.rememberLastState
 import com.ordo.desktop.ui.theme.OrdoRadius
 import com.ordo.desktop.ui.theme.OrdoSize
 import com.ordo.desktop.ui.theme.OrdoSpace
@@ -69,7 +71,24 @@ private data class FastFindItem(
  */
 @Composable
 fun FastFindOverlay(state: UiState, vm: OrdoViewModel) {
-    if (!state.fastFindOpen) return
+    // 宿主无条件组合(退场 140ms 才有机会播);退场时 state.fastFindOpen 已 false、搜索结果读不出来,
+    // 所以记住最近一次打开的快照(见 ui/common/Motion.kt 的 OrdoOverlay 约定)。
+    val lastOpen = rememberLastState<UiState>()
+    if (state.fastFindOpen) lastOpen.value = state
+    OrdoOverlay(
+        visible = state.fastFindOpen,
+        onDismiss = vm::closeFastFind,
+        alignment = Alignment.TopCenter,
+        // 顶部浮层:自上方下落 8dp,缩放锚点在上边中点
+        slideFromTop = true
+    ) {
+        lastOpen.value?.let { FastFindPanel(state = it, vm = vm) }
+    }
+}
+
+/** 面板本体:只由 [FastFindOverlay] 的宿主调用 */
+@Composable
+private fun FastFindPanel(state: UiState, vm: OrdoViewModel) {
     val colors = ordoColors
     var query by remember { mutableStateOf("") }
     var index by remember { mutableStateOf(0) }
@@ -83,10 +102,7 @@ fun FastFindOverlay(state: UiState, vm: OrdoViewModel) {
     if (index >= results.size) index = 0
 
     Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.28f))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { vm.closeFastFind() },
+        Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
         Column(

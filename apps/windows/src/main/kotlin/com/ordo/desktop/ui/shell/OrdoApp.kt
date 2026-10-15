@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.ordo.desktop.app.OrdoViewModel
 import com.ordo.desktop.ui.common.OrdoConfirmDialog
+import com.ordo.desktop.ui.common.OrdoPageEnter
 import com.ordo.desktop.ui.common.OrdoToastHost
 import com.ordo.desktop.ui.list.ListPane
 import com.ordo.desktop.ui.quickadd.QuickAdd
@@ -50,7 +51,11 @@ fun OrdoApp(vm: OrdoViewModel) {
                         .fillMaxHeight()
                         .background(ordoColors.canvas)
                 ) {
-                    ListPane(state = state, vm = vm, modifier = Modifier.weight(1f))
+                    // 切清单 / 进项目 / 进区域 / 进标签:内容淡入 160ms + 上浮 6dp(§5.5)。
+                    // 首次组合停在终态 —— 冷启动没有过场,离屏渲染第 0 帧也拿得到完整内容。
+                    OrdoPageEnter(key = state.route, modifier = Modifier.weight(1f)) {
+                        ListPane(state = state, vm = vm, modifier = Modifier.fillMaxSize())
+                    }
                     StatusBar(state = state)
                 }
             }
@@ -58,20 +63,15 @@ fun OrdoApp(vm: OrdoViewModel) {
             // 快加号(右下悬浮)
             QuickAdd(state = state, vm = vm, modifier = Modifier.align(Alignment.BottomEnd))
 
-            // 排期面板(契约 §4 / UI 规范 §4)
-            if (state.scheduleTargetId != null) {
-                ScheduleSheet(state = state, vm = vm)
-            }
+            // 浮层宿主一律无条件组合:关闭时要靠 visible 走完 140ms 退场(§5.5);
+            // 被 if 包住的话整棵子树当场消失,退场与遮罩淡出都播不出来。
+            ScheduleSheet(state = state, vm = vm)
 
             // 快找浮层
-            if (state.fastFindOpen) {
-                FastFindOverlay(state = state, vm = vm)
-            }
+            FastFindOverlay(state = state, vm = vm)
 
             // 设置
-            if (state.settingsOpen) {
-                SettingsView(state = state, vm = vm)
-            }
+            SettingsView(state = state, vm = vm)
 
             // 破坏性操作的二次确认(项目 / 区域 / 标题)
             state.confirm?.let { request ->

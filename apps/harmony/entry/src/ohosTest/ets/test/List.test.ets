@@ -1,5 +1,5 @@
 /**
- * Ordo · ohosTest 测试入口(聚合十二组用例)
+ * Ordo · ohosTest 测试入口(聚合十三组用例)
  * 运行:DevEco Studio → 右键 entry/src/ohosTest → Run 'OhosTest'
  */
 
@@ -15,6 +15,7 @@ import localDataResetTest from './LocalDataReset.test';
 import relationalStoreTest from './RelationalStore.test';
 import fabMenuTest from './FabMenu.test';
 import sheetMetricsTest from './SheetMetrics.test';
+import motionScaleTest from './MotionScale.test';
 
 export default function testsuite() {
   naturalDateParserTest();
@@ -30,4 +31,5 @@ export default function testsuite() {
   relationalStoreTest();
   fabMenuTest();
   sheetMetricsTest();
+  motionScaleTest();
 }

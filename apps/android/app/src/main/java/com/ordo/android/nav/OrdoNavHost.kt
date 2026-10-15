@@ -1,5 +1,7 @@
 package com.ordo.android.nav
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,6 +30,12 @@ fun OrdoNavHost(
         navController = navController,
         startDestination = Routes.TODAY,
         modifier = Modifier.fillMaxSize(),
+        // §5.5：页面切换的淡入由 OrdoShell 的 OrdoPageEnter（160ms + 上浮 6dp）统一负责，
+        // 这里关掉 navigation-compose 自带的默认过渡（700ms 淡入淡出），免得两段动画叠着播。
+        enterTransition = { EnterTransition.None },
+        exitTransition = { ExitTransition.None },
+        popEnterTransition = { EnterTransition.None },
+        popExitTransition = { ExitTransition.None },
     ) {
         composable(Routes.INBOX) { RouteEffect(Routes.INBOX, vm); ListScreen(state, vm, onNavigate) }
         composable(Routes.TODAY) { RouteEffect(Routes.TODAY, vm); ListScreen(state, vm, onNavigate) }

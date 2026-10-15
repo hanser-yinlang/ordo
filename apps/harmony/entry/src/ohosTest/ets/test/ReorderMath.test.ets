@@ -5,7 +5,7 @@
  *  1. 容器键 = `(when, projectId, headingId)`,与 `OrdoEngine.nextOrder` 的作用域一致;
  *  2. 只有 order 真正生效的清单开放拖拽(今天/收件箱/随时/某天/项目/区域);
  *  3. `movedOrder` 的落点:向下拖落在目标行之后、向上拖落在目标行之前,且不改动其它行的相对顺序;
- *  4. 跨容器提交必须被 `sameContainer` 拒绝(与 iOS `reorderTodos(ids:)` 的两道闸门一致)。
+ *  4. 跨容器提交必须被 `sameContainer` 拒绝(与共享核心 `OrdoEngine.reorderTodos(ids)` 的两道闸门一致)。
  */
 
 import { describe, expect, it } from '@ohos/hypium';

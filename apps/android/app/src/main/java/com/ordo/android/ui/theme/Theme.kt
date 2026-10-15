@@ -61,6 +61,13 @@ object OrdoTheme {
     val fast: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.FAST
     val base: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.BASE
     val slow: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.SLOW
+
+    /** §5.5 过渡动效：浮层入场 280 / 退场 200、页面切换 240、抽屉 260、详情 220 */
+    val popIn: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.POP_IN
+    val popOut: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.POP_OUT
+    val pageFade: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.PAGE_FADE
+    val drawer: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.SHEET_COLLAPSE
+    val detail: Int @Composable @ReadOnlyComposable get() = if (reduceMotion) 0 else OrdoMotion.BASE
 }
 
 /** 读取系统动画时长为 0（即「减弱动态效果」） */

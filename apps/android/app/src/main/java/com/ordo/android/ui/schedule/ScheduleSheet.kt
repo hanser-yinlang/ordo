@@ -31,8 +31,10 @@ import com.ordo.android.ui.common.OrdoDivider
 import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconButton
 import com.ordo.android.ui.common.OrdoIconKind
-import com.ordo.android.ui.common.OrdoPopover
+import com.ordo.android.ui.common.OrdoOverlay
+import com.ordo.android.ui.common.OrdoPopoverPanel
 import com.ordo.android.ui.common.OrdoTextField
+import com.ordo.android.ui.common.rememberLastState
 import com.ordo.android.ui.theme.OrdoRadius
 import com.ordo.android.ui.theme.OrdoSpace
 import com.ordo.android.ui.theme.OrdoTheme
@@ -49,12 +51,25 @@ import java.time.YearMonth
  */
 @Composable
 fun ScheduleSheet(state: UiState, vm: OrdoViewModel) {
+    // 宿主无条件组合：被 `if (打开)` 包住时关闭就是整棵子树被移除，退场（§5.5 的 140ms）没有机会播。
+    // 退场途中 closeSchedule() 已清空 scheduleTarget，实时状态读不出面板内容，于是记住"最近一次打开"
+    // 的那份快照（UiState 是不可变数据类），画面停在关闭前那一帧上。
+    val lastOpen = rememberLastState<UiState>()
+    if (state.scheduleTarget != null) lastOpen.value = state
+    OrdoOverlay(visible = state.scheduleTarget != null, onDismiss = vm::closeSchedule) {
+        lastOpen.value?.let { SchedulePanel(state = it, vm = vm) }
+    }
+}
+
+/** 面板本体：只由 [ScheduleSheet] 的宿主调用，遮罩与 pop-in 都在宿主那边 */
+@Composable
+private fun SchedulePanel(state: UiState, vm: OrdoViewModel) {
     val target = state.scheduleTarget ?: return
     val colors = OrdoTheme.colors
     var draft by remember { mutableStateOf("") }
     var month by remember { mutableStateOf(YearMonth.now()) }
 
-    OrdoPopover(onDismiss = vm::closeSchedule) {
+    OrdoPopoverPanel {
         OrdoTextField(
             value = draft,
             onValueChange = { draft = it },

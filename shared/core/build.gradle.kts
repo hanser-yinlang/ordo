@@ -12,8 +12,8 @@ plugins {
  *  - `jvm`   :Windows 桌面端 + 共享核心单元测试(本机即可构建)
  *  - `android`:Android 端;**仅当本机存在 Android SDK 时启用**(无 SDK 环境仍可构建 jvm 与跑测试)
  *
- * 说明:**iOS 端已于 2026-10-13 整体移除**(产品决策),因此不再声明 `ios*` Apple 目标,
- * `src/iosMain` 也已删除。鸿蒙端为 ArkTS 独立实现(见 apps/harmony)。
+ * 说明:本核心仅保留 `jvm` 与 `android` 两个目标,不再声明任何条件化的桌面/移动之外的目标;
+ * 鸿蒙端为 ArkTS 独立实现(见 apps/harmony)。
  */
 val androidSdkPresent: Boolean = System.getenv("ANDROID_HOME") != null ||
     System.getenv("ANDROID_SDK_ROOT") != null ||

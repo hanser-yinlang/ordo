@@ -1,10 +1,9 @@
 /**
  * Ordo · 拖拽排序的**纯计算**(04-UI规范 §6「拖拽排序 = 长按拖拽」)
  *
- * 与另外三端保持同一套语义:
+ * 与另外两端保持同一套语义:
  *  - 共享核心 `OrdoEngine.reorderTodos(ids)`(shared/core/.../OrdoEngine.kt:293):`ids[i]` 的 order = i;
- *  - iOS `AppEnvironment.reorderTodos(ids:)` + `ListScreenView.movedOrder`:先移除自身再插入;
- *  - 桌上端 `ReorderMath.kt`:`moveWithin(ids, draggedId, insertIndex)`。
+ *  - 桌上端 `ReorderMath.moveWithin(ids, draggedId, insertIndex)`:先移除自身再插入。
  *
  * 本文件不依赖 ArkUI、不碰引擎,输入 id 序列与落点,输出"是否受理 / 新的 id 序列",
  * 因此可以直接被 `_qa/row-perf-harness.mjs`(Node 类型擦除)执行,而不只是"看起来对"。
@@ -13,8 +12,8 @@
 import { ListKind, Todo } from '../core/model/Entities.ets';
 
 /**
- * `order` 的作用域容器键(与 `OrdoEngine.nextOrder` 的分组口径一致,也与 iOS
- * `AppEnvironment.containerKey(for:)` 对齐):同一容器的 order 才是连续可比的。
+ * `order` 的作用域容器键(与 `OrdoEngine.nextOrder` 的分组口径一致,也与桌上端
+ * `ReorderMath.applySectionOrder` 的分组口径对齐):同一容器的 order 才是连续可比的。
  */
 export function containerKeyOf(t: Todo): string {
   return t.when + '|' +
@@ -53,7 +52,7 @@ export function sectionCanReorder(containers: string[]): boolean {
  *  - 向下拖(源在目标之上)→ 落在目标行**之后**(否则"往下拖一行"会变成空操作);
  *  - 向上拖(源在目标之下)→ 落在目标行**之前**。
  *
- * 落点公式与 iOS `ListScreenView.movedOrder` 同形(先移除自身,再以"移除后"的数组为基准插入)。
+ * 落点公式与桌上端 `ReorderMath.moveWithin` 同形(先移除自身,再以"移除后"的数组为基准插入)。
  *
  * 现状(04 §5.4 长按拖拽落地后):`ListPage` 的手势路径改为按**落点下标**提交
  * (`PressGesture.moveIdToIndex`,由位移换算半行取整),本函数保留为"按目标行提交"这一等价入口,

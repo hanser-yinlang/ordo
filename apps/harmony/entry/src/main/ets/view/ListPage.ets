@@ -22,8 +22,9 @@ import { RowDataSource } from './list/RowDataSource.ets';
 import { SwipeActionBar } from './list/SwipeActionBar.ets';
 import { TodoRow } from './list/TodoRow.ets';
 import { touchOf } from './Common/GestureUtil.ets';
-import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
+import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoMotion, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
 import { EmptyState } from './Common/EmptyState.ets';
+import { MotionScale } from '../viewmodel/MotionScale.ets';
 
 /** 拖拽让位的步长:行高 + 上下内边距(§4 待办行高 38) */
 const ROW_EXTENT: number = OrdoSize.rowHeight + OrdoSpace.s;
@@ -42,6 +43,13 @@ export struct ListPage {
   @Prop @Watch('onStoreChanged') storeRev: number = 0;
   /** `AppStore.dragCancelSeq`:返回键请求取消拖拽(§5.4 取消路径) */
   @Prop @Watch('onDragCancelRequested') dragCancelSeq: number = 0;
+  /**
+   * `AppStore.listKey()`:清单身份(类型 + 项目/区域/标签/搜索词 + 是否显示已完成)。
+   * 它的变化就是「换了一个页面」,据此播 §5.5 的页面切换淡入。
+   */
+  @Prop @Watch('onListChanged') listKey: string = '';
+  /** 页面入场进度:1 = 终态(首次组合不动),切清单时归零再 160ms 淡回 */
+  @State private pageIn: number = 1;
 
   /**
    * 行数据源:**整个组件生命周期内只创建一次**。
@@ -83,6 +91,19 @@ export struct ListPage {
   }
 
   /** store.changeSeq 变化:重算行模型 → 差量 → 最小通知 */
+  /**
+   * 清单切换(§5.5 v1.7「页面切换淡入 240ms」):淡入 + 上浮 10px。
+   *
+   * 首帧不播:pageIn 初值就是 1(终态),所以冷启动与离屏取图拿到的都是完整页面;
+   * 只有真的换了清单(侧栏点收件箱/今天/项目/标签、或改搜索词)才归零重放。
+   */
+  onListChanged(): void {
+    this.pageIn = 0;
+    this.getUIContext().animateTo({ duration: MotionScale.ms(OrdoMotion.pageFade), curve: OrdoMotion.easingEnter }, () => {
+      this.pageIn = 1;
+    });
+  }
+
   onStoreChanged(): void {
     this.syncRows();
   }
@@ -361,7 +382,11 @@ export struct ListPage {
         .fontColor(this.c().textTertiary)
         .onClick(() => {
           if (row.headingId.length > 0) {
-            this.store.toggleHeading(row.headingId);
+            // 清单展开 220ms ease-out(§5.5):用 animateTo 包住 store 变更,让行的增减跟着动效走。
+            // 不给每行挂 .transition() —— 行由 LazyForEach 懒创建,挂了的话滚动时新进入视口的行也会淡入。
+            this.getUIContext().animateTo({ duration: MotionScale.ms(OrdoMotion.checklistExpand), curve: OrdoMotion.easingEnter }, () => {
+              this.store.toggleHeading(row.headingId);
+            });
           }
         })
       Text(row.label)
@@ -674,6 +699,9 @@ export struct ListPage {
     }
     .width('100%')
     .height('100%')
+    // §5.5 页面切换:淡入 160ms + 上浮 6px(进度见 onListChanged;首帧停在终态)
+    .opacity(this.pageIn)
+    .translate({ y: (1 - this.pageIn) * 10 })
     .backgroundColor(this.c().bgCanvas)
   }
 }

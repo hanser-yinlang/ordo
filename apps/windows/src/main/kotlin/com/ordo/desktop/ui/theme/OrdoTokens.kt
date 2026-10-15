@@ -130,6 +130,20 @@ object OrdoMotion {
     const val COMPLETE_TICK = 120
     const val COMPLETE_TEXT = 240
     const val COMPLETE_REMOVE = 700
+
+    /**
+     * §5.5 过渡动效(v1.7 放慢):浮层入场 280 / 退场 200、页面切换 240、详情栏 280。
+     *
+     * v1.6 的 180/140/160/220 配 `cubic-bezier(.2,.8,.2,1)` 起步过猛、收尾只剩一小段位移,
+     * 实测观感"像硬切、不通畅";v1.7 把时长整体拉长并换成「柔起长滑」的
+     * [com.ordo.desktop.ui.common.OrdoEasing.transition]。
+     * 三端同值(Android `OrdoMotion` / Harmony `OrdoMotion` 同名同值),
+     * 实现在 `ui/common/Motion.kt`(OrdoOverlay / OrdoPageEnter / OrdoRiseIn)。
+     */
+    const val OVERLAY_IN = 280
+    const val OVERLAY_OUT = 200
+    const val PAGE_FADE = 240
+    const val DETAIL = 280
 }
 
 /** 行高与组件尺寸(§4) */

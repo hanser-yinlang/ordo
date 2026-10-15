@@ -37,8 +37,10 @@ import com.ordo.core.nlp.NaturalDateParser
 import com.ordo.core.util.OrdoDate
 import com.ordo.desktop.app.OrdoViewModel
 import com.ordo.desktop.app.UiState
+import com.ordo.desktop.ui.common.OrdoOverlay
 import com.ordo.desktop.ui.common.OrdoTextButton
 import com.ordo.desktop.ui.common.OrdoTextField
+import com.ordo.desktop.ui.common.rememberLastState
 import com.ordo.desktop.ui.theme.OrdoRadius
 import com.ordo.desktop.ui.theme.OrdoSpace
 import com.ordo.desktop.ui.theme.OrdoType
@@ -50,6 +52,23 @@ import com.ordo.desktop.ui.theme.ordoColors
  */
 @Composable
 fun ScheduleSheet(state: UiState, vm: OrdoViewModel) {
+    // 宿主无条件组合:被 `if (打开)` 包住时关闭就是整棵子树被移除,退场(§5.5 的 140ms)没有机会播。
+    // 退场途中 closeSchedule() 已把 scheduleForDeadline 清成 false,实时状态读不出面板内容,
+    // 于是用 rememberLastState 记住"最近一次打开"的那份快照,画面停在关闭前那一帧上。
+    val lastOpen = rememberLastState<UiState>()
+    if (state.scheduleTargetId != null) lastOpen.value = state
+    OrdoOverlay(
+        visible = state.scheduleTargetId != null,
+        onDismiss = vm::closeSchedule,
+        alignment = Alignment.Center
+    ) {
+        lastOpen.value?.let { SchedulePanel(state = it, vm = vm) }
+    }
+}
+
+/** 面板本体:只由 [ScheduleSheet] 的宿主调用,遮罩与 pop-in 都在宿主那边 */
+@Composable
+private fun SchedulePanel(state: UiState, vm: OrdoViewModel) {
     val todoId = state.scheduleTargetId ?: return
     val todo = vm.engine.todo(todoId) ?: return
     val colors = ordoColors
@@ -60,11 +79,9 @@ fun ScheduleSheet(state: UiState, vm: OrdoViewModel) {
 
     LaunchedEffect(todoId) { focusRequester.requestFocus() }
 
+    // 遮罩由 OrdoOverlay 画;这里只提供居中锚点,点击穿透到宿主的遮罩上
     Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.28f))
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { vm.closeSchedule() },
+        Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(

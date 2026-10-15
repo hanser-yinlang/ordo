@@ -22,9 +22,9 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SKIP_DIRS = {'node_modules', 'oh_modules', 'build', 'dist', '.gradle', '.git', '.kotlin', '.idea', 'Pods', 'schemas'}
-TEXT_EXT = {'.kt', '.kts', '.swift', '.ets', '.ts', '.tsx', '.js', '.mjs', '.json', '.json5',
-            '.xml', '.plist', '.md', '.sql', '.yml', '.yaml', '.properties', '.html', '.css', '.ps1', '.py'}
+SKIP_DIRS = {'node_modules', 'oh_modules', 'build', 'dist', '.gradle', '.git', '.kotlin', '.idea', 'schemas'}
+TEXT_EXT = {'.kt', '.kts', '.ets', '.ts', '.tsx', '.js', '.mjs', '.json', '.json5',
+            '.xml', '.md', '.sql', '.yml', '.yaml', '.properties', '.html', '.css', '.ps1', '.py'}
 
 CJK = re.compile(r'[\u4e00-\u9fff]')
 # 检测/修复工具自身会把这些字符当作"数据"使用,需要豁免

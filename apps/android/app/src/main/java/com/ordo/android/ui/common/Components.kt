@@ -79,11 +79,12 @@ fun OrdoDivider(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun OrdoScrim(onClick: () -> Unit) {
+fun OrdoScrim(onClick: () -> Unit, alpha: Float = 1f) {
+    val scrim = OrdoTheme.colors.scrim
     Box(
         Modifier
             .fillMaxSize()
-            .background(OrdoTheme.colors.scrim)
+            .background(scrim.copy(alpha = scrim.alpha * alpha))
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -529,8 +530,23 @@ fun OrdoPopover(
     width: Dp = OrdoLayout.sheetWidth,
     content: @Composable () -> Unit,
 ) {
-    val colors = OrdoTheme.colors
     OrdoScrim(onClick = onDismiss)
+    OrdoPopoverPanel(modifier = modifier, width = width, content = content)
+}
+
+/**
+ * 浮层面板本体（不含遮罩）：居中、宽 [width]、圆角 card、发丝描边、内边距 m。
+ *
+ * 与遮罩分开是为了 §5.5 的过渡：遮罩负责淡入淡出，面板负责 pop-in（0.98→1 + 上浮 8dp），而
+ * **面板自己绝不能蒙 alpha**（shadow 在 alpha < 1 的图层里不画阴影）。宿主用 OrdoOverlay 包住它即可。
+ */
+@Composable
+fun OrdoPopoverPanel(
+    modifier: Modifier = Modifier,
+    width: Dp = OrdoLayout.sheetWidth,
+    content: @Composable () -> Unit,
+) {
+    val colors = OrdoTheme.colors
     Box(
         modifier = modifier
             .fillMaxSize()

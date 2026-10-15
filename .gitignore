@@ -10,10 +10,8 @@ out/
 gradle-app.setting
 !gradle-wrapper.properties
 
-# —— Kotlin/Native 与 XCFramework ——
+# —— Kotlin/Native ——
 *.klib
-*.framework/
-*.xcframework/
 
 # —— Node / 后端 ——
 node_modules/
@@ -31,15 +29,6 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
-
-# —— iOS / Xcode ——
-DerivedData/
-*.xcuserstate
-xcuserdata/
-*.moved-aside
-*.hmap
-*.ipa
-*.dSYM.zip
 
 # —— 鸿蒙 / DevEco ——
 oh_modules/

@@ -71,6 +71,7 @@ import com.ordo.desktop.ui.common.EmptyState
 import com.ordo.desktop.ui.common.MarkdownNote
 import com.ordo.desktop.ui.common.OrdoIconButton
 import com.ordo.desktop.ui.common.OrdoIcons
+import com.ordo.desktop.ui.common.OrdoRiseIn
 import com.ordo.desktop.ui.common.OrdoTextButton
 import com.ordo.desktop.ui.common.OrdoTextField
 import com.ordo.desktop.ui.common.ProgressRing
@@ -518,7 +519,8 @@ private fun SectionBlock(
                     }
                 )
                 if (selected) {
-                    DetailCardHost(todo, state, vm)
+                    // 详情卡片入场:淡入 220ms + 上浮 6dp(§5.5)
+                    OrdoRiseIn { DetailCardHost(todo, state, vm) }
                 }
             }
         }

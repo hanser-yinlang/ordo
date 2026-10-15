@@ -42,8 +42,9 @@ import com.ordo.android.ui.common.MetaPill
 import com.ordo.android.ui.common.OrdoCard
 import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconKind
-import com.ordo.android.ui.common.OrdoScrim
+import com.ordo.android.ui.common.OrdoOverlay
 import com.ordo.android.ui.common.OrdoTextField
+import com.ordo.android.ui.common.rememberLastState
 import com.ordo.android.ui.theme.OrdoLayout
 import com.ordo.android.ui.theme.OrdoRadius
 import com.ordo.android.ui.theme.OrdoSpace
@@ -60,6 +61,28 @@ fun FastFind(
     vm: OrdoViewModel,
     onNavigate: (String) -> Unit,
 ) {
+    // 宿主无条件组合（退场 140ms 才有机会播）；退场时 fastFindOpen 已 false、搜索结果读不出来，
+    // 所以记住最近一次打开的快照（见 ui/common/Motion.kt 里 OrdoOverlay 的约定）。
+    val lastOpen = rememberLastState<UiState>()
+    if (state.fastFindOpen) lastOpen.value = state
+    OrdoOverlay(
+        visible = state.fastFindOpen,
+        onDismiss = vm::closeFastFind,
+        alignment = Alignment.TopCenter,
+        // 顶部浮层：自上方下落 8dp，缩放锚点在上边中点
+        slideFromTop = true,
+    ) {
+        lastOpen.value?.let { FastFindPanel(state = it, vm = vm, onNavigate = onNavigate) }
+    }
+}
+
+/** 面板本体：只由 [FastFind] 的宿主调用 */
+@Composable
+private fun FastFindPanel(
+    state: UiState,
+    vm: OrdoViewModel,
+    onNavigate: (String) -> Unit,
+) {
     val colors = OrdoTheme.colors
     var query by remember { mutableStateOf(state.searchQuery) }
     var selected by remember { mutableIntStateOf(0) }
@@ -68,7 +91,6 @@ fun FastFind(
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     Box(Modifier.fillMaxSize()) {
-        OrdoScrim(onClick = vm::closeFastFind)
         Column(
             Modifier
                 .fillMaxWidth()

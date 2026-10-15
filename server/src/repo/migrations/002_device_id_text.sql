@@ -2,8 +2,7 @@
 --
 -- 背景(契约 §7.2 / §7.4):
 --   deviceId 是**客户端生成的不透明短串**,契约示例为 `"deviceId":"dev_7f3a..."`,
---   并通过 `X-Ordo-Device: <deviceId>` 传递。四端实现确实都生成 `dev_<opaque>`:
---     * iOS             `newDeviceId()`            -> "dev_" + uuid(去连字符)前 10 位
+--   并通过 `X-Ordo-Device: <deviceId>` 传递。三端实现确实都生成 `dev_<opaque>`:
 --     * Harmony         `newIdWithPrefix('dev')`   -> "dev_" + 16 进制 20 位
 --     * Android/Windows 共享核心 `OrdoEngine`       -> "dev_" + ULID 后 10 位小写
 --   而 001 早期版本把 `devices.id` / `refresh_tokens.device_id` 定义成 uuid,

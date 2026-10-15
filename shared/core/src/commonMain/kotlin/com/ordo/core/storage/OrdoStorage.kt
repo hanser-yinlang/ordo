@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonElement
 /**
  * 本地存储抽象(契约 §8)。
  *
- * 四端各自实现:Android = SQLiteOpenHelper / iOS = SwiftData / 鸿蒙 = RelationalStore / Windows = JSON 文件。
+ * 三端各自实现:Android = SQLiteOpenHelper / 鸿蒙 = RelationalStore / Windows = JSON 文件。
  * 表(或键)字段名必须与契约 §2 一致;另需 outbox / tombstones / kv 三块。
  */
 interface OrdoStorage {

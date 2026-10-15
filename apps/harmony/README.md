@@ -185,12 +185,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 
 ### 3.4 跑测试(本机宿主 + 模拟器两条路)
 
-#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 130/130 · v1.5)
+#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 135/135 · v1.6)
 
-Hypium 用例在设备上跑需要签名,而本机没有证书。但**十一组用例全部只依赖纯逻辑模块**
+Hypium 用例在设备上跑需要签名,而本机没有证书。但**十二组用例全部只依赖纯逻辑模块**
 (`core/` 下除 `RelationalStore` / `ReminderAgent` 之外的模块,外加 `core/store/ApplyTypes.ets`、
 `core/SeedData.ets`、`viewmodel/ReorderMath.ets`、`viewmodel/PressGesture.ets`、
-`viewmodel/LocalWorkspace.ets`、`viewmodel/SeedPolicy.ets`、
+`viewmodel/LocalWorkspace.ets`、`viewmodel/SeedPolicy.ets`、`viewmodel/MotionScale.ets`、
+`theme/Tokens.ets`、
 `viewmodel/FabMenu.ets`、`view/list/RowModel.ets`,全部不含 `@ohos`/`@kit` 依赖;
 `RelationalStore.test.ets` 必须连真库,只在设备上跑),
 断言也只用到 `describe` / `it` / `expect` + `assertEqual|assertTrue|assertFalse`。
@@ -214,17 +215,18 @@ python _qa\build-harness.py
    但 `DateUtil.todayISO()` 一类路径仍会读系统时间,不冻结就会跨天假失败;
 4. `tsc`(strict + noImplicitAny + strictNullChecks)编译 → Node 运行 → 汇总,退出码 0 = 全通过。
 
-实测结果(2026-10-14,设置页「清空本地数据」落地后):
+实测结果(2026-10-15,三端过渡动效 §5.5 + 减弱动效适配落地后):
 
 ```
-describe 块: 11     用例总数: 130     通过: 130     失败: 0
+describe 块: 12     用例总数: 135     通过: 135     失败: 0
 RESULT: ALL PASSED
 ```
 
-> **如实报数**:本文件早前写的 109(§3.4.1 标题与下方 v1.5 说明)/ 112(变更记录)都已陈旧
-> —— 其间有并行改动只加用例、没回来改这里。本轮**实测**是 **11 组 130 条 = 存量 122 条 +
-> 本轮新增 `LocalDataReset.test.ets` 8 条(§6.2「清空本地数据」的语义回归)**;设备端真库那组
-> (`RelationalStore.test.ets`,2 条)仍不在宿主里跑,因此设备端总数 = 130 + 2 = 132 条(未实跑,见 §3.4.3)。
+> **如实报数**:上一版是 **11 组 130 条**(2026-10-14),本轮新增 `MotionScale.test.ets` **5 条**
+> (§5.5 的减弱动态效果折算:默认不改时长 / 开启后每条过渡都归零 / 关掉可恢复 / 三端令牌同值 + 缓动同曲线 /
+> 折算只有 0 与原值两档)→ **12 组 135 条全过**(脚本输出的那三行是唯一权威)。
+> 设备端真库那组(`RelationalStore.test.ets`,2 条)仍不在宿主里跑,因此设备端总数 = 135 + 2 = **137 条**
+> (本机现无设备,未实跑,见 §3.4.3)。
 > 宿主统计只信任脚本输出的那三行,README 里的历史数字一律以最新实测行为准。
 
 > 第六轮新增第二组 8 条用例(总数 134 → 142,只增不减):
@@ -284,7 +286,7 @@ hdc shell aa test -b com.ordo.app -m entry_test -s unittest OpenHarmonyTestRunne
 
 ```
 OHOS_REPORT_RESULT: stream=Tests run: 135, Failure: 0, Error: 0, Pass: 135, Ignore: 0   （v1.4:133 宿主用例 + 2 设备端真库用例）
-（第六轮 v1.3 时为 136;v1.4 移除验证码登录 18 条、新增静默会话 9 条）
+（第六轮 v1.3 时为 136;v1.4 移除验证码登录 18 条、新增静默会话 9 条;v1.5 删同步后宿主缩到 109 → 130 → **135**(v1.6),故设备端预期 **137** = 宿主 135 + 真库 2 —— **本机现无设备,未重跑**,见 §3.4.1 与 §10）
 OHOS_REPORT_CODE: 0
 TestFinished-ResultCode: 0
 TestFinished-ResultMsg: your test finished!!!
@@ -715,17 +717,17 @@ E C01650/SqliteStatement: PrintInfoForDbError:DbError errCode:27394103 errno:25
 
 | 行为 | 本端实现 | 与其它端的关系 |
 |---|---|---|
-| 右滑 → 完成 | `swipeAction.start` = 绿色 `state.success` 动作区;`onAction`(滑过阈值松手)与按钮点击都走 `store.toggleDone` | iOS `ordoSwipeActions(leading: .complete)` 同义 |
-| 左滑 → 删除 + 排期 | `swipeAction.end` = 排期 + 删除两个 72vp 动作区;删除走"软删除 + 提示条撤销"(04 §6 未规定二次确认,按可撤销实现) | iOS `trailing: .delete` 同义;撤销是本端补的兜底 |
-| 长按拖拽 | `ListItem.onTouch` → `PressTracker`(400ms / 6px)→ `moveIdToIndex` → `reorderTodos(ids)` | 与 iOS 长按拖拽同形(先移除再插入);落点规则见下 |
-| 提交的序列 | **同一容器内的完整可见序列**(界面顺序),核心按 `ids[i].order = i` 整批落库 | 与 iOS `AppEnvironment.reorderTodos(ids:)`、桌上端 `ReorderMath.applySectionOrder` 同一契约 |
+| 右滑 → 完成 | `swipeAction.start` = 绿色 `state.success` 动作区;`onAction`(滑过阈值松手)与按钮点击都走 `store.toggleDone` | 本端手势独有;数据操作与其它端一致(同走 `toggleDone`) |
+| 左滑 → 删除 + 排期 | `swipeAction.end` = 排期 + 删除两个 72vp 动作区;删除走"软删除 + 提示条撤销"(04 §6 未规定二次确认,按可撤销实现) | 本端手势独有;撤销是本端补的兜底 |
+| 长按拖拽 | `ListItem.onTouch` → `PressTracker`(400ms / 6px)→ `moveIdToIndex` → `reorderTodos(ids)` | 与 Windows 端长按拖拽同形(先移除再插入);落点规则见下 |
+| 提交的序列 | **同一容器内的完整可见序列**(界面顺序),核心按 `ids[i].order = i` 整批落库 | 与共享契约一致(核心 `OrdoEngine.reorderTodos(ids)`)、桌上端 `ReorderMath.applySectionOrder` 同一契约 |
 | 容器 = | `(when, projectId, headingId)`(`ReorderMath.containerKeyOf`),与 `OrdoEngine.nextOrder` 的作用域一致 | 三端同口径;跨容器拖拽直接拒绝并提示 |
-| 开放拖拽的清单 | 今天 / 收件箱 / 随时 / 某天 / 项目 / 区域;且要求该分区**同容器且 ≥2 行** | iOS `canReorder` 同判据(本端额外开放「今天」,因其排序末位比较键就是 `order`) |
+| 开放拖拽的清单 | 今天 / 收件箱 / 随时 / 某天 / 项目 / 区域;且要求该分区**同容器且 ≥2 行** | 与桌上端 `ListPane.canReorder` 同判据(本端额外开放「今天」,因其排序末位比较键就是 `order`) |
 
 > **第五轮把拖拽入口从"系统通用拖拽"换成了"自己的长按手势"**(§5.4 要求 400ms 阈值、6px 位移判定、
 > 拖回原位/返回键取消且不写库)。系统 `draggable/onDragStart/onDrop` 的阈值与取消语义都由系统决定,
 > 端上无法满足这三条;现在的落点由位移换算(`dragTargetIndex` 半行取整、上下对称),
-> 与 iOS「越过行中点即换位」在语义上等价。
+> 与 Windows 端「越过行中点即换位」在语义上等价。
 
 ## 8. 编译告警(ArkTS)
 
@@ -843,6 +845,19 @@ E C01650/SqliteStatement: PrintInfoForDbError:DbError errCode:27394103 errno:25
   本机无设备无法验证渲染结果,故先用字形 + 统一色板(等设计给矢量资源再替换)。
 - **撤销窗口 4s**:04 §4 只规定普通提示 2.4s;带「撤销」动作的提示条延长到 4s(样式/位置/圆角不变),
   属"删除可撤销"补的约定,需契约方确认是否接受。
+- **减弱动态效果只覆盖 §5.5 过渡动效**:浮层入退场、页面淡入、抽屉、清单展开、详情卡片都走
+  `viewmodel/MotionScale.ets`(开启系统「设置 → 关怀和无障碍 → 高级视觉辅助 → 过渡动画」后归零);
+  但 **§5 的完成时序(0/80/160/240/700/900ms)、快加号集群等既有动效仍是固定时长** ——
+  完成序列是"动画 + 700ms 后才写库"的状态机,直接归零必须改成"跳过动画但保留落库时序",
+  属独立改动(09 报告 §4 B-013)。系统开关的读取在 `theme/ReduceMotion.ets`
+  (`accessibility.isAnimationReduceEnabledSync()` + `onAnimationReduceStateChange` 命名回调订阅)。
+- **过渡动效只有编译与逻辑层证据**:本机现无设备(`hdc list targets` = `[Empty]`),
+  §5.5 的时长/几何/减弱动效折算由**真实编译 + 宿主用例 + `selfcheck.py`** 钉住,
+  但**真机上的观感(缩放手感、抽屉跟手、页面淡入)未验**,需要在设备上人工回归一次。
+- **v1.7 调慢放顺的取值**:`popIn 280 / popOut 200 / pageFade 240 / detailRise 280 / sidebarCollapse 260 /
+  checklistExpand 220`,面板 `scale .96→1` + `translate ±14`(页面淡入 10px),曲线改用
+  `OrdoMotion.easingEnter = 'cubic-bezier(0.2, 0, 0, 1)'`(ArkUI 的 `curve` 参数支持 CSS 曲线字符串);
+  既有动效仍用 `easingStandard`。三端同值,宿主用例 `MotionScale.test.ets` 已钉住这组数。
 - **`_qa/`**:构建与自检脚本 + 历史日志,不属于 App 运行时代码,不参与打包。
 - **本机模拟器不稳定**:`emulator 7.0.0.107` 在这台机器上约 10 分钟自行退出一次(第六轮崩了 4 次,最后一次
   `hdc` 直接 wedge),`uitest dumpLayout` 还会间歇性只返回状态栏空树。UI 取证脚本 `_qa/hdc-ui.ps1`
@@ -871,3 +886,5 @@ E C01650/SqliteStatement: PrintInfoForDbError:DbError errCode:27394103 errno:25
 | 2026-10-13 | **v1.5 · 删除云同步(纯本地应用)**:① 删除 `core/sync/**`(`SyncApi`/`SyncEngine`/`RealtimeClient`/`SyncTypes`)、`core/session/OrdoSession.ets`、`viewmodel/SilentAuth.ets`、`viewmodel/RefreshState.ets`、`view/Common/RefreshControl.ets` 与对应 3 组用例(`SilentAuth`/`RefreshState`/`Session`);引擎的合并类型迁到 `core/store/ApplyTypes.ets` 并去掉 `OpSink`/`OpSource` 接口(与网络彻底解耦);② 新增 `viewmodel/LocalWorkspace.ets`(工作区标识 §7.6.6:钉住 / 生成 `local-<16hex>` / 目录名清洗)+ 4 条用例;③ `AppStore` 改为纯本地启动:读标识 → 开本地库 → `OrdoEngine` → 写演示数据/刷新提醒 → 直进主界面,删除全部同步装配、会话/令牌、退避重试与刷新状态;④ UI:状态栏去掉刷新控件与同步指示,侧栏底部改「纯本地」,设置页去掉「同步」区块(状态/实时通道/服务端游标/最近错误/立即同步/服务器地址),保留「本地数据」(工作区标识/数据目录/库文件);⑤ `module.json5` **移除 `ohos.permission.INTERNET`**(依据:源码检索网络 API 0 命中 + 产物 `module.json` 只剩通知与提醒权限;打包 HAP 已核验无 INTERNET);⑥ 门禁:`assembleHap` 与 ohosTest 两个 HAP BUILD SUCCESSFUL / **ArkTS ERROR 0**,宿主 **109/109**(9 组;133 → 109),selfcheck 0 问题(顺带清掉陈旧的 `entry/.preview` 预览缓存,它残留着已删同步模块的旧副本导致 27 处路径误报),check-encoding OK;⑦ 真机(模拟器)安装启动:纯本地主界面 + 设置页「本地数据」= `local-805e05692b26ba14`,**无任何同步 UI**(截图 `_qa/v15-pure-local-main.jpeg`、`_qa/v15-settings-local.jpeg`);⑧ **RDB 引号写盘修复未回退** |
 | 2026-10-14 | **设置页「清空本地数据」(与 Windows 端语义对齐)+ 演示数据策略抽成纯逻辑**:① 新增 `viewmodel/SeedPolicy.ets`(`shouldSeedDemoData(seedMark, todoCount, projectCount)` / `applySeedPolicy(store, engine, seed)` / `applyResetToSeedData(store, engine, seed)`),`AppStore.seedDemoDataIfEmpty()` 改为只做取数与 UI 收尾(行为逐字不变:标记 `ordo.seeded === '1'` 直接返回;否则库空才播种;**最后无条件写标记**——这条是"用户自己删空不被复活"的根基);② 引擎新增 **`OrdoEngine.clearAll(): Promise<void>`** —— 清空 5 类实体 + outbox(按 opId 逐条 `removeOutbox`)+ 墓碑(借 `pruneTombstones(nowMillis()+1)` 清干净,`OrdoStore` 没有专门的清墓碑 API)+ **删 `KvKeys.SEEDED` 标记**,内存状态同步清空并 `emit()`,对齐 Kotlin `OrdoEngine.clearAll()`;③ `AppStore.clearAllData()`(`clearAll` → `ReminderAgent.cancelAll()` → `invalidateDerived()` → 提示条「已清空本地数据」→ `bump()`),设置页新增「清空数据」区按钮(危险色 `stateDanger` + `chipBg` + pill 圆角,与「恢复默认示例数据」同款)+ **两步确认**(参照安卓端 `confirmReset` 写法:第一次点击只展开红色确认文案与「确认清空 / 取消」,测试 id `ordo_settings_clear` / `ordo_settings_clear_confirm` / `ordo_settings_clear_cancel`);④ **顺手修掉一个隐患**:`resetToSeedData()` 此前不写回播种标记,于是「清空 → 恢复示例数据 → 用户自己删空 → 冷启动」会**错误复活**演示数据,现在经 `applyResetToSeedData()` 一并写回 `1`;⑤ 新增一组 `LocalDataReset.test.ets` **8 条**用例(清空后内存即全新安装态 / 只删播种标记而设备级 kv `ordo.localAccountId` 保留 / **清空后冷启动会重新播种** / **用户自己删空后冷启动不复活** / 有标记但库空不播种 / 有数据没标记只补标记不覆盖数据 / 重置同时写数据与标记 / `shouldSeedDemoData` 判定表),并登记进 `List.test.ets`(设备端 12 组)与 `_qa/node-harness/src/runner.ts`(宿主 11 组),`_qa/build-harness.py` 的 `CORE_FILES` 增加 `core/SeedData.ets`、`viewmodel/SeedPolicy.ets`;⑥ **门禁(实测命令与结果)**:`python _qa\build-harness.py` → `describe 块: 11 / 用例总数: 130 / 通过: 130 / 失败: 0`(`RESULT: ALL PASSED`,tsc OK;存量 122 + 本轮 8,README 旧写的 109/112 已按实测更正),`_qa\build.ps1`(assembleHap)与 `_qa\build.ps1 -OhosTest` 均 `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERROR 0`(日志里 `:entry:ohosTest@OhosTestCompileArkTS` 真实重编译 7.5s),产物 `entry-default-unsigned.hap` 1149.4 KB、`entry-ohosTest-unsigned.hap` 1872.4 KB;⑦ **未验证**:本机无设备(`hdc list targets` = `[Empty]`),设备端 `aa test` 与清空后的真机截图**未跑**(设备端预期 132 条 = 宿主 130 + `RelationalStore.test.ets` 2 条),RDB 真库上的 `clearAll()` 只经 ArkTS 编译与内存库语义用例覆盖,未在真库上实跑 |
 | 2026-10-13 | **v1.5 · 快加号对齐 §5.2 v1.5(亮蓝 + 柔光 + 位置避让)**:① `OrdoColorTokens` 新增 `fab = #0A84FF`(浅/深同值),FAB 圆填充从 `accentPrimary` 改为它,菜单项图标改 `textSecondary`(品牌靛紫不动);② 柔光改为**径向渐变**容器(`Column` 104 = 56 + 2×24,`borderRadius` 52,inner `#0A84FF59/73` @0.54 → outer `#0A84FF00` @1.0),`.position(-24,-24)` 溢出按钮边界 + `HitTestMode.None`,**不占布局、不吃点击**,并**删掉原来的中性 `.shadow()`**;③ 位置:`FAB_MARGIN_BOTTOM = 32(底栏)+ 24(光晕)+ 8(空隙) = 64`、`FAB_MARGIN_RIGHT = 24` 写成常量,`Index.ets` 不再写死 64;④ 交互不变(单击=行内新建、长按 400ms=菜单),真机复核两项均通过;⑤ 用例:宿主 **112/112**(FabMenu 由 8 条补到 11 条:亮蓝常量、光晕径向渐变/厚度/透明度/停靠点、底边距 ≥ 底栏+光晕);⑥ 门禁:`assembleHap` 与 ohosTest BUILD SUCCESSFUL / **ArkTS ERROR 0**,selfcheck 0 问题,check-encoding OK;⑦ 真机截图 `_qa/v15-fab-blue2.jpeg`(亮蓝圆钮 + 蓝光柔光,右下角不压底部文案)、`_qa/v15-fab-menu2.jpeg` + `_qa/v15-quickadd-panel2.jpeg`(长按菜单 / 单击输入行) |
+| 2026-10-15 | **三端过渡动效(UI 规范 v1.6 §5.5)+ 减弱动态效果适配**:① 复用**早已定义却一直未被引用**的 `OrdoMotion` 令牌(`popIn 180` / `pageFade 160` / `checklistExpand 220` / `sidebarCollapse 260`)并补 `popOut = 140`、`detailRise = 220`;② `pages/Index.ets` 的三个浮层(排期 / 快找 / 设置)与窄屏抽屉改为「**独立遮罩层 + 面板层**」的 `Stack` 结构 + `TransitionEffect.asymmetric`,`ListPage` 新增 `@Prop listKey` 驱动 160ms 页面淡入、`headingRow` 的 ▸/▾ 展开改 220ms,`TodoRow` 详情卡片 220ms 位移;③ **面板只挂 `scale .98→1` 与 `translate ±8`,不挂 opacity** —— 给容器蒙 alpha 会让 `.shadow` 在整段过渡里不绘制(§5.2 记过的"先方角后圆角"坑),透明只给遮罩;④ 新增纯逻辑 `viewmodel/MotionScale.ets`(折算出口,开启后时长归零)与 `theme/ReduceMotion.ets`(读 `accessibility.isAnimationReduceEnabledSync()`,并用**命名回调** `onAnimationReduceStateChange` 订阅系统开关变化),§5.5 每个时长都改走 `MotionScale.ms(...)`;⑤ 新增第 13 组 `MotionScale.test.ets` **5 条**用例(默认不改时长 / 开启后 §5.5 每条都归零 / 关掉可恢复 / 三端令牌同值 + 缓动同曲线 / 折算只有 0 与原值两档),登记进 `List.test.ets`(设备端 13 组)与 `_qa/node-harness/src/runner.ts`(宿主 12 组),`_qa/build-harness.py` 的 `CORE_FILES` 增 `viewmodel/MotionScale.ets` 与 `theme/Tokens.ets` 并补 `theme/` 的路径改写;⑥ **门禁**:`python _qa\build-harness.py` → `describe 块: 12 / 用例总数: 135 / 通过: 135 / 失败: 0`(`RESULT: ALL PASSED`,tsc OK;130 → 135),`_qa\build.ps1 -Clean`(清空 `entry/build` 全新编译)与 `_qa\build.ps1 -OhosTest` 均 `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERROR 0`(唯一 WARN 是既有的 `No signingConfig`),产物 `entry-default-unsigned.hap` **1,201,467 字节**;`_qa/selfcheck.py` 0 问题;⑦ **未做**:设备端 `aa test`(本机无设备)与真机观感回归;§5 完成时序 / 快加号集群的减弱动效接入(见 §10 与 09 报告 §4 B-013) |
+| 2026-10-15 | **v1.7 · 三端过渡动效调慢放顺(用户实测"太快、不通畅")**:① 时长 `popIn 180 → 280`(浮层入场)、`popOut 140 → 200`(退场)、`pageFade 160 → 240`(页面淡入)、`detailRise 220 → 280`(详情卡片),`sidebarCollapse 260` 与 `checklistExpand 220` 不变;② 几何 `scale .98 → .96`、`translate ±8 → ±14`(页面淡入 6 → 10px);③ 新增 `OrdoMotion.easingEnter = 'cubic-bezier(0.2, 0, 0, 1)'`(三端同名同值,起步柔、收尾长滑的 Material 3 standard 曲线),§5.5 里 22 处 `curve` 从 `Curve.FastOutSlowIn` / `easingStandard` 全部改用它 —— 既有 §5 完成时序 / 快加号集群仍留在 `easingStandard`;④ 改动面:`pages/Index.ets`(抽屉遮罩+侧栏、排期/快找/设置三个浮层的遮罩与面板)、`view/ListPage.ets`(`pageFade`、`headingRow` 展开)、`view/list/TodoRow.ets`(详情卡片 `animateTo` 与 `TransitionEffect`);⑤ 用例:`MotionScale.test.ets` 5 条改钉新值(280/200/240/280 + 260/220)并新增 `easingEnter` 断言,宿主仍是 **12 组 / 135 用例**;⑥ **门禁**:`python _qa\build-harness.py` → `describe 块: 12 / 用例总数: 135 / 通过: 135 / 失败: 0`(`RESULT: ALL PASSED`,tsc OK),`_qa\build.ps1 -Clean` 与 `_qa\build.ps1 -OhosTest` 均 `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERROR 0`(唯一 WARN 是既有的 `No signingConfig`),产物 `entry-default-unsigned.hap` **1,201,682 字节**;同批 Windows **221 用例**、Android **127 用例** 全绿;⑦ **未做**:设备端 `aa test` 与真机观感回归(本机无设备),§5 完成时序的减弱动效接入仍是 §10 与 09 报告 §4 B-013 的遗留项 |

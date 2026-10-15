@@ -4,7 +4,6 @@ name: Ordo CI
 #   · 总是运行的 job:核心、后端、契约检查 —— 任何环境都能跑通
 #   · 需要额外 SDK 的 job(Android / 鸿蒙)默认关闭,在仓库
 #     Settings → Secrets and variables → Actions → Variables 里建同名变量并置为 true 才会运行
-#   · iOS 端已于 2026-10-13 整体移除,对应的 CI job 随之删除
 #
 # 重要:Gradle 一律用仓库自带的 wrapper(./gradlew),不要用 `gradle` ——
 # GitHub runner 上并没有预装 gradle 命令,只有 wrapper 才能保证版本与本地一致(8.14)。

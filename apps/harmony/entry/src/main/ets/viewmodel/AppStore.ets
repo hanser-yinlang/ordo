@@ -1031,7 +1031,7 @@ export class AppStore {
   /**
    * 拖拽排序(04 §6「长按拖拽」):把**同一容器内的完整可见序列**整段提交给核心。
    *
-   * 两道闸门(与 iOS `AppEnvironment.reorderTodos(ids:)` 一致,缺一不可):
+   * 两道闸门(与共享核心 `OrdoEngine.reorderTodos(ids)` 的契约一致,缺一不可):
    *  1. 每个 id 都能在本地找到、至少 2 条;
    *  2. 所有 id 同容器——`order` 只在 `(when, projectId, headingId)` 内连续(见 `OrdoEngine.nextOrder`),
    *     跨分区/跨项目拖动会写出互相竞争的 order,这里直接拒绝并提示。

@@ -1,5 +1,11 @@
 package com.ordo.android.ui.shell
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +36,7 @@ import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconKind
 import com.ordo.android.ui.common.ProgressRing
 import com.ordo.android.ui.theme.OrdoLayout
+import com.ordo.android.ui.theme.OrdoMotion
 import com.ordo.android.ui.theme.OrdoRadius
 import com.ordo.android.ui.theme.OrdoSpace
 import com.ordo.android.ui.theme.OrdoTheme
@@ -218,9 +225,18 @@ private fun AreaRow(
                 modifier = Modifier.weight(1f),
             )
         }
-        if (!area.collapsed) {
-            area.projects.forEach { project ->
-                ProjectRowItem(project = project, route = "project/${project.id}", state = state, onNavigate = onNavigate)
+        // §5.5：清单展开 220ms ease-out（折叠/展开不再瞬间跳变，三端同一张表里的 base 时长）
+        AnimatedVisibility(
+            visible = !area.collapsed,
+            enter = expandVertically(animationSpec = tween(OrdoTheme.base, easing = OrdoMotion.easingEnter)) +
+                fadeIn(animationSpec = tween(OrdoTheme.base, easing = OrdoMotion.easingEnter)),
+            exit = shrinkVertically(animationSpec = tween(OrdoTheme.base, easing = OrdoMotion.easingEnter)) +
+                fadeOut(animationSpec = tween(OrdoTheme.base, easing = OrdoMotion.easingEnter)),
+        ) {
+            Column {
+                area.projects.forEach { project ->
+                    ProjectRowItem(project = project, route = "project/${project.id}", state = state, onNavigate = onNavigate)
+                }
             }
         }
     }

@@ -182,6 +182,14 @@ export class OrdoMotion {
   static readonly slow: number = 320;
   /** 标准缓动 cubic-bezier(.2,.8,.2,1) → ArkUI Curve.FastOutSlowIn 近似 */
   static readonly easingStandard: string = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+  /**
+   * §5.5 过渡曲线 cubic-bezier(.2,0,0,1)(Material 3 standard)。
+   *
+   * v1.6 用 easingStandard 时起步太猛、后半段干等,观感"像硬切、不通畅";
+   * 这条把位移均匀铺满整段时长。三端同一条:Windows `OrdoEasing.transition`、
+   * Android `OrdoMotion.easingEnter`。ArkUI 的 curve 参数支持 CSS 曲线字符串。
+   */
+  static readonly easingEnter: string = 'cubic-bezier(0.2, 0, 0, 1)';
 
   /** 完成动效时序(契约 04 §5,单位 ms) */
   static readonly pressScale: number = 90;
@@ -196,8 +204,14 @@ export class OrdoMotion {
   /** 其它 */
   static readonly checklistExpand: number = 220;
   static readonly sidebarCollapse: number = 260;
-  static readonly popIn: number = 180;
-  static readonly pageFade: number = 160;
+  /** 浮层入场 280ms(§5.5 v1.7 放慢:180 太急) */
+  static readonly popIn: number = 280;
+  /** 浮层退场 200ms(§5.5 v1.7:比入场快一档,关闭永远比打开干脆) */
+  static readonly popOut: number = 200;
+  /** 页面 / 清单切换淡入 240ms(§5.5 v1.7) */
+  static readonly pageFade: number = 240;
+  /** 详情栏入场 280ms(§5.5 v1.7,与 base 同值但语义独立:详情栏不是通用基准) */
+  static readonly detailRise: number = 280;
 
   /* ---------------- §5.1 登录页 ---------------- */
   /** 进入登录页:fade + 上移 12px,220ms */

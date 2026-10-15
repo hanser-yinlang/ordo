@@ -36,10 +36,12 @@ import androidx.navigation.compose.rememberNavController
 import com.ordo.android.R
 import com.ordo.android.nav.OrdoNavHost
 import com.ordo.android.nav.Routes
+import com.ordo.android.ui.common.OrdoDrawer
 import com.ordo.android.ui.common.OrdoIcon
 import com.ordo.android.ui.common.OrdoIconButton
 import com.ordo.android.ui.common.OrdoIconKind
-import com.ordo.android.ui.common.OrdoScrim
+import com.ordo.android.ui.common.OrdoPageEnter
+import com.ordo.android.ui.common.OrdoRiseIn
 import com.ordo.android.ui.common.OrdoToastHost
 import com.ordo.android.ui.detail.DetailCard
 import com.ordo.android.ui.quickadd.ComposerSheet
@@ -132,16 +134,22 @@ private fun MainShell(
                     onSearch = vm::openFastFind,
                 )
                 Box(Modifier.weight(1f)) {
-                    if (state.routeKey == UiState.ROUTE_SETTINGS) {
-                        SettingsScreen(state = state, vm = vm)
-                    } else {
+                    // §5.5 页面切换：淡入 240ms + 上浮 10dp（navigation 自带的默认过渡已在 OrdoNavHost 关掉）。
+                    // 首次组合停在终态 —— 冷启动没有过场，离屏渲染第 0 帧也拿得到完整内容。
+                    OrdoPageEnter(key = state.routeKey) {
+                        if (state.routeKey == UiState.ROUTE_SETTINGS) {
+                            SettingsScreen(state = state, vm = vm)
+                        } else {
                         OrdoNavHost(
                             navController = navController,
                             state = state,
                             vm = vm,
                             onNavigate = { route -> navigateTo(navController, route, vm) },
                         )
-                        /*
+                        }
+                    }
+                    /* 加号留在 OrdoPageEnter 外面：它是常驻控件，不该跟着页面一起淡入 */
+                    /*
                          * 浮层先画、快加号后画：加号永远在浮层之上，因此
                          *   ① 点加号 → 浮层出现（scrim + 输入卡片，明确可见）；
                          *   ② 浮层已打开时再点加号 → 命中的是加号而不是遮罩，
@@ -180,59 +188,62 @@ private fun MainShell(
                                  */
                                 .padding(end = OrdoSpace.xl, bottom = OrdoLayout.fabContentInset),
                         )
-                    }
                 }
                 StatusBar(state = state)
             }
 
             if (wide && state.detail != null) {
-                DetailColumn(state = state, vm = vm)
+                // §5.5：详情栏入场 220ms 淡入 + 上浮 10dp
+                OrdoRiseIn { DetailColumn(state = state, vm = vm) }
             }
         }
 
         /* ------------------------------ 浮层 ------------------------------ */
 
-        if (!medium && state.sidebarOpen) {
-            Box(Modifier.fillMaxSize()) {
-                OrdoScrim(onClick = { vm.toggleSidebar(false) })
-                OrdoSidebar(
-                    state = state,
-                    onNavigate = { route -> navigateTo(navController, route, vm) },
-                    onToggleArea = vm::toggleAreaCollapsed,
-                    onOpenSettings = { navigateTo(navController, Routes.SETTINGS, vm) },
-                    modifier = Modifier.fillMaxHeight(),
-                )
-            }
-        }
-
-        if (state.fastFindOpen) {
-            FastFind(
+        // §5.5 侧栏抽屉 260ms：面板从左侧平移入/出，遮罩同步淡入淡出。
+        // 宿主无条件组合（visible 由断点与 sidebarOpen 共同决定），否则退场同样播不出来。
+        OrdoDrawer(
+            visible = !medium && state.sidebarOpen,
+            onDismiss = { vm.toggleSidebar(false) },
+        ) {
+            OrdoSidebar(
                 state = state,
-                vm = vm,
                 onNavigate = { route -> navigateTo(navController, route, vm) },
+                onToggleArea = vm::toggleAreaCollapsed,
+                onOpenSettings = { navigateTo(navController, Routes.SETTINGS, vm) },
+                modifier = Modifier.fillMaxHeight(),
             )
         }
 
-        if (state.scheduleTarget != null) {
-            ScheduleSheet(state = state, vm = vm)
-        }
+        // 浮层宿主一律无条件组合：关闭时要靠 visible 走完 200ms 退场（§5.5），
+        // 被 if 包住的话整棵子树当场消失，退场与遮罩淡出都播不出来。
+        FastFind(
+            state = state,
+            vm = vm,
+            onNavigate = { route -> navigateTo(navController, route, vm) },
+        )
+
+        ScheduleSheet(state = state, vm = vm)
 
         /* 新建待办浮层与长按菜单不在这里：它们与快加号同处列表区（见上），
            保证"再点一次加号"能重新聚焦、菜单展开时点加号能收起菜单 */
 
         if (!wide && state.detail != null) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(colors.canvas)
-                    .padding(top = OrdoSpace.m),
-            ) {
-                DetailCard(
-                    state = state,
-                    vm = vm,
-                    expanded = true,
-                    onClose = vm::closeDetail,
-                )
+            // §5.5：全屏详情同样是一次"进详情"的过场，淡入 280ms + 上浮 10dp
+            OrdoRiseIn(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(colors.canvas)
+                        .padding(top = OrdoSpace.m),
+                ) {
+                    DetailCard(
+                        state = state,
+                        vm = vm,
+                        expanded = true,
+                        onClose = vm::closeDetail,
+                    )
+                }
             }
         }
 

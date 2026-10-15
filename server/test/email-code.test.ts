@@ -650,7 +650,7 @@ describe('http 发信通道(契约 §7.6.5)', () => {
       const login = await ctx.app.inject({
         method: 'POST',
         url: '/v1/auth/email/login',
-        payload: { email, code, deviceName: '网关设备', platform: 'ios' }
+        payload: { email, code, deviceName: '网关设备', platform: 'harmony' }
       });
       assert.equal(login.statusCode, 200, `用网关投递的验证码应能登录:${login.body}`);
       assert.equal(login.json().user.email, email.toLowerCase());

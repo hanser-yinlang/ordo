@@ -243,11 +243,23 @@ object OrdoMotion {
 
     const val COLLAPSE_TOTAL = 900
     const val SHEET_COLLAPSE = 260
-    const val POP_IN = 180
-    const val PAGE_FADE = 160
+
+    /** §5.5 过渡动效（v1.7 调慢放顺：浮层入场 280、退场 200、页面切换 240） */
+    const val POP_IN = 280
+    const val POP_OUT = 200
+    const val PAGE_FADE = 240
     const val TOAST_DURATION = 2400
 
+    /** 既有动效曲线（§5 完成时序、§5.2 快加号、§5.3 刷新） */
     val easing: Easing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
+
+    /**
+     * §5.5 过渡曲线：cubic-bezier(0.2, 0, 0, 1)（Material 3 standard）。
+     *
+     * v1.6 用 [easing] 时起步太猛、后半段干等，观感「像硬切」；这条把位移均匀铺满整段时长。
+     * 三端同一条：Windows `OrdoEasing.transition`、鸿蒙 `OrdoMotion.easingEnter`。
+     */
+    val easingEnter: Easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 }
 
 /** §2.3 阴影（Compose 用 elevation 近似，视觉一致） */

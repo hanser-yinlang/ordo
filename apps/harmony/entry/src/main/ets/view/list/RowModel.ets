@@ -449,7 +449,7 @@ function emptySubtitleOf(list: ListKind): string {
 
 /**
  * 只有「连续的一段待办行」构成的分区**整体同容器**且 ≥2 条时,这些行才允许拖拽。
- * 与 iOS `ListScreenView.canReorder` 的判据一致:混合容器的分区拖了会写出互相竞争的 order。
+ * 与桌上端 `ListPane.canReorder` 的判据一致:混合容器的分区拖了会写出互相竞争的 order。
  * `dragEnabled` 参与行指纹,因此开关状态变化本身也会让这些行的键变化(各重建一次)。
  */
 function markDragEnabled(rows: ListRow[], allowed: boolean): void {

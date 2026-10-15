@@ -20,7 +20,7 @@
 ```powershell
 $env:JAVA_HOME="<JDK 21>"
 gradle :apps:windows:run                       # 直接运行
-gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(211 个用例,28 个测试类)
+gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(221 个用例,30 个测试类)
 gradle :apps:windows:createDistributable       # 免安装目录(app-image)
 gradle :apps:windows:packageDistributionForCurrentOS   # MSI + EXE(Compose 插件自动下载 WiX 3.11)
 gradle :apps:windows:packageMsi                # 只打 MSI
@@ -310,7 +310,7 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 - **多窗口跟随选中**(设置页开关,默认开):任一窗口打开某条待办,其它窗口**如果正好显示这条**就把它高亮,
   不改动对方路由 —— 既满足"每窗口独立路由",又能在多窗口下快速定位同一条内容。
 
-## 8. 测试(本机可跑,211 个用例,28 个测试类)
+## 8. 测试(本机可跑,221 个用例,30 个测试类)
 
 ```
 NoNetworkTest           6 个:**纯本地证明**(云同步已删除):构建脚本无网络依赖 / 运行期 classpath 无 HTTP·WebSocket 客户端 /
@@ -384,6 +384,15 @@ ThemeToastRenderTest    1 个:切到深色后的提示条离屏渲染 + **量像
                               提示条药丸必须亮且与画面形成对比;显式喂帧,否则提示条的淡入永远停在第 0 帧)
 QuickAddMenuShadowRenderTest 1 个:菜单展开的**每一帧**都要有投影(逐帧量面板右缘外侧的暗度;
                               旧实现靠淡入,整段过渡里投影是 0)+ 投影贴着圆角收进去(角上外扩的暗带短于腰上)
+OrdoMotionRenderTest    5 个:**§5.5 过渡动效**离屏逐帧量像素:浮层打开时第 0 帧就是终态(先 openSettings 再取图)/
+                              面板由 0.96 放大到 1 且**全程纯色**(证明没被藏进 alpha 层,阴影不会整段消失)/
+                              退场期间继续用"最后一份可见快照"渲染(关掉状态后第一帧面板仍在且仍是纯色)/
+                              页面切换第 0 帧不过场、切 key 后淡入并上浮 10px 后落位 / 开启减弱动态效果后时长归零
+OrdoMotionContractTest  5 个:源码级契约:§5.5 四个时长令牌(280/200/240/280)/ 过渡曲线必须是
+                              `OrdoEasing.transition`(`cubic-bezier(.2,0,0,1)`)且四段过渡都用它/
+                              面板几何只走 `graphicsLayer`(文件里不许出现 `AnimatedVisibility`·`fadeIn(`,
+                              且面板那段图层切片里不许有 `alpha`)/ 三个浮层宿主无条件组合 + 页面切换走 `OrdoPageEnter`/
+                              三个浮层宿主都用 `OrdoOverlay` 且退场读 `rememberLastState` / 行内详情入场走 `OrdoRiseIn`
 ```
 
 > 离屏渲染的一个坑(本轮踩到并写进断言):`ImageComposeScene.render()` **不带参数**时帧时钟恒为 0,
@@ -477,7 +486,9 @@ QuickAddMenuShadowRenderTest 1 个:菜单展开的**每一帧**都要有投影(�
 
 **共享核心**:本轮改了 `ordo/shared/core/src/commonMain/kotlin/com/ordo/core/store/OrdoEngine.kt`(`seedDemoData` / `clearAll` 与播种标记);第三行(方形阴影)是纯端侧 Compose 问题,只改 `apps/windows`,未动核心与其它端。
 
-**测试口径**:本轮后 `:apps:windows:test` 为 **28 个测试类 / 211 个用例**(1 个 skip:托盘字体环境假设;逐类数量见 §8,已与实际测试源码对齐)。新增 `QuickAddMenuShadowRenderTest`(1)/ `ThemeToastRenderTest`(1),`ClearDataReseedTest` 1→3、`QuickAddFabLookTest` 7→8。§8 的清单里顺手删掉了 4 个**早已随源码删除、只在文档里留着**的测试类(`SilentSessionTest` / `OrdoHttpErrorTest` / `RefreshControlTest` / `SyncDiagnosticsTest`,都是 `66f400a`「删除云同步」那次删的),并把 `UserDataDirsTest` / `StartupAndShellRenderTest` 的用例数改成该提交后的实际值。
+**测试口径**:本轮后 `:apps:windows:test` 为 **30 个测试类 / 221 个用例**(1 个 skip:托盘字体环境假设;逐类数量见 §8,已与实际测试源码对齐)。本轮新增 `OrdoMotionRenderTest`(5,离屏逐帧量像素)与 `OrdoMotionContractTest`(5,源码级契约),见 §8 与 UI 规范 §5.5。新增 `QuickAddMenuShadowRenderTest`(1)/ `ThemeToastRenderTest`(1),`ClearDataReseedTest` 1→3、`QuickAddFabLookTest` 7→8。§8 的清单里顺手删掉了 4 个**早已随源码删除、只在文档里留着**的测试类(`SilentSessionTest` / `OrdoHttpErrorTest` / `RefreshControlTest` / `SyncDiagnosticsTest`,都是 `66f400a`「删除云同步」那次删的),并把 `UserDataDirsTest` / `StartupAndShellRenderTest` 的用例数改成该提交后的实际值。
+
+**第七批(v1.7,同日)**:用户实测「过渡太快、不通畅」后,§5.5 的四个时长调慢为 **280/200/240/280**,面板几何 `scale .98→1` → **`.96→1`**、上浮 8 → **14px**(页面/详情 6 → **10px**),并新增过渡曲线 `OrdoEasing.transition` = **`cubic-bezier(.2,0,0,1)`** 让四段过渡全部改用它(既有完成时序/快加号仍用 `OrdoEasing.standard`)。两个动效测试类同步钉新值,并新增"四段过渡都必须用 `transition`"的守卫 —— 它第一跑就抓到 2 处 `standard` 残留。用例数不变(仍 30 类 / **221** 个)。
 
 **顺带修掉一个偶发假失败**:`RenderSmokeTest.按住行尾手柄拖动会真实写回顺序` 偶发抛
 `IllegalArgumentException: LayoutNode N not found in RectList`。根因是 `ImageComposeScene.render()`(不带参数)用的帧时钟**恒为 0**,

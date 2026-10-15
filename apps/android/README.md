@@ -3,7 +3,7 @@
 > 契约来源：[03 · 数据模型与同步协议](../../docs/03-数据模型与同步协议.md) · [04 · UI 设计规范](../../docs/04-UI设计规范.md)（FROZEN v1）
 > 业务核心：KMP `shared:core`（**只调用、不修改**）· 交互参照：`things-clone/`（Web 原型，仅复用信息架构；名称/图标/配色一律按 04 文档的 Ordo 品牌）
 > **v1.4 产品决策：彻底删除云同步 —— 本应用是纯本地应用，不联网、不申请 INTERNET 权限。**
-> 规模：44 个 Kotlin 文件（33 主 + 11 测试）· 11 个测试类 / **120 个用例**（本机 `assembleDebug` + `assembleRelease` + `testDebugUnitTest` 真实执行通过，见 §7.6/§7.7/§7.8）
+> 规模：49 个 Kotlin 文件（34 主 + 15 测试）· 12 个测试类 / **127 个用例**（本机 `assembleDebug` + `assembleRelease` + `testDebugUnitTest` 真实执行通过，见 §7.6/§7.7/§7.8/§7.9）
 
 ## 1. 构建
 
@@ -22,7 +22,7 @@
 # 在仓库根目录（ordo/）执行
 ./gradlew :apps:android:app:assembleDebug        # 打 debug 包
 ./gradlew :apps:android:app:assembleRelease      # 打 release 包（未签名，见 build.gradle.kts）
-./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（11 个测试类 / 120 个用例，见 §7.6）
+./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（12 个测试类 / 127 个用例，见 §7.6）
 ./gradlew :apps:android:app:installDebug         # 安装到设备
 ```
 
@@ -143,7 +143,7 @@ apps/android/
 | **纯本地（不联网）** | 全模块 | v1.4：云同步 / 登录 / 会话 / 令牌 / Ktor / WebSocket / 同步 UI 全部删除；**清单里没有 INTERNET 权限**；启动直接读本地 SQLite 渲染（§1.5 有四条可复现的证明命令） |
 | 提醒 | `notify/Notifier.kt`、`ReminderWorker.kt` | `ordo_reminders` 渠道；准点一次性任务 + 15 分钟周期兜底；点击深链打开待办（纯本地，无网络约束） |
 | 深链 | `AndroidManifest.xml`、`MainActivity.kt` | `ordo://` scheme，`Routes.fromDeepLink` 解析 |
-| 单元测试 | `src/test/**` | 11 个测试类 / 120 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
+| 单元测试 | `src/test/**` | 12 个测试类 / 127 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
 
 ## 4. 设计令牌落地（04 文档 §2）
 
@@ -152,7 +152,7 @@ apps/android/
 - 色彩：`bg.canvas #FBFAF7 / #141416`、`bg.surface #FFFFFF / #1D1D21`、`bg.sidebar #F4F3EF / #191919`、`line.hairline #E7E5DF / #2E2E33`、`text.primary #1C1B19 / #F2F1EE`、`text.secondary #7A776F / #9A968E`、`text.tertiary #A8A49B / #6E6B65`、`accent.primary #5B5BD6 / #7C7CF0`、`accent.tonight #D98324 / #E8A13F`、`state.danger #E5533D / #F2705C`、`state.success #2FA36B / #3FBF83`、`chip.bg/chip.text`、`focus.ring`
 - 排版：`display 28/34 600`、`title 20/26 600`、`body 15/22 400`、`caption 13/18 400`、`micro 11/14 500(字距 +0.4)`
 - 间距/圆角：`4/8/12/16/24/32`、`row 10 / card 14 / sheet 14 / pill 999`
-- 动效：`fast 120 / base 220 / slow 320` + `cubic-bezier(.2,.8,.2,1)`；完成动效按 §5 的 0/80/160/240/700/900ms 时序（`TodoRow` 里 `completing` 状态 → 700ms 后交给引擎）
+- 动效：`fast 120 / base 220 / slow 320` + `cubic-bezier(.2,.8,.2,1)`；完成动效按 §5 的 0/80/160/240/700/900ms 时序（`TodoRow` 里 `completing` 状态 → 700ms 后交给引擎）；过渡动效按 §5.5 v1.7（浮层入场 280 / 退场 200、页面淡入 240、抽屉 260、清单展开 220、详情栏 280，统一走 `ui/common/Motion.kt`，曲线 `easingEnter = cubic-bezier(.2,0,0,1)`）
 - 无障碍：触控目标 ≥44dp、`contentDescription` 全覆盖、**减弱动态效果**（读 `ANIMATOR_DURATION_SCALE`）开启后动效归零
 - 图标与配色均自绘/自定义，**未使用 Things 的名称、图标、截图与文案**（04 文档 §1.1）
 
@@ -288,7 +288,7 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 - `vm/OrdoViewModel`：`startSilentSession()` / `enterMain(sessionReady, silentRefresh)` / `repairSessionIfDenied()`。
 - 用例：`SilentSessionTest`(8)、`LocalAccountTest`(7)、`UserDataDirTest`(5)。
 
-**目录 id 是怎么钉住的（契约 §7.6.6，与 Windows/iOS 同语义）**
+**目录 id 是怎么钉住的（契约 §7.6.6，与 Windows 端同语义）**
 
 1. 引导库 kv 新增键 `ordo.localAccountId`（`LocalAccount.KEY_LOCAL_ACCOUNT_ID`）；`ServiceLocator.dataDirId` 在**首次访问时**解析并**立即写回 kv**，此后进程内与跨进程都不再改变。
 2. 解析优先级（`LocalAccount.resolve`，纯函数、可单测）：
@@ -430,6 +430,30 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 
 **无法验证的部分（诚实标注）**：本机**没有 Android 设备/模拟器**，「清空 → 杀进程 → 重开」只能由 JVM 单测模拟（同一份存储上重开引擎＝冷启动路径），按钮手感与真机重启后的观感仍需人工回归一次（见 §8 TODO）。
 
+## 7.9 三端过渡动效（04 文档 §5.5；v1.6 首次落地，v1.7 调慢放顺）
+
+本节按 UI 规范新增的 **§5.5 过渡动效**补齐 Android 端的入场/退场语义。改动集中在"宿主"层，业务组件本身没动：
+
+- **新增 `ui/common/Motion.kt`**：`OrdoOverlay`（浮层宿主：遮罩淡入淡出 + 面板 `scale(.96)→1` 与上浮/下沉 14dp）、`OrdoPageEnter(key)`（页面切换淡入 240ms + 上浮 10dp）、`OrdoRiseIn`（详情卡片入场 280ms）、`OrdoDrawer`（窄屏抽屉水平移入 260ms）、`rememberLastState`（退场期间的最后一份可见快照）。
+- **v1.7 调优（用户实测"太快、不通畅"）**：时长 180/140/160/220 → **280/200/240/280**；几何 `.98→1` + 8dp → **`.96→1` + 14dp**（页面/详情 6 → 10dp）；新增令牌 `OrdoMotion.easingEnter = CubicBezierEasing(0.2f, 0f, 0f, 1f)`（Material 3 standard，起步柔、收尾长滑），§5.5 六处 `tween` 全部改用它；旧曲线 `OrdoMotion.easing`（`cubic-bezier(.2,.8,.2,1)`）只留给 §5 完成时序 / §5.2 快加号 / §5.3 刷新。顺带新增 `POP_OUT = 200` 令牌，让 §5.5 不再复用 §5.2 的 `MENU_COLLAPSE`。
+- **面板本体不做透明度动画**（§5.2 的已知坑：`Modifier.shadow` 在 alpha<1 的图层里不画投影，会给面板套 alpha 就会"先方角后圆角"）→ 几何只走 `graphicsLayer`，透明只给遮罩。
+- **浮层宿主常驻组合**：`ScheduleSheet` / `FastFind` / 抽屉不再用 `if (state.xxx)` 门控，退场动画才有机会播完；退场期间用 `rememberLastState` 渲染"最后一份可见状态"（排期面板关闭那一帧会同时清掉 `scheduleTarget` 与"是否截止日期"，读实时状态会让标题在退场途中跳变）。
+- **页面切换收口**：`OrdoNavHost` 关掉 navigation-compose 自带的过渡（默认约 700ms，会与 §5.5 的 240ms 叠加），统一由 `OrdoPageEnter(key = state.routeKey)` 负责；首次组合停在终态，冷启动没有过场。
+- **清单展开**：侧栏 `AreaRow` 用 `AnimatedVisibility(expandVertically/shrinkVertically + fadeIn/fadeOut, 220ms)`，曲线同 `easingEnter`。
+- **减弱动态效果**：所有新时长都经 `OrdoTheme` 的 `popIn/popOut/pageFade/drawer/detail` 读取，系统 `ANIMATOR_DURATION_SCALE == 0` 时归零（§5/§8）。
+
+真实构建/测试证据（JDK 21 + Android SDK 36 + Gradle 8.14）：
+
+| 验证项 | 结果 |
+|---|---|
+| `:apps:android:app:testDebugUnitTest` | ✅ `BUILD SUCCESSFUL`；**12 个测试类 / 127 个用例全绿**（120 → 127，新增 `TransitionMotionTest` 7），0 failures / 0 errors |
+| 逐类结果（JUnit XML 汇总） | `ClearDataReseedTest` 6 · `NlpParsingTest` 29 · `GestureRulesTest` 17 · `QueryRulesTest` 15 · `QuickAddMenuTest` 12 · `QuickAddFabStyleTest` 10 · `RepeatEngineTest` 9 · **`TransitionMotionTest` 7** · `LocalAccountTest` 6 · `ProjectCompletionTest` 6 · `ComposerStateTest` 5 · `UserDataDirTest` 5 |
+| 写入范围 | ✅ 只改 `apps/android/**`（`docs/**` 的规范与报告同步更新） |
+
+`TransitionMotionTest`（源码级守卫，沿用本模块既有家法 `TestSource.readCode`）：时长令牌与 §5.5 同值（**280/200/240/260**，v1.7 起）且过渡曲线为 `CubicBezierEasing(0.2f, 0f, 0f, 1f)` / 所有过渡时长都经减弱动态效果折算 / 浮层面板只动几何不藏进 alpha 图层且六处 `tween` 都用 `easingEnter` / 浮层宿主常驻组合且页面切换统一走 `OrdoPageEnter` / navigation 自带过渡必须关掉 / 清单展开走 `AnimatedVisibility` 且 220ms / 遮罩与浮层面板拆成两层。
+
+**无法验证的部分（诚实标注）**：本机没有 Android 设备/模拟器，动效的"观感"无法自动断言 —— 上面守的是**源码契约**（谁在动、动多久、有没有被 alpha 层吞掉阴影），真机上的手感仍需人工回归一次（见 §8 TODO 第 9 条）。
+
 ## 8. 后续 TODO
 
 1. 长按拖拽排序（`detectDragGesturesAfterLongPress`）+ `engine.reorderTodos`。
@@ -440,3 +464,4 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 6. `OrdoErrors.needsUpgrade` 的界面呈现（`VALIDATION_FAILED` 时提示升级客户端）。
 7. 真机上人工回归本轮两个修复：项目卡片「完成项目/重新打开」分流、快加号浮层的聚焦/软键盘/返回键/Esc（§7.4）。
 8. 真机上人工回归「清空本地数据 → 杀进程 → 重开」应重新出现演示数据；「逐条删空 → 重开」不应复活（§7.8）。
+9. 真机上人工回归过渡动效（§7.9 / 04 文档 §5.5）：浮层入场退场、页面切换淡入、抽屉移入、清单展开、详情卡片入场；并确认「减弱动态效果」开启后全部变成直接切换。

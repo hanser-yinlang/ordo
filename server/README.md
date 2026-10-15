@@ -305,8 +305,8 @@ err: invalid input syntax for type uuid: "dev_smoke_f0307630"   code=22P02
 §7.2 的示例是 **`"deviceId":"dev_7f3a..."`** —— 客户端设备 id 是**不透明短串,不是 uuid**
 (契约 §7.4 还规定用 `X-Ordo-Device: <deviceId>` 传它)。
 
-**影响面是四端全部**:四端生成的 deviceId 都是 `dev_<opaque>` 形态 ——
-iOS `newDeviceId()` → `dev_` + uuid 去连字符前 10 位;Harmony `newIdWithPrefix('dev')` →
+**影响面是三端全部**:三端生成的 deviceId 都是 `dev_<opaque>` 形态 ——
+Harmony `newIdWithPrefix('dev')` →
 `dev_` + 16 进制 20 位;Android/Windows 走共享核心 `OrdoEngine` → `dev_` + ULID 后 10 位小写。
 所以**任何按契约实现的客户端都注册不上**,服务端也无法单方面兜底(要么改列类型,
 要么让所有客户端改用 uuid,后者违反契约示例)。`ops.device_id` 本来就是 `text`,三张表还不一致。

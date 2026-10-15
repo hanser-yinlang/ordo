@@ -12,7 +12,7 @@
  *    因此这些项在这些端标为 "–"(不适用),只在鸿蒙(独立实现)与核心自身检查。
  *  - 匹配与引号无关:同时兼容 "inbox" / 'inbox' / `inbox`。
  *  - 它不能替代编译与单元测试,只用于发现"某端漏了某个枚举值/错误码/设计令牌"这类漂移。
- *  - **iOS 端已于 2026-10-13 整体移除**,矩阵里不再有 ios 列。
+ *  - 适用性矩阵只覆盖 core / server / android / harmony / windows 五库。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -68,8 +68,8 @@ const ONLY = {
   'session:retryafter': ['server']
 };
 
-const SKIP_DIRS = new Set(['node_modules', 'build', '.gradle', '.git', 'dist', 'oh_modules', 'Pods', '.idea', 'schemas']);
-const TEXT_EXT = new Set(['.kt', '.kts', '.swift', '.ets', '.ts', '.tsx', '.js', '.mjs', '.json', '.json5', '.xml', '.plist', '.md', '.java', '.yaml', '.yml']);
+const SKIP_DIRS = new Set(['node_modules', 'build', '.gradle', '.git', 'dist', 'oh_modules', '.idea', 'schemas']);
+const TEXT_EXT = new Set(['.kt', '.kts', '.ets', '.ts', '.tsx', '.js', '.mjs', '.json', '.json5', '.xml', '.md', '.java', '.yaml', '.yml']);
 
 function readAll(dir) {
   const abs = path.join(ROOT, dir);

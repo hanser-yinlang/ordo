@@ -1,6 +1,6 @@
 # shared/core · Ordo 共享核心(Kotlin Multiplatform)
 
-> **业务规则的唯一实现**。Android / iOS / Windows 三端直接消费本模块;鸿蒙端因运行时限制,按同一份契约([docs/03](../../docs/03-数据模型与同步协议.md))用 ArkTS 重写,并由 `tools/contract-check.mjs` 对齐。
+> **业务规则的唯一实现**。Android / Windows 两端直接消费本模块;鸿蒙端因运行时限制,按同一份契约([docs/03](../../docs/03-数据模型与同步协议.md))用 ArkTS 重写,并由 `tools/contract-check.mjs` 对齐。
 
 ---
 
@@ -10,13 +10,11 @@
 |---|---|---|
 | `jvm()` | 始终 | Windows 桌面端 + 单元测试(本机可跑) |
 | `androidTarget()` | 存在 `ANDROID_HOME` / `ANDROID_SDK_ROOT` / `local.properties` | Android 端 |
-| `iosX64` / `iosArm64` / `iosSimulatorArm64`(`OrdoCore.framework`) | 主机为 macOS | iOS 端(XCFramework) |
 
-条件化设计的目的:**没有 Android SDK 或非 macOS 的环境也能构建核心并跑全部测试**。
+条件化设计的目的:**没有 Android SDK 的环境也能构建核心并跑全部测试**。
 
 ```bash
-gradle :shared:core:jvmTest        # 53 个用例
-gradle :shared:core:assembleXCFramework   # 仅 macOS,供 iOS 工程消费
+gradle :shared:core:jvmTest        # 单元测试
 ```
 
 ## 2. 模块结构
@@ -41,7 +39,7 @@ src/commonMain/kotlin/com/ordo/core/
 
 | 决策 | 原因 |
 |---|---|
-| 不依赖 `kotlinx-datetime` | 避免其 0.7.x 的 `Instant`/`Clock` 迁移风险;自研日期引擎只有 ~200 行,四端逐位一致且可确定性测试 |
+| 不依赖 `kotlinx-datetime` | 避免其 0.7.x 的 `Instant`/`Clock` 迁移风险;自研日期引擎只有 ~200 行,三端逐位一致且可确定性测试 |
 | 只有两个 `expect/actual` | 平台差异被压缩到"当前毫秒 + 时区偏移",其余全是 common 代码 |
 | `OrdoClock` 可注入 | 核心规则 100% 可确定性测试(不依赖真实时间) |
 | 实体即 JSON 即存储字段 | 消除"模型-存储-协议"三套映射;契约加字段无需数据库迁移 |
@@ -87,7 +85,7 @@ gradle :shared:core:jvmTest
 
 ## 6. 给各端的接入提示
 
-1. 实现 `OrdoStorage`(Android 见 `SqliteStorage`,iOS 见 `SwiftDataStorage`,Windows 见 `JsonFileStorage`)。
+1. 实现 `OrdoStorage`(Android 见 `SqliteStorage`,Windows 见 `JsonFileStorage`)。
 2. 在应用启动时构造一次 `OrdoEngine` 并持有;所有写操作都经它,不要绕过写本地库。
 3. UI 订阅 `subscribe {}` 或各端包装成 `StateFlow`/`@Observable`;派生清单永远用 `list/sections`,不要自己在 UI 里过滤。
 4. 网络实现 `SyncApi`/`RealtimeChannel`,交给 `SyncEngine`;不要在端上重复实现冲突合并。

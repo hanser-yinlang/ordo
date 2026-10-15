@@ -17,6 +17,7 @@ import { fmtReminder, fmtShortDate, millisToHM, nowLocalDateTime, todayISO } fro
 import { AppStore } from '../../viewmodel/AppStore.ets';
 import { OrdoColorTokens, OrdoColors, OrdoFont, OrdoMotion, OrdoRadius, OrdoSize, OrdoSpace } from '../../theme/Tokens.ets';
 import { DetailCard } from '../DetailCard.ets';
+import { MotionScale } from '../../viewmodel/MotionScale.ets';
 
 @Component
 export struct TodoRow {
@@ -158,7 +159,10 @@ export struct TodoRow {
         if (this.suppressTap || this.lifted) {
           return;
         }
-        this.store.setSelected(this.todoId);
+        // §5.5 v1.7「详情栏 280ms」:展开/收起时行高跟着动效长出来,卡片自己再上浮 10px 落位
+        this.getUIContext().animateTo({ duration: MotionScale.ms(OrdoMotion.detailRise), curve: OrdoMotion.easingEnter }, () => {
+          this.store.setSelected(this.todoId);
+        });
       })
 
       if (this.dropLine === 'bottom') {
@@ -166,7 +170,13 @@ export struct TodoRow {
       }
 
       if (this.store.selectedTodoId === this.todoId) {
-        DetailCard({ store: this.store, todoId: this.todoId })
+        Column() {
+          DetailCard({ store: this.store, todoId: this.todoId })
+        }
+        // §5.5 v1.7「详情栏 280ms」:只做位移不做透明度 —— 卡片自带投影,alpha<1 的图层里
+        // ArkUI 不画阴影(§5.2 那条教训),淡入会让整段过渡零投影。
+        .transition(TransitionEffect.translate({ y: -10 })
+          .animation({ duration: MotionScale.ms(OrdoMotion.detailRise), curve: OrdoMotion.easingEnter }))
       }
     }
     .width('100%')

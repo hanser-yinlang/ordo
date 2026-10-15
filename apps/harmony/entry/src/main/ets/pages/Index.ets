@@ -22,6 +22,8 @@ import {
   sheetMaxHeight
 } from '../viewmodel/SheetMetrics.ets';
 import { OrdoColors, OrdoMotion, OrdoSize, OrdoSpace } from '../theme/Tokens.ets';
+import { ReduceMotion } from '../theme/ReduceMotion.ets';
+import { MotionScale } from '../viewmodel/MotionScale.ets';
 
 @Entry
 @Component
@@ -39,6 +41,8 @@ struct Index {
   @StorageLink('ordo.authPhaseSeq') @Watch('onAuthPhase') authPhaseSeq: number = 0;
 
   aboutToAppear(): void {
+    // 系统「减弱动态效果」(§5 硬要求):先读一次并订阅,下面所有时长都走 MotionScale.ms(...)
+    ReduceMotion.bind();
     // getContext() 自 API 18 起废弃,改用 UIContext.getHostContext()
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.store.applySystemColorMode(context);
@@ -90,18 +94,33 @@ struct Index {
     return OrdoColors.of(this.store.isDark());
   }
 
+  /**
+   * 窄屏抽屉(§5.5「侧栏折叠 260ms」):侧栏自左侧滑入/滑出,遮罩同步淡入淡出。
+   *
+   * 遮罩必须单独成层:面板自带 shadow,而 ArkUI 的阴影在 alpha<1 的图层里不画(§5.2 踩过的
+   * 「先方角后圆角」),所以透明度只给遮罩,侧栏本体只做位移。
+   */
   @Builder
   drawer() {
-    Row() {
-      Sidebar({ store: this.store })
+    Stack({ alignContent: Alignment.TopStart }) {
       Column()
-        .layoutWeight(1)
+        .width('100%')
         .height('100%')
         .backgroundColor('#00000066')
         .onClick(() => {
           this.store.drawerOpen = false;
           this.store.bump();
         })
+        .transition(TransitionEffect.asymmetric(
+          TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter }),
+          TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter })
+        ))
+      Column() {
+        Sidebar({ store: this.store })
+      }
+      .height('100%')
+      .transition(TransitionEffect.translate({ x: -OrdoSize.sidebarWidth })
+        .animation({ duration: MotionScale.ms(OrdoMotion.sidebarCollapse), curve: OrdoMotion.easingEnter }))
     }
     .width('100%')
     .height('100%')
@@ -138,7 +157,9 @@ struct Index {
             store: this.store,
             animatingId: this.store.animatingTodoId,
             storeRev: this.store.changeSeq,
-            dragCancelSeq: this.store.dragCancelSeq
+            dragCancelSeq: this.store.dragCancelSeq,
+            // 清单身份传给列表页:它一变就播 §5.5 的页面切换淡入
+            listKey: this.store.listKey()
           })
         }
         .layoutWeight(1)
@@ -183,50 +204,118 @@ struct Index {
         .margin({ right: FAB_MARGIN_RIGHT, bottom: FAB_MARGIN_BOTTOM })
       }
 
-      // 排期面板(右侧浮层)
+      // 排期面板(居中浮层,§5.5 v1.7:入场 280ms / 退场 200ms,面板 scale .96→1 + 上浮 14)
       if (this.store.scheduleTodoId.length > 0) {
-        Column() {
-          ScheduleSheet({
-            store: this.store,
-            maxHeight: sheetMaxHeight(this.viewHeight, SCHEDULE_SHEET_DESIGN_MAX)
-          })
+        Stack({ alignContent: Alignment.Center }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#00000033')
+            .onClick(() => {
+              this.store.closeSchedule();
+            })
+            .transition(TransitionEffect.asymmetric(
+              TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter }),
+              TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter })
+            ))
+          Column() {
+            ScheduleSheet({
+              store: this.store,
+              maxHeight: sheetMaxHeight(this.viewHeight, SCHEDULE_SHEET_DESIGN_MAX)
+            })
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          // 面板以外不拦触摸(遮罩独立成层后,点空白处关面板要靠它放行)
+          .hitTestBehavior(HitTestMode.Transparent)
+          .transition(TransitionEffect.asymmetric(
+            TransitionEffect.scale({ x: 0.96, y: 0.96 })
+              .animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter })
+              .combine(TransitionEffect.translate({ y: 14 })
+                .animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter })),
+            TransitionEffect.scale({ x: 0.96, y: 0.96 })
+              .animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter })
+              .combine(TransitionEffect.translate({ y: 14 })
+                .animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter }))
+          ))
         }
         .width('100%')
         .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .backgroundColor('#00000033')
-        .onClick(() => {
-          this.store.closeSchedule();
-        })
       }
 
-      // 快找浮层
+      // 快找浮层(顶部居中,§5.5 v1.7:入场 280ms / 退场 200ms,面板 scale .96→1 + 自上方落下 14)
       if (this.store.fastFindOpen) {
-        Column() {
-          FastFindSheet({ store: this.store })
+        Stack({ alignContent: Alignment.TopStart }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#00000033')
+            .transition(TransitionEffect.asymmetric(
+              TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter }),
+              TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter })
+            ))
+          Column() {
+            FastFindSheet({ store: this.store })
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Start)
+          .alignItems(HorizontalAlign.Center)
+          .padding({ top: 64 })
+          // 面板以外不拦触摸(原来靠整层 backgroundColor + 内边距实现,现在遮罩独立成层)
+          .hitTestBehavior(HitTestMode.Transparent)
+          .transition(TransitionEffect.asymmetric(
+            TransitionEffect.scale({ x: 0.96, y: 0.96 })
+              .animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter })
+              .combine(TransitionEffect.translate({ y: -14 })
+                .animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter })),
+            TransitionEffect.scale({ x: 0.96, y: 0.96 })
+              .animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter })
+              .combine(TransitionEffect.translate({ y: -14 })
+                .animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter }))
+          ))
         }
         .width('100%')
         .height('100%')
-        .justifyContent(FlexAlign.Start)
-        .alignItems(HorizontalAlign.Center)
-        .padding({ top: 64 })
-        .backgroundColor('#00000033')
       }
 
-      // 设置
+      // 设置(居中浮层,§5.5 v1.7:入场 280ms / 退场 200ms,面板 scale .96→1 + 上浮 14)
       if (this.store.settingsOpen) {
-        Column() {
-          SettingsSheet({
-            store: this.store,
-            maxHeight: sheetMaxHeight(this.viewHeight, SETTINGS_SHEET_DESIGN_MAX)
-          })
+        Stack({ alignContent: Alignment.Center }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor('#00000033')
+            .transition(TransitionEffect.asymmetric(
+              TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter }),
+              TransitionEffect.OPACITY.animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter })
+            ))
+          Column() {
+            SettingsSheet({
+              store: this.store,
+              maxHeight: sheetMaxHeight(this.viewHeight, SETTINGS_SHEET_DESIGN_MAX)
+            })
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(HorizontalAlign.Center)
+          .hitTestBehavior(HitTestMode.Transparent)
+          .transition(TransitionEffect.asymmetric(
+            TransitionEffect.scale({ x: 0.96, y: 0.96 })
+              .animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter })
+              .combine(TransitionEffect.translate({ y: 14 })
+                .animation({ duration: MotionScale.ms(OrdoMotion.popIn), curve: OrdoMotion.easingEnter })),
+            TransitionEffect.scale({ x: 0.96, y: 0.96 })
+              .animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter })
+              .combine(TransitionEffect.translate({ y: 14 })
+                .animation({ duration: MotionScale.ms(OrdoMotion.popOut), curve: OrdoMotion.easingEnter }))
+          ))
         }
         .width('100%')
         .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .backgroundColor('#00000033')
       }
 
       // Toast(左滑删除后带「撤销」动作,04 §4 / §6)
@@ -243,7 +332,7 @@ struct Index {
     .width('100%')
     .height('100%')
     .opacity(this.mainIn ? 1 : 0)
-    .animation({ duration: OrdoMotion.mainFadeIn, curve: Curve.FastOutSlowIn })
+    .animation({ duration: MotionScale.ms(OrdoMotion.mainFadeIn), curve: OrdoMotion.easingEnter })
   }
 
   build() {

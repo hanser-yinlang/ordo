@@ -79,11 +79,8 @@ fun SettingsView(state: UiState, vm: OrdoViewModel) {
             SectionTitle("外观与启动")
             Row(horizontalArrangement = Arrangement.spacedBy(OrdoSpace.s)) {
                 ThemeMode.entries.forEach { mode ->
-                    val label = when (mode) {
-                        ThemeMode.AUTO -> "跟随系统"
-                        ThemeMode.LIGHT -> "浅色"
-                        ThemeMode.DARK -> "深色"
-                    }
+                    // 文案与切换提示条同源(ThemeMode.label),两处不可能写出不同的模式名
+                    val label = mode.label
                     val active = state.themeMode == mode
                     Text(
                         text = label,

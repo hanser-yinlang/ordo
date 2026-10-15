@@ -47,8 +47,7 @@ object ServiceLocator {
 
         // ① 钉住本机数据目录 id，然后挂上本地工作区（纯本地：不发任何网络请求）
         val dirId = dataDirId
-        val firstRun = !UserDataDir.dbFileFor(appContext.filesDir, dirId).exists()
-        runCatching { bindDataDir(dirId, seedIfEmpty = firstRun) }
+        runCatching { bindDataDir(dirId, seedIfEmpty = true) }
 
         _ready.value = true
     }
@@ -119,7 +118,13 @@ object ServiceLocator {
      * [dirId] 是**本机钉住的标识**（[dataDirId]），正常流程只在启动时绑定一次。
      * 幂等：同一 dirId 重复调用不会重开数据库、不会覆盖内存中的快照。
      *
-     * @param seedIfEmpty 仅在「首次运行且本地无数据」时写演示数据。
+     * @param seedIfEmpty 是否在绑定后做一次**播种判定**（启动时为 true）。
+     *   判据交给引擎（`OrdoEngine.seedDemoData(force = false)`）：它同时看「库里有没有内容」与
+     *   「这台机器播过种没有」（`kv[ordo.seedMark]`）。因此：
+     *    - 全新安装 → 写演示数据；
+     *    - **「清空本地数据」把标记一起清掉** → 下次冷启动自动回到有演示数据的全新状态；
+     *    - 用户自己把待办逐条删空（标记还在）→ 不会被演示数据复活。
+     *   （旧实现用「库文件在不在」当判据，清空后文件还在，于是重启只会看到空界面 —— 用户反馈过。）
      */
     @Synchronized
     fun bindDataDir(dirId: String, seedIfEmpty: Boolean = false): OrdoEngine {
@@ -134,8 +139,8 @@ object ServiceLocator {
         workspaceStorageRef = storage
         workspaceEngineRef = engine
 
-        if (seedIfEmpty && storage.loadSnapshot() == null) {
-            runCatching { engine.seedDemoData() }
+        if (seedIfEmpty) {
+            runCatching { engine.seedDemoData(force = false) }
         }
         return engine
     }

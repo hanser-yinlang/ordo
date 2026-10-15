@@ -1,5 +1,5 @@
 /**
- * Ordo · ohosTest 测试入口(聚合十一组用例)
+ * Ordo · ohosTest 测试入口(聚合十二组用例)
  * 运行:DevEco Studio → 右键 entry/src/ohosTest → Run 'OhosTest'
  */
 
@@ -11,6 +11,7 @@ import rowModelTest from './RowModel.test';
 import reorderMathTest from './ReorderMath.test';
 import pressGestureTest from './PressGesture.test';
 import localWorkspaceTest from './LocalWorkspace.test';
+import localDataResetTest from './LocalDataReset.test';
 import relationalStoreTest from './RelationalStore.test';
 import fabMenuTest from './FabMenu.test';
 import sheetMetricsTest from './SheetMetrics.test';
@@ -25,6 +26,7 @@ export default function testsuite() {
   pressGestureTest();
 
   localWorkspaceTest();
+  localDataResetTest();
   relationalStoreTest();
   fabMenuTest();
   sheetMetricsTest();

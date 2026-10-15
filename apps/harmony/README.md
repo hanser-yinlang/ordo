@@ -77,6 +77,7 @@ ordo/apps/harmony/
 │       │       ├── viewmodel/PressGesture.ets           04 §5.2/§5.4 长按 400ms + 6px 判定 + 落点换算(纯逻辑)
 │       │       ├── viewmodel/LocalWorkspace.ets         工作区标识 §7.6.6:钉住 / 生成 / 清洗(纯逻辑,v1.5 纯本地)
 │       │       ├── viewmodel/FabMenu.ets                04 §5.2 快加号菜单:图标枚举 / 几何 / 可用性(纯逻辑)
+│       │       ├── viewmodel/SeedPolicy.ets             演示数据策略:播种判定 / 播种落盘 / 重置(纯逻辑,见 §6.2)
 │       │       ├── view/{Sidebar,ListPage,DetailCard,ScheduleSheet,FastFindSheet,QuickAddButton}.ets
 │       │       ├── view/list/RowModel.ets               行模型 + 行指纹 + 行级差量 + 拖拽提示折进指纹(纯逻辑)
 │       │       ├── view/list/RowDataSource.ets          LazyForEach 数据源(BasicDataSource)
@@ -184,11 +185,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 
 ### 3.4 跑测试(本机宿主 + 模拟器两条路)
 
-#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 109/109 · v1.5)
+#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 130/130 · v1.5)
 
-Hypium 用例在设备上跑需要签名,而本机没有证书。但**九组用例全部只依赖纯逻辑模块**
+Hypium 用例在设备上跑需要签名,而本机没有证书。但**十一组用例全部只依赖纯逻辑模块**
 (`core/` 下除 `RelationalStore` / `ReminderAgent` 之外的模块,外加 `core/store/ApplyTypes.ets`、
-`viewmodel/ReorderMath.ets`、`viewmodel/PressGesture.ets`、`viewmodel/LocalWorkspace.ets`、
+`core/SeedData.ets`、`viewmodel/ReorderMath.ets`、`viewmodel/PressGesture.ets`、
+`viewmodel/LocalWorkspace.ets`、`viewmodel/SeedPolicy.ets`、
 `viewmodel/FabMenu.ets`、`view/list/RowModel.ets`,全部不含 `@ohos`/`@kit` 依赖;
 `RelationalStore.test.ets` 必须连真库,只在设备上跑),
 断言也只用到 `describe` / `it` / `expect` + `assertEqual|assertTrue|assertFalse`。
@@ -212,12 +214,18 @@ python _qa\build-harness.py
    但 `DateUtil.todayISO()` 一类路径仍会读系统时间,不冻结就会跨天假失败;
 4. `tsc`(strict + noImplicitAny + strictNullChecks)编译 → Node 运行 → 汇总,退出码 0 = 全通过。
 
-实测结果(第六轮 · 2026-10-10,新增 §7.6.5 邮箱验证码登录 + §5.2 快加号菜单图标):
+实测结果(2026-10-14,设置页「清空本地数据」落地后):
 
 ```
-describe 块: 9      用例总数: 109      通过: 109      失败: 0
+describe 块: 11     用例总数: 130     通过: 130     失败: 0
 RESULT: ALL PASSED
 ```
+
+> **如实报数**:本文件早前写的 109(§3.4.1 标题与下方 v1.5 说明)/ 112(变更记录)都已陈旧
+> —— 其间有并行改动只加用例、没回来改这里。本轮**实测**是 **11 组 130 条 = 存量 122 条 +
+> 本轮新增 `LocalDataReset.test.ets` 8 条(§6.2「清空本地数据」的语义回归)**;设备端真库那组
+> (`RelationalStore.test.ets`,2 条)仍不在宿主里跑,因此设备端总数 = 130 + 2 = 132 条(未实跑,见 §3.4.3)。
+> 宿主统计只信任脚本输出的那三行,README 里的历史数字一律以最新实测行为准。
 
 > 第六轮新增第二组 8 条用例(总数 134 → 142,只增不减):
 > `FabMenu.test.ets`(§5.2 v1.3:项目视图 4 项 / 其余视图 3 项、**顺序与文案**、
@@ -226,7 +234,7 @@ RESULT: ALL PASSED
 > 面板与条目尺寸(≥208 / radius 12 / 高 ≥44 / 左内边距 9 / 图标间距 8 / 条目 radius 7)、
 > 20×20 viewBox 的**逐条几何与线宽**)。
 >
-> **v1.5 纯本地后的用例数变化(如实报数)**:133 → **109** —— 删掉 `SilentAuth.test.ets`(静默会话)、`RefreshState.test.ets`(刷新控件)、`Session.test.ets`(会话与游客),新增 `LocalWorkspace.test.ets` 4 条(标识钉住 / 生成 / 清洗 / 区分度)。宿主 9 组 109 条全绿;设备端真库那组(`RelationalStore.test.ets`,2 条)不在宿主里跑。
+> **v1.5 纯本地后的用例数变化(如实报数)**:133 → **109** —— 删掉 `SilentAuth.test.ets`(静默会话)、`RefreshState.test.ets`(刷新控件)、`Session.test.ets`(会话与游客),新增 `LocalWorkspace.test.ets` 4 条(标识钉住 / 生成 / 清洗 / 区分度)。宿主 9 组 109 条全绿;设备端真库那组(`RelationalStore.test.ets`,2 条)不在宿主里跑。(这行是 v1.5 当时的数;之后被并行改动与本轮 §6.2 的 `LocalDataReset.test.ets` 追上,当前实测口径见上方 `describe 块: 11 / 用例总数: 130` 那一块。)
 > `EmailCodeState.test.ets`(§7.6.5:6 位 / 300s / 60s 常量、响应 `retryAfter` 起倒计时、
 > 缺值与超大 `retryAfter` 的兜底与夹取、按秒 tick 且到点恢复可点、请求中禁用与"发送中…"文案、
 > 只留数字并截到 6 位、满 6 位**只自动提交一次**且失败后可重试、`devCode` 只接受 6 位数字
@@ -496,7 +504,30 @@ TestFinished-ResultMsg: your test finished!!!
 ### 6.2 设置页(v1.5)
 
 保留:外观、数据与存储、**本地数据(工作区标识 / 数据目录 / 库文件)**、示例数据重置、键盘与手势。
+本轮新增:**清空本地数据**(见 §6.2.1)。
 已删除:账号、退出登录、服务器地址、同步区块与「同步会话」。
+
+#### 6.2.1 演示数据与「清空本地数据」(2026-10-14)
+
+设置页有两个**语义不同**的数据入口,别混:
+
+| 入口 | 行为 | 播种标记 `ordo.seeded` |
+|---|---|---|
+| 「恢复默认示例数据」 | **立即**写一份演示数据进本地库(`engine.persistAll(seed)`,覆盖当前内容) | 置为 `1` |
+| 「清空本地数据」(二次确认) | 退回**全新安装态**:清空全部实体 + outbox + 墓碑,**并清掉播种标记** | 删除 |
+
+- 「清空」后当前界面**立即变空**,并弹提示条「已清空本地数据」;
+- 因为标记被删,「**下次冷启动会自动重新写入演示数据**」——不是只剩一个空界面;
+- 反过来,**用户自己逐条把待办删空(没点过清空)不得被演示数据复活**:此时标记仍是 `1`,
+  `shouldSeedDemoData()` 返回 false。这条判定(以及"清空后再冷启动会重新播种")由
+  `LocalDataReset.test.ets` 的 8 条用例逐个钉住;
+- 落地位置:引擎 `OrdoEngine.clearAll()`(实体 / outbox / 墓碑 / 标记四件事)+ 设置页按钮的
+  **两步确认**(第一次点击只展开红色确认文案与「确认清空 / 取消」,不直接执行);
+- 清空**不动**设备级 kv:工作区标识(`ordo.localAccountId`)、`deviceId`、主题皮肤都保留
+  ——它们是"这台设备 / 这个工作区"的标识,不是用户数据,清掉等于换了库目录;
+- `localEvents`(本机只读日程示例事件)也不清:它不落库,冷启动会用同一份 `buildSeedState()` 重建;
+- 已知不覆盖:清空只做 `DELETE FROM <每张表>` + 清墓碑行,**不做 `VACUUM`**
+  (与 Kotlin 核心 `OrdoEngine.clearAll()` 一致),所以 SQLite 文件体积不会立刻变小——这是有意对齐,不是遗漏。
 
 ### 6.3 本地存储与"一份工作区一份库"
 
@@ -514,6 +545,10 @@ TestFinished-ResultMsg: your test finished!!!
 - 其余:`requestDragCancel()` / 派生查询与写入门面(未变)。
 
 > 演示数据规则(§7.6.3 本地化):首次进入工作区且本地为空时写;只写本地库,不产生任何网络流量。
+> 判定与落盘收敛在 `viewmodel/SeedPolicy.ets`(`shouldSeedDemoData()` / `applySeedPolicy()` /
+> `applyResetToSeedData()`),`AppStore` 只负责调用与刷新 UI。播种标记 `ordo.seeded` 是
+> "已经播过种"的记忆:**用户在设置页点「清空本地数据」时会被删掉(下次冷启动重新播种)**,
+> 而**用户自己逐条删空待办时保留**(不会被演示数据复活)——见 §6.2.1。
 
 ### 6.7 为什么可以移除 INTERNET 权限
 
@@ -834,4 +869,5 @@ E C01650/SqliteStatement: PrintInfoForDbError:DbError errCode:27394103 errno:25
 | 2026-10-10 | **第六轮 · task-10 快加号菜单图标对齐 §5.2 v1.3**:① 新增纯逻辑 `viewmodel/FabMenu.ets` —— 图标改为**形状枚举**(plus / projectH / area / heading)、20×20 viewBox 的逐条几何与线宽(＋2.1 / H 1.7 / 区域方框 1.5 + r2.6 / ≡ 1.7)、面板与条目尺寸(≥208 / radius 12 / 高 ≥44 / 左内边距 9 / 图标间距 8 / 条目 radius 7)、快捷键只挂「新建待办」、**「新建标题」仅项目视图可用**;② `view/QuickAddButton.ets` 的 4 个图标与 FAB 的白「+」全部改为 `Line`/`Rect`/`Circle` **矢量绘制**(去掉字体字符回退风险),条目按下底 `rowSelected`、快捷键提示右对齐;③ 新增第 12 组 `FabMenu.test.ets` 8 条用例(**宿主 134 → 142 全过**);④ 两个 HAP BUILD SUCCESSFUL、ArkTS ERROR 0;selfcheck 0 问题。设备端复跑与菜单截图**未完成**:该模拟器第 5 次 hdc wedge(install 挂死),按契约方意见如实标注缺图 |
 | 2026-10-13 | **v1.4 · 移除登录系统(启动即主界面 + 静默匿名会话)**:① 删除 `view/LoginPage.ets`(登录/注册/游客/验证码/服务器设置面板)、`viewmodel/EmailCodeState.ets` + 其 18 条用例、`Index.ets` 的 login/entering 门禁与 `main_pages.json` 路由,设置页删掉账号/账号标识/升级为正式账号/退出登录/服务器地址;② 新增 `viewmodel/SilentAuth.ets`(启动分支 `planStartup` / **目录标识钉法** `planAccountDirId` + `newLocalAccountId` / 指数退避 + 状态机)与 9 条用例;`AppStore` 改为静默会话:启动**不等网络**、直接开库进主界面,后台静默 `guest`(失败按 2s→4s→…→60s 退避重试),有会话则有效直接用 / 过期后台 refresh,同步遇 401 静默重建匿名会话;③ 目录标识按**契约 §7.6.6** 改为**本机稳定账号 id**:kv `ordo.localAccountId` 首次生成 `local-<16hex>` 并钉住,此后永不随会话重建而改变,升级前老目录(`userDataDirName(userId)`)继续沿用、不做迁移;④ 清理 `SyncApi`(删 register/login/upgrade/email-code/logout,保留 guest/refresh)与 `SyncTypes` 的验证码 reason 文案;⑤ 服务器地址改隐藏覆盖(§6.6);⑥ 门禁:`assembleHap` 与 ohosTest 两个 HAP BUILD SUCCESSFUL / **ArkTS ERROR 0**,宿主 **133/133**(142 → 133:删 18 条验证码用例、增 9 条静默会话用例),selfcheck 0 问题,check-encoding OK;⑦ **RDB 引号写盘修复(§7.0.1)未回退**,设备端真库用例保留;⑧ 真机取证(模拟器 `emulator 7.0.0.107`):`assembleHap` 后 `hdc install` + 启动 → **启动即主界面**(截图 `_qa/v14-boot-main.jpeg`,日志 `_qa/e2e-r6.log`),设置页「本地数据」显示 数据目录 = `local-805e05692b26ba14`(**本机稳定 id**)、同步会话 = `离线可用 · 稍后自动重连`(后端未运行 → 后台退避重试,界面照常可用,截图 `_qa/v14-settings-localdata.jpeg`);`aa test` → **`Tests run: 135, Failure: 0, Error: 0, Pass: 135`**(日志 `_qa/ohostest-device-v14.log`) |
 | 2026-10-13 | **v1.5 · 删除云同步(纯本地应用)**:① 删除 `core/sync/**`(`SyncApi`/`SyncEngine`/`RealtimeClient`/`SyncTypes`)、`core/session/OrdoSession.ets`、`viewmodel/SilentAuth.ets`、`viewmodel/RefreshState.ets`、`view/Common/RefreshControl.ets` 与对应 3 组用例(`SilentAuth`/`RefreshState`/`Session`);引擎的合并类型迁到 `core/store/ApplyTypes.ets` 并去掉 `OpSink`/`OpSource` 接口(与网络彻底解耦);② 新增 `viewmodel/LocalWorkspace.ets`(工作区标识 §7.6.6:钉住 / 生成 `local-<16hex>` / 目录名清洗)+ 4 条用例;③ `AppStore` 改为纯本地启动:读标识 → 开本地库 → `OrdoEngine` → 写演示数据/刷新提醒 → 直进主界面,删除全部同步装配、会话/令牌、退避重试与刷新状态;④ UI:状态栏去掉刷新控件与同步指示,侧栏底部改「纯本地」,设置页去掉「同步」区块(状态/实时通道/服务端游标/最近错误/立即同步/服务器地址),保留「本地数据」(工作区标识/数据目录/库文件);⑤ `module.json5` **移除 `ohos.permission.INTERNET`**(依据:源码检索网络 API 0 命中 + 产物 `module.json` 只剩通知与提醒权限;打包 HAP 已核验无 INTERNET);⑥ 门禁:`assembleHap` 与 ohosTest 两个 HAP BUILD SUCCESSFUL / **ArkTS ERROR 0**,宿主 **109/109**(9 组;133 → 109),selfcheck 0 问题(顺带清掉陈旧的 `entry/.preview` 预览缓存,它残留着已删同步模块的旧副本导致 27 处路径误报),check-encoding OK;⑦ 真机(模拟器)安装启动:纯本地主界面 + 设置页「本地数据」= `local-805e05692b26ba14`,**无任何同步 UI**(截图 `_qa/v15-pure-local-main.jpeg`、`_qa/v15-settings-local.jpeg`);⑧ **RDB 引号写盘修复未回退** |
+| 2026-10-14 | **设置页「清空本地数据」(与 Windows 端语义对齐)+ 演示数据策略抽成纯逻辑**:① 新增 `viewmodel/SeedPolicy.ets`(`shouldSeedDemoData(seedMark, todoCount, projectCount)` / `applySeedPolicy(store, engine, seed)` / `applyResetToSeedData(store, engine, seed)`),`AppStore.seedDemoDataIfEmpty()` 改为只做取数与 UI 收尾(行为逐字不变:标记 `ordo.seeded === '1'` 直接返回;否则库空才播种;**最后无条件写标记**——这条是"用户自己删空不被复活"的根基);② 引擎新增 **`OrdoEngine.clearAll(): Promise<void>`** —— 清空 5 类实体 + outbox(按 opId 逐条 `removeOutbox`)+ 墓碑(借 `pruneTombstones(nowMillis()+1)` 清干净,`OrdoStore` 没有专门的清墓碑 API)+ **删 `KvKeys.SEEDED` 标记**,内存状态同步清空并 `emit()`,对齐 Kotlin `OrdoEngine.clearAll()`;③ `AppStore.clearAllData()`(`clearAll` → `ReminderAgent.cancelAll()` → `invalidateDerived()` → 提示条「已清空本地数据」→ `bump()`),设置页新增「清空数据」区按钮(危险色 `stateDanger` + `chipBg` + pill 圆角,与「恢复默认示例数据」同款)+ **两步确认**(参照安卓端 `confirmReset` 写法:第一次点击只展开红色确认文案与「确认清空 / 取消」,测试 id `ordo_settings_clear` / `ordo_settings_clear_confirm` / `ordo_settings_clear_cancel`);④ **顺手修掉一个隐患**:`resetToSeedData()` 此前不写回播种标记,于是「清空 → 恢复示例数据 → 用户自己删空 → 冷启动」会**错误复活**演示数据,现在经 `applyResetToSeedData()` 一并写回 `1`;⑤ 新增一组 `LocalDataReset.test.ets` **8 条**用例(清空后内存即全新安装态 / 只删播种标记而设备级 kv `ordo.localAccountId` 保留 / **清空后冷启动会重新播种** / **用户自己删空后冷启动不复活** / 有标记但库空不播种 / 有数据没标记只补标记不覆盖数据 / 重置同时写数据与标记 / `shouldSeedDemoData` 判定表),并登记进 `List.test.ets`(设备端 12 组)与 `_qa/node-harness/src/runner.ts`(宿主 11 组),`_qa/build-harness.py` 的 `CORE_FILES` 增加 `core/SeedData.ets`、`viewmodel/SeedPolicy.ets`;⑥ **门禁(实测命令与结果)**:`python _qa\build-harness.py` → `describe 块: 11 / 用例总数: 130 / 通过: 130 / 失败: 0`(`RESULT: ALL PASSED`,tsc OK;存量 122 + 本轮 8,README 旧写的 109/112 已按实测更正),`_qa\build.ps1`(assembleHap)与 `_qa\build.ps1 -OhosTest` 均 `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERROR 0`(日志里 `:entry:ohosTest@OhosTestCompileArkTS` 真实重编译 7.5s),产物 `entry-default-unsigned.hap` 1149.4 KB、`entry-ohosTest-unsigned.hap` 1872.4 KB;⑦ **未验证**:本机无设备(`hdc list targets` = `[Empty]`),设备端 `aa test` 与清空后的真机截图**未跑**(设备端预期 132 条 = 宿主 130 + `RelationalStore.test.ets` 2 条),RDB 真库上的 `clearAll()` 只经 ArkTS 编译与内存库语义用例覆盖,未在真库上实跑 |
 | 2026-10-13 | **v1.5 · 快加号对齐 §5.2 v1.5(亮蓝 + 柔光 + 位置避让)**:① `OrdoColorTokens` 新增 `fab = #0A84FF`(浅/深同值),FAB 圆填充从 `accentPrimary` 改为它,菜单项图标改 `textSecondary`(品牌靛紫不动);② 柔光改为**径向渐变**容器(`Column` 104 = 56 + 2×24,`borderRadius` 52,inner `#0A84FF59/73` @0.54 → outer `#0A84FF00` @1.0),`.position(-24,-24)` 溢出按钮边界 + `HitTestMode.None`,**不占布局、不吃点击**,并**删掉原来的中性 `.shadow()`**;③ 位置:`FAB_MARGIN_BOTTOM = 32(底栏)+ 24(光晕)+ 8(空隙) = 64`、`FAB_MARGIN_RIGHT = 24` 写成常量,`Index.ets` 不再写死 64;④ 交互不变(单击=行内新建、长按 400ms=菜单),真机复核两项均通过;⑤ 用例:宿主 **112/112**(FabMenu 由 8 条补到 11 条:亮蓝常量、光晕径向渐变/厚度/透明度/停靠点、底边距 ≥ 底栏+光晕);⑥ 门禁:`assembleHap` 与 ohosTest BUILD SUCCESSFUL / **ArkTS ERROR 0**,selfcheck 0 问题,check-encoding OK;⑦ 真机截图 `_qa/v15-fab-blue2.jpeg`(亮蓝圆钮 + 蓝光柔光,右下角不压底部文案)、`_qa/v15-fab-menu2.jpeg` + `_qa/v15-quickadd-panel2.jpeg`(长按菜单 / 单击输入行) |

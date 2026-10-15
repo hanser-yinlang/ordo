@@ -43,6 +43,7 @@ import com.ordo.android.vm.UiState
 fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
     val colors = OrdoTheme.colors
     var confirmReset by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -80,29 +81,31 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
                     onClick = { confirmReset = true },
                     danger = true,
                 )
+                OrdoButton(
+                    label = stringResource(R.string.settings_clear),
+                    onClick = { confirmClear = true },
+                    danger = true,
+                )
             }
             if (confirmReset) {
-                Spacer(Modifier.height(OrdoSpace.s))
-                Text(
+                ConfirmStrip(
                     text = stringResource(R.string.settings_reset_confirm),
-                    style = OrdoTheme.type.caption,
-                    color = colors.danger,
+                    onConfirm = {
+                        vm.resetToSeed()
+                        confirmReset = false
+                    },
+                    onCancel = { confirmReset = false },
                 )
-                Spacer(Modifier.height(OrdoSpace.s))
-                Row(horizontalArrangement = Arrangement.spacedBy(OrdoSpace.s)) {
-                    OrdoButton(
-                        label = stringResource(R.string.common_confirm),
-                        onClick = {
-                            vm.resetToSeed()
-                            confirmReset = false
-                        },
-                        danger = true,
-                    )
-                    OrdoButton(
-                        label = stringResource(R.string.common_cancel),
-                        onClick = { confirmReset = false },
-                    )
-                }
+            }
+            if (confirmClear) {
+                ConfirmStrip(
+                    text = stringResource(R.string.settings_clear_confirm),
+                    onConfirm = {
+                        vm.clearAllData()
+                        confirmClear = false
+                    },
+                    onCancel = { confirmClear = false },
+                )
             }
         }
 
@@ -114,6 +117,31 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
                 color = colors.textSecondary,
             )
         }
+    }
+}
+
+/**
+ * 破坏性操作的两步确认（数据区用）：一段红色说明 + 确定 / 取消。
+ *
+ * 「重置为示例数据」与「清空本地数据」都不可撤销，因此都先亮出后果再执行，
+ * 不用系统对话框：浮层实现只在 Compose 内部，竖屏矮屏也不会挡住按钮。
+ */
+@Composable
+private fun ConfirmStrip(text: String, onConfirm: () -> Unit, onCancel: () -> Unit) {
+    val colors = OrdoTheme.colors
+    Spacer(Modifier.height(OrdoSpace.s))
+    Text(text = text, style = OrdoTheme.type.caption, color = colors.danger)
+    Spacer(Modifier.height(OrdoSpace.s))
+    Row(horizontalArrangement = Arrangement.spacedBy(OrdoSpace.s)) {
+        OrdoButton(
+            label = stringResource(R.string.common_confirm),
+            onClick = onConfirm,
+            danger = true,
+        )
+        OrdoButton(
+            label = stringResource(R.string.common_cancel),
+            onClick = onCancel,
+        )
     }
 }
 

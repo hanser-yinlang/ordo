@@ -87,9 +87,24 @@ class QuickAddFabLookTest {
         // 用 spring 会让离屏场景里的动画永不收敛(后续输入事件得不到处理),因此用有界 tween + 缓动曲线
         assertFalse("旋转不要用无界 spring", src.contains("animationSpec = spring("))
         assertTrue("旋转用 tween + FastOutSlowInEasing", src.contains("FastOutSlowInEasing"))
-        assertTrue("菜单进入带缩放", src.contains("scaleIn(") && src.contains("transformOrigin = TransformOrigin(1f, 1f)"))
-        assertTrue("菜单进入带上滑", src.contains("slideInVertically"))
-        assertTrue("菜单退出带上滑", src.contains("slideOutVertically"))
+        assertTrue(
+            "菜单进入带缩放",
+            src.contains("0.92f + 0.08f * panelProgress") && src.contains("transformOrigin = TransformOrigin(1f, 1f)")
+        )
+        assertTrue("菜单进入带上滑", src.contains("translationY = (1f - panelProgress) * slidePx"))
         assertTrue("菜单项错位淡入仍保留", src.contains("StaggeredItem"))
+    }
+
+    @Test
+    fun `菜单面板不能藏在 alpha 动画层里`() {
+        // 2026-10-14 客户实测:展开时先是一块硬边(方形)阴影,动效结束才变圆角。
+        // 根因:`Modifier.shadow` 在 alpha < 1 的图层里不画阴影,而淡入(AnimatedVisibility/fadeIn)
+        // 正好给面板蒙了一层 alpha 0→1 → 整段过渡零投影,最后一帧才"啪"地补上圆角阴影。
+        // 这里钉住源码结构;像素级逐帧回归见 QuickAddMenuShadowRenderTest。
+        val src = sourceOf("QuickAdd.kt") ?: return
+        val code = src.lineSequence().joinToString("\n") { it.substringBefore("//") }
+        assertFalse("面板不得再用 AnimatedVisibility 淡入", code.contains("AnimatedVisibility"))
+        assertFalse("面板不得再用 fadeIn", code.contains("fadeIn("))
+        assertTrue("改为自己驱动 graphicsLayer(alpha 恒为 1)", code.contains("Modifier.graphicsLayer {"))
     }
 }

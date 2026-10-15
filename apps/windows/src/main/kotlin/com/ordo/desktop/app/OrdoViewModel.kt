@@ -276,6 +276,7 @@ class OrdoViewModel(
 
     // ---------------------------------------------------------------- 外观
 
+    /** 侧栏主题按钮与 `Ctrl+D`:自动 → 浅色 → 深色 → 自动;提示条由 [setTheme] 统一发出 */
     fun cycleTheme() {
         val next = when (_state.value.themeMode) {
             ThemeMode.AUTO -> ThemeMode.LIGHT
@@ -285,9 +286,21 @@ class OrdoViewModel(
         setTheme(next)
     }
 
+    /**
+     * 切换外观:落库 + 立刻生效 + 底部提示条(需求:切换背景颜色要提示「已切换到深色模式」)。
+     *
+     * 三个入口都汇聚到这里 —— 设置页三个选项([com.ordo.desktop.ui.settings.SettingsView])、
+     * 侧栏主题按钮与 `Ctrl+D`(都走 [cycleTheme]) —— 所以提示只在这一处发出,不存在漏提示的入口。
+     *
+     * 提示的文案与 `dark` 都取自**同一次**[resolveDark] 的结果:提示说深色,画面就一定是深色。
+     * 连点同一个模式也会再弹一次(报的是"现在是什么模式"),这与本端"点了必须有可见反馈"的口径一致,
+     * 且 [toast] 每次自增 id,所以提示条的 2.4s 计时会重新开始,不会出现第二次点击悄无声息。
+     */
     fun setTheme(mode: ThemeMode) {
+        val dark = resolveDark(mode)
         storage.kvSet(KEY_THEME, mode.name)
-        _state.update { it.copy(themeMode = mode, dark = resolveDark(mode)) }
+        _state.update { it.copy(themeMode = mode, dark = dark) }
+        toast(mode.switchToast(dark))
     }
 
     private fun resolveDark(mode: ThemeMode): Boolean = when (mode) {
@@ -494,6 +507,21 @@ class OrdoViewModel(
     }
 
     // ---------------------------------------------------------------- 数据管理
+
+    /**
+     * 应用被**重新唤起**(托盘「打开 Ordo」/ 第二个实例转交 / 从托盘还原窗口)时调用。
+     *
+     * 为什么必须有:进程常驻托盘时,窗口关掉再打开**不会**重建 ViewModel —— [init] 里的播种不会再跑,
+     * 于是用户「清空本地数据」后关窗再打开(用户口径就是"重启应用")只会看到一片空白,
+     * 必须去设置里点一次「重置为示例数据」才回来(实测反馈)。
+     *
+     * 这里只补一次「该不该播种」的判断,**是否播种由共享核心的持久化标记决定**:
+     * 全新安装 / 刚清空(标记已清)→ 补种演示数据;用户自己删空(标记还在)→ 绝不复活。
+     */
+    fun onAppActivated() {
+        engine.seedDemoData(force = false)
+        refresh()
+    }
 
     fun resetDemoData() {
         engine.seedDemoData(force = true)

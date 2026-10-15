@@ -20,23 +20,59 @@
 ```powershell
 $env:JAVA_HOME="<JDK 21>"
 gradle :apps:windows:run                       # 直接运行
-gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(214 个用例)
+gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(211 个用例,28 个测试类)
 gradle :apps:windows:createDistributable       # 免安装目录(app-image)
 gradle :apps:windows:packageDistributionForCurrentOS   # MSI + EXE(Compose 插件自动下载 WiX 3.11)
 gradle :apps:windows:packageMsi                # 只打 MSI
+gradle :apps:windows:packageNsis               # NSIS 安装包(每用户安装、不需要管理员;见下节)
 ```
 
 ### 打包产物(本机实测)
 
-| 产物 | 路径 | 大小 |
+| 产物 | 路径 | 大小(2026-10-14 实测) |
 |---|---|---|
-| 免安装目录 | `build/compose/binaries/main/app/Ordo/Ordo.exe`(+ `app/`、`runtime/`) | 启动器 0.5 MB,整目录 164.7 MB |
-| 单文件 EXE | `build/compose/binaries/main/exe/Ordo-1.0.0.exe` | 99.8 MB |
-| MSI 安装包 | `build/compose/binaries/main/msi/Ordo-1.0.0.msi` | 99.1 MB |
+| 免安装目录 | `build/compose/binaries/main/app/Ordo/Ordo.exe`(+ `app/`、`runtime/`) | 启动器 0.44 MiB,整目录 161.8 MiB |
+| **NSIS 安装包**(推荐) | `build/compose/binaries/main/nsis/Ordo_1.0.0_x64-setup.exe` | 80.3 MiB |
+| 单文件 EXE | `build/compose/binaries/main/exe/Ordo-1.0.0.exe` | 97.0 MiB |
+| MSI 安装包 | `build/compose/binaries/main/msi/Ordo-1.0.0.msi` | 96.4 MiB |
+
+单位是 MiB(1 MiB = 1048576 B)。NSIS 那份比 MSI 小约 16 MiB:LZMA(solid)压整棵 app-image,jpackage 是逐文件压。
 
 `packageDistributionForCurrentOS` **不需要手工安装 WiX**:Compose Gradle 插件会先跑 `:downloadWix` / `:unzipWix`
 把 WiX 3.11 二进制下到 Gradle 缓存(`wix311-binaries.zip`),再交给 `jpackage`。若企业网络禁用该下载,
 可预先装 WiX Toolset v3.14 并把 `bin` 加进 `PATH`,或只打免安装目录(不需要 WiX)。
+
+### NSIS 安装包:用的是 Tauri 那份 NSIS,但本端不是 Tauri 应用
+
+Tauri 是 **Rust + 系统 WebView** 的外壳,它打包的对象是「网页前端」。本端是 Compose Multiplatform(JVM)
+**原生**桌面应用:界面、托盘、单实例锁、深链、本地 JSON 存储全在 Kotlin 里(见 §1、§3)。把这样的应用塞给
+Tauri 只剩两条路,都不划算:
+
+1. 让 Tauri 只当启动器、把 `Ordo.exe` 当 sidecar 拉起来 —— 平白多一层 WebView2 依赖、安装包更大、还多一个进程;
+2. 把整个界面重写成网页 —— 那是技术栈迁移,和「打个安装包」不是一回事。
+
+真正用得上的只有**它的 NSIS 打包器**:Tauri CLI 会把 NSIS 3.11 下到 `%LOCALAPPDATA%\tauri\NSIS`,
+本仓库直接复用这份 `makensis.exe` 编 `installer/Ordo.nsi` —— 所以 `packageNsis` **既不要求装 NSIS,也不要求装 Rust**。
+
+安装行为(全部在 `installer/Ordo.nsi` 里):
+
+| 项 | 做法 |
+|---|---|
+| 安装范围 | 每用户,装到 `%LOCALAPPDATA%\Ordo`,**不弹 UAC** |
+| 快捷方式 | 开始菜单 `Ordo\Ordo.lnk` + 桌面 |
+| 卸载 | 自带 `Uninstall.exe`,「应用和功能」里可见(DisplayName「Ordo(序)」) |
+| 升级 | `.onInit` 读到旧卸载项 → 先静默跑旧卸载器(`_?=`),再覆盖安装 |
+| 装在跑 | 装/升级前用 `tasklist` 查 `Ordo.exe`(它默认「关闭窗口 = 最小化到托盘」,进程常驻);交互安装提示「托盘右键 → 退出」后重试,静默安装直接以**错误码 2** 退出(不半途覆盖文件) |
+| 卸载清理 | 开机自启项(`HKCU\...\Run\Ordo`)与 `ordo://` 协议(`HKCU\Software\Classes\ordo`)—— 两者都指向安装目录 |
+| 卸载**不**清理 | `%APPDATA%\Ordo\<数据目录 id>\` 的用户数据(重装即回到原来的库) |
+
+脚本是 UTF-8(无 BOM),`packageNsis` 显式传 `/INPUTCHARSET UTF8`;手敲命令时**必须带上**,否则 makensis
+按系统 ANSI 代码页读脚本,直接报 `Bad text encoding: …\Ordo.nsi:2`。
+
+> ⚠️ jpackage 那套(MSI/EXE)对 app-image 的新鲜度跟踪不可靠:出现过 `packageMsi` 报 UP-TO-DATE、
+> 而 `build/compose/binaries/main/app` 里还是旧 jar,于是打出来的安装包是旧代码。打包前先
+> `gradle :apps:windows:createDistributable --rerun`,或直接查产物里 jar 的时间戳。
+> `packageNsis` 已把 app-image 声明为输入(并依赖 `createDistributable`),不会再踩这个坑。
 
 ### 产物自检(可复现)
 
@@ -59,6 +95,24 @@ Get-Content $env:TEMP\ordo.txt
 #   step=first-window route=…Logbook
 #   step=done ok=true
 ```
+
+NSIS 安装包自检(静默装到临时目录 → 跑自检 → 静默卸载;全程不需要管理员):
+
+```powershell
+$setup = "build\compose\binaries\main\nsis\Ordo_1.0.0_x64-setup.exe"
+$dir   = "$env:TEMP\OrdoNsisTest"
+Start-Process $setup -ArgumentList "/S","/D=$dir" -Wait       # /D= 必须是最后一个参数,且不能加引号
+& "$dir\Ordo.exe" --version
+& "$dir\Ordo.exe" --data-dir="$env:TEMP\OrdoNsisData" --selftest="$env:TEMP\ordo-nsis.txt"
+Get-Content "$env:TEMP\ordo-nsis.txt" | Select-Object -Last 1   # → …step=done ok=true
+Start-Process "$dir\Uninstall.exe" -ArgumentList "/S" -Wait     # 装目录/快捷方式/注册表清掉;%TEMP%\OrdoNsisData 保留
+```
+
+「装在跑」守卫的验证(本机实测过):先按上面装好,再启动 `$dir\Ordo.exe`,然后重跑同一行
+`Start-Process $setup -ArgumentList "/S","/D=$dir" -Wait` —— 退出码应为 **2**(静默模式拒绝覆盖运行中的程序);
+关掉 Ordo 再跑一次 —— 退出码 **0**。检测实现是 `cmd /c tasklist /FI "IMAGENAME eq Ordo.exe" /NH | findstr …`
+的退出码(0 = 在跑、1 = 没跑):**不要退回 `System::Call … CreateFileW` + `$R0 == -1` 的写法** —— NSIS 3.11 上
+`System::Call` 取不到 `CreateFileW` 的 HANDLE 返回值(`$R0` 是垃圾值),那个守卫会静默失效。
 
 跨进程深链转交的完整验证(两个实例):
 
@@ -183,7 +237,7 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 | `Ctrl + Shift + N` | 新建窗口(多窗口,每窗口独立路由) |
 | `Ctrl + K` | 快找 |
 | `Ctrl + R` | 立即同步(等同于点状态栏右侧的刷新控件) |
-| `Ctrl + D` | 外观:自动 → 浅色 → 深色 |
+| `Ctrl + D` | 外观:自动 → 浅色 → 深色(每次切换都弹一条提示条,见 §13) |
 | `1` – `6` | 收件箱 / 今天 / 计划 / 随时 / 某天 / 日志簿 |
 | `↑ ↓` | 移动选中行 |
 | `Enter` | 打开详情卡片 |
@@ -256,27 +310,25 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 - **多窗口跟随选中**(设置页开关,默认开):任一窗口打开某条待办,其它窗口**如果正好显示这条**就把它高亮,
   不改动对方路由 —— 既满足"每窗口独立路由",又能在多窗口下快速定位同一条内容。
 
-## 8. 测试(本机可跑,214 个用例)
+## 8. 测试(本机可跑,211 个用例,28 个测试类)
 
 ```
-SilentSessionTest       16 个:落点判定(无会话→匿名 / 过期→续期 / 有效→直接用)/ 退避 1s·2s·4s…上限 60s /
-                              有效会话 0 次请求 / 续期失败静默换匿名 / 匿名请求带 deviceName·platform /
-                              离线不抛异常也不留半个会话 / 后台守护"先离线失败、联网后自动拿到" /
-                              重复 start 只通知一次 / 401 静默重建(先续期、再匿名)/ awaitSession /
-                              重建会话不换数据目录 id / 会话落 kv[ordo.session]
-UserDataDirsTest        15 个:一 id 一目录 / 两个目录的数据文件互相看不见 / 目录名防御性清洗 /
+NoNetworkTest           6 个:**纯本地证明**(云同步已删除):构建脚本无网络依赖 / 运行期 classpath 无 HTTP·WebSocket 客户端 /
+                              主源码无网络 API 引用 / 本地启动链路只产本机 JSON 不碰套接字 /
+                              内存存储下本地引擎行为一致
+UserDataDirsTest        14 个:一 id 一目录 / 两个目录的数据文件互相看不见 / 目录名防御性清洗 /
                               目录保留 / --data-dir 与系统属性只覆盖基目录 /
                               数据目录标识的钉住(有会话用 userId、离线首启生成本地 id、会话到手后不改名、空白视为没有)/
                               遗留目录沿用(唯一才认、多个不猜、隐藏与空目录不算、已钉住优先)—— 契约 §7.6.6
-OrdoHttpErrorTest        6 个:匿名会话打到 /v1/auth/guest 并解析正常令牌 / 静默续期打到 /v1/auth/refresh /
-                              错误信封取冻结错误码 / 非 JSON 退化成 HTTP_502 / 无信封 5xx 不抛解码异常 /
-                              网络不可达抛 IO 异常(不是业务错误码)
+TrayMenuSpecTest        6 个:托盘右键菜单的字体与文案(用户实测:菜单项渲染成空心方框 —— AWT 默认字体显示不了中文)/
+                              字体挑选优先级 / 挑不出时回退英文兜底 / 本机真实字体环境冒烟(选出的字体 canDisplay('中') 为真)
 LongPressDetectorTest   12 个:400ms 前抬起=点击 / 满 400ms=长按 / 松手恰好在阈值上算长按 /
                               400ms 前移动 >6px 不再是点击 / 6px 内仍是点击 / 容差边界 /
                               长按之后的移动不再取消 / 剩余时间驱动定时器 / 取消语义
 LiftPointerMapperTest    5 个:行抬起 scale 1.02 后的指针位移还原(回归"拖两格只落一格")
-RefreshControlTest       8 个:idle 可点 / 同步中旋转且禁用 / 成功后 320ms success 色 + 1.4s 防抖 /
-                              失败常驻 danger 可重试 / 重复状态不重置计时 / 旋转一圈 900ms
+QuickAddFabLookTest     8 个:快加号的外观与动效:按钮直径与图标尺寸按令牌 / fab 圆填充就是亮蓝 0A84FF 且为纯色 /
+                              白色加号与菜单同一套圆头几何 / **不再有柔光**(光晕与径向渐变层已删)/
+                              动效是有界缓动,菜单缩放滑入 / **菜单面板不得藏在 alpha 动画层里**(阴影会整段消失,§13)
 QuickAddRefactorTest     8 个:56dp / 源码级断言"折叠箭头已删除且有且只有一个圆形按钮" / 单击与长按的分支 /
                               旋转 45° 与按压 0.96、长按到位 1.06 / 离屏单击开输入行 / 离屏长按 400ms 开菜单再单击收起
 QuickAddMenuIconsTest   12 个:四个菜单图标互异且"新建项目"不再复用文件夹图标 / 20×20 viewBox /
@@ -285,7 +337,7 @@ QuickAddMenuIconsTest   12 个:四个菜单图标互异且"新建项目"不再�
                               Ctrl+N 唯一 / 矢量绘制不新增位图
 LongPressDragTest        5 个:长按 400ms 后拖动写回顺序 / 400ms 前移动 >6px 不进入拖拽 /
                               按下就抬起仍是点击(打开详情)/ Esc 取消不写库 / 手柄免长按直接拖且行级长按作废
-StartupAndShellRenderTest 9 个:**启动即主界面且没有任何登录入口**(反向断言 11 个登录哨兵字眼)/
+StartupAndShellRenderTest 8 个:**启动即主界面且没有任何登录入口**(反向断言 11 个登录哨兵字眼)/
                               全新安装没有会话也直接进主界面 / 有会话同样直接进主界面 /
                               设置页不再有账号·退出登录·服务器地址 / 快加号菜单(三项·四项可用性 + 整窗截图 + 放大截图)/
                               刷新控件旋转中截图 + 放大视图
@@ -316,12 +368,22 @@ DeepLinkInboxTest      10 个:第二实例写入→运行实例消费并清空 /
 MultiWindowTest        14 个:两窗口独立路由 / 任一窗口写入其它窗口刷新 / 同步结果广播与 dispose 退订 /
                               托盘偏好持久化 / 新建窗口回调 / 不重新播种演示数据 / 窗口标题 /
                               跟随选中(开启联动、清单里没有则不打扰、关掉后不联动、dispose 后不联动)
-SyncDiagnosticsTest     4 个:待推送条数与 serverSeq / outbox 明细截断到 10 条 / 上次错误透传 / 只读不写
+ThemeSwitchToastTest    8 个:切换背景颜色的提示条:深色→「已切换到深色模式」/ 浅色→「已切换到浅色模式」/
+                              自动→「已切换到跟随系统模式(深色|浅色)」且提示里的深浅与画面同源 /
+                              侧栏主题按钮与 Ctrl+D 循环也走同一条提示 / 连点同一个模式会重新提示(2.4s 计时重开)/
+                              文案与设置页选项同源 / 启动读偏好不弹提示 / 坏偏好值回退自动不崩
+ClearDataReseedTest     3 个:「清空本地数据 → 重启应用 → 重新播种演示数据」(清空 = 回到全新安装态)/
+                              「关闭窗口 = 最小化到托盘」时唤回窗口也要补种(进程没死、不会重建 ViewModel)/
+                              用户自己把待办逐条删空后重启**不得**把演示数据塞回来
 RenderSmokeTest         8 个:离屏渲染「今天」与「深色+快加号」PNG、派生清单与计数、中文 NLP 新建、
                               拖拽指示线渲染、设置页(开机自启 + 同步诊断)渲染、删除确认框渲染、
                               真实指针事件驱动"按住手柄 → 拖到第三行 → 松手"并断言顺序写回引擎
 ProjectCompletionRenderTest 3 个:项目卡片"可完成(标题未归档)"与"不可完成(写明条数)"两种状态渲染、
                               完成前后画面确实不同、点开加号后输入行在列表顶部且带焦点描边
+ThemeToastRenderTest    1 个:切到深色后的提示条离屏渲染 + **量像素**(列表空白处必须暗、浅色对照必须亮、
+                              提示条药丸必须亮且与画面形成对比;显式喂帧,否则提示条的淡入永远停在第 0 帧)
+QuickAddMenuShadowRenderTest 1 个:菜单展开的**每一帧**都要有投影(逐帧量面板右缘外侧的暗度;
+                              旧实现靠淡入,整段过渡里投影是 0)+ 投影贴着圆角收进去(角上外扩的暗带短于腰上)
 ```
 
 > 离屏渲染的一个坑(本轮踩到并写进断言):`ImageComposeScene.render()` **不带参数**时帧时钟恒为 0,
@@ -348,6 +410,10 @@ ProjectCompletionRenderTest 3 个:项目卡片"可完成(标题未归档)"与"�
 | `ordo-project-blocked-toast.png` | 点下去后的提示条:与按钮同源的「还有 1 项未完成的待办」 |
 | `ordo-project-done.png` | 完成之后:按钮变「重新打开」,标题已自动归档 |
 | `ordo-composer-focused.png` | 点开右下角加号:输入行在列表顶部、主色描边 + 光标(真的拿到了焦点) |
+| `ordo-theme-toast.png` | 切到深色之后:底部提示条「已切换到深色模式」,且画面与提示同为深色(§13) |
+| `ordo-theme-toast-light.png` | 同一处、浅色模式的对照组:提示条说浅色,画面就真的是浅色(§13) |
+| `ordo-quickadd-shadow-first-frame.png` | 菜单展开的**第 1 帧**(§13):面板与它的圆角投影**同时**就在,没有"先方角、后圆角" |
+| `ordo-quickadd-shadow-settled.png` | 同一次展开走完动效的终态,与上一张对照(逐帧回归由 `QuickAddMenuShadowRenderTest` 守着) |
 
 ## 9. 已知限制
 
@@ -397,6 +463,25 @@ ProjectCompletionRenderTest 3 个:项目卡片"可完成(标题未归档)"与"�
 "该项目下还有 `status == OPEN` 的待办"。端上任何"能不能完成"的判断都应该直接用核心计数
 (`SidebarCounts.projects[id]`),不要自己再拼 heading 条件 —— 本端这两处 bug 都是那么来的。
 
-**共享核心**:本轮未改 `ordo/shared/**`,也未改文档与其它端。
+**共享核心**:第二轮未改 `ordo/shared/**`,也未改文档与其它端。
+
+## 13. 第三轮修掉的三个真问题(用户实机试用反馈)
+
+| 现象 | 根因 | 修复 |
+|---|---|---|
+| 在设置里切换背景颜色(自动 / 浅色 / 深色)之后**什么反应都没有**,不知道是切成功了还是没点中;要的是「已切换到深色模式」这类提示 | `setTheme()` 只做两件事 —— 把偏好写进 kv、把 `themeMode` / `dark` 更新进状态,不产生任何提示;而三个入口(设置页选项、侧栏主题按钮、`Ctrl+D`)各自直连 `setTheme` / `cycleTheme`,没有共同的反馈点。「已切换到…」这句话此前在整个仓库里**一次都没出现过**,文案本身就是新的 | 反馈收口到**唯一**的 `setTheme(mode)`:先 `dark = resolveDark(mode)` 写进状态(画面就是按它渲染的),再 `toast(mode.switchToast(dark))` —— 提示与画面**同源**,不可能出现"提示说深色、画面还是浅色"。文案由 `ThemeMode` 自己给出(`label` / `switchToast`),设置页三个选项的文字与提示文字共用同一个 `label`,两处写不出不同的模式名。`AUTO` 的提示会报出当时跟随到的深浅(「已切换到跟随系统模式(深色)」)。`Ctrl+D` 与侧栏按钮仍走 `cycleTheme()`,但它最终落到 `setTheme`,三条入口天然一致;启动时读取已存偏好**不弹**提示(那是恢复,不是切换) |
+| 演示数据「该不该播种」把两种意图相反的场景混成同一种:全新安装、以及刚点过「清空本地数据」,都该播种;而用户自己把待办一条条删空**不该**播种 | `seedDemoData(force = false)` 只看 `state.todos.isEmpty()` —— 它回答的是"现在有没有内容",不是"这台机器是不是新装",也没有任何持久化的"播过种"记账;`clearAll()` 同样没为"清空 = 回到全新安装态"留下凭据,于是同一份空库既可能是新装、也可能是用户主动删空,两者无法区分 | 核心加**播种标记** `kv[ordo.seedMark]`:`seedDemoData(force = false)` 要求「库为空 **且** 没播过种」才写演示数据;`clearAll()` 把标记一起清掉 —— 清空就等于回到全新安装态,下次启动照常播种。`ClearDataReseedTest` 守住这两条相反的诉求。**补:用户口径里的"重启"其实是唤回** —— Windows 默认「关闭窗口 = 最小化到托盘」,进程没死,再点图标只是把窗口 raise 回来,**不会重建 ViewModel**,播种判定一次都不会再跑(这就是"清空后重启看不到演示数据、点重置才回来"的全部原因)。所以同一个判定要有第二个触发点:窗口被唤回时(`Main.kt` 的 `showOrOpenWindow()` → 新加的 `OrdoViewModel.onAppActivated()`)重跑一次 `seedDemoData(force = false)` —— 标记还在就什么都不做,标记被清过(清空过)就立刻补种。`ClearDataReseedTest` 现在 3 条:真重启补种 / 托盘唤回补种 / 用户自己删空不复活 |
+| 点蓝色按钮展开菜单时,先看到一块**硬边(方角)阴影**,动效快结束才"变"成圆角阴影 | `Modifier.shadow` **在 alpha < 1 的图层里不画投影**。旧实现用 `AnimatedVisibility(fadeIn + scaleIn + slideIn)` 淡入,整段过渡里 Compose 都给子树蒙着一层 alpha 0→1 的图层 → 面板**一点投影都没有**(看着就是一块没有阴影的方角矩形),直到最后一帧 alpha 落到 1,圆角投影才补上 —— 用户看到的"两段式"就是这么来的 | 面板入场不再用 `AnimatedVisibility`:改成自己驱动 `graphicsLayer`,只动 `scaleX/scaleY`(0.92→1,锚点右下 `TransformOrigin(1f, 1f)`)与 `translationY`(6dp→0),**alpha 恒为 1** → 圆角投影从第一帧起就跟着面板一起缩放;菜单项各自的错位淡入不受影响。`QuickAddMenuShadowRenderTest` 逐帧量面板右缘外侧的暗度:入场 12 帧每帧都必须有投影(旧实现这一段是 0),并确认投影贴着圆角收进去 |
+
+**一句话口径**:端上任何"当前是什么状态"的用户可见反馈(提示条文案、按钮文字、按钮可用性)都必须与**渲染所用的那个值**同源 —— §12 的项目卡片、本轮的提示条,两次 bug 同一个病根。
+
+**共享核心**:本轮改了 `ordo/shared/core/src/commonMain/kotlin/com/ordo/core/store/OrdoEngine.kt`(`seedDemoData` / `clearAll` 与播种标记);第三行(方形阴影)是纯端侧 Compose 问题,只改 `apps/windows`,未动核心与其它端。
+
+**测试口径**:本轮后 `:apps:windows:test` 为 **28 个测试类 / 211 个用例**(1 个 skip:托盘字体环境假设;逐类数量见 §8,已与实际测试源码对齐)。新增 `QuickAddMenuShadowRenderTest`(1)/ `ThemeToastRenderTest`(1),`ClearDataReseedTest` 1→3、`QuickAddFabLookTest` 7→8。§8 的清单里顺手删掉了 4 个**早已随源码删除、只在文档里留着**的测试类(`SilentSessionTest` / `OrdoHttpErrorTest` / `RefreshControlTest` / `SyncDiagnosticsTest`,都是 `66f400a`「删除云同步」那次删的),并把 `UserDataDirsTest` / `StartupAndShellRenderTest` 的用例数改成该提交后的实际值。
+
+**顺带修掉一个偶发假失败**:`RenderSmokeTest.按住行尾手柄拖动会真实写回顺序` 偶发抛
+`IllegalArgumentException: LayoutNode N not found in RectList`。根因是 `ImageComposeScene.render()`(不带参数)用的帧时钟**恒为 0**,
+连续两次同时间戳的渲染会被当成"同一帧",选中后才组合出来的行尾手柄可能还没登记进 RectList,紧接着发指针事件就崩。
+新增 `RenderSmokeTest.settle(scene, frames)`(单调递增帧时钟)替换该用例里的裸 `render()`,该用例连跑 3 次全绿(改前 1 次必现偶发)。
 
 

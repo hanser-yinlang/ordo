@@ -166,6 +166,8 @@
     <string name="settings_data_desc">共 %1$d 项 · 本地 SQLite 数据库</string>
     <string name="settings_reset">重置为示例数据</string>
     <string name="settings_reset_confirm">将清空本地数据并恢复示例内容，确定吗？</string>
+    <string name="settings_clear">清空本地数据</string>
+    <string name="settings_clear_confirm">将删除本机全部本地数据（含演示数据），下次启动会回到全新安装状态。确定吗？</string>
     <string name="settings_about">关于</string>
     <string name="settings_about_desc">序 Ordo · Android 1.0.0 · 把今天理清楚</string>
 
@@ -183,6 +185,7 @@
     <string name="toast_duplicated">已复制</string>
     <string name="toast_restored">已恢复</string>
     <string name="toast_reset">已重置为示例数据</string>
+    <string name="toast_cleared">已清空本地数据</string>
     <string name="toast_project_completed">项目已完成</string>
     <!-- 契约 §2.2 v1.1：拒绝的唯一原因就是"还有 N 项未完成的待办"；标题未归档不阻塞完成，文案里不得再提"标题" -->
     <string name="toast_project_blocked">还有 %1$d 项未完成的待办，无法完成项目</string>

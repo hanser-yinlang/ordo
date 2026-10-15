@@ -791,6 +791,19 @@ class OrdoViewModel : ViewModel() {
         showToast(context.getString(R.string.toast_reset))
     }
 
+    /**
+     * 清空本地数据（与 Windows 端同义）：实体 / outbox / 墓碑全清，**连播种标记一起清掉**。
+     *
+     * 于是「清空」= 回到**全新安装态**：界面立刻变空，下次冷启动由
+     * [ServiceLocator.bindDataDir] 重新播种演示数据，不需要用户再去点「重置为示例数据」。
+     * 反过来，用户自己逐条删空待办不会被演示数据复活（播种标记还在）。
+     */
+    fun clearAllData() {
+        runCatching { engine.clearAll() }
+        rebuild(runCatching { engine.snapshot }.getOrNull())
+        showToast(context.getString(R.string.toast_cleared))
+    }
+
     /* ============================== Toast ============================== */
 
     fun showToast(message: String) {

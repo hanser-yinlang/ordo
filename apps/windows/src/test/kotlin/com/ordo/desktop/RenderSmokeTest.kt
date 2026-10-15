@@ -199,6 +199,23 @@ class RenderSmokeTest {
         return dir
     }
 
+    /** [settle] 用的单调帧时钟(同一个测试方法内只增不减,绝不回退) */
+    private var frameTime = 0L
+
+    /**
+     * 喂若干帧,让组合与动画真正提交。
+     *
+     * 关键:`ImageComposeScene.render()`(不带参数)用的帧时钟**恒为 0** —— 连续两次同时间戳的渲染
+     * 会被当成"同一帧",刚组合出来的节点(比如选中后才出现的行尾手柄)可能还没登记进 RectList,
+     * 紧接着发指针事件就会偶发抛 `LayoutNode N not found in RectList`。显式递增时间戳即可消除。
+     */
+    private fun settle(scene: ImageComposeScene, frames: Int = 8, stepNanos: Long = 16_000_000L) {
+        repeat(frames) {
+            scene.render(frameTime)
+            frameTime += stepNanos
+        }
+    }
+
     /** 渲染一帧整窗界面,返回 PNG 字节 */
     private fun renderApp(vm: OrdoViewModel): ByteArray {
         val scene = ImageComposeScene(width = 1440, height = 900, density = Density(1f)) { OrdoApp(vm) }
@@ -248,13 +265,14 @@ class RenderSmokeTest {
                 ListPane(state = state, vm = vm, dragState = drag)
             }
         }
-        scene.render()
+        settle(scene, frames = 2)
 
         val before = vm.engine.list(ListQuery.Today).map { it.id }
         val first = vm.state.value.flatTodos.first()
         // 选中后手柄常驻(与"悬浮"等价的可见条件)
         vm.selectTodo(first.id)
-        scene.render()
+        // 手柄是选中后才组合出来的:多喂几帧,等它登记进 RectList 再发指针事件
+        settle(scene, frames = 8)
 
         val rows = drag.spansOf(0)
         assertTrue("应至少登记 3 行", rows.size >= 3)
@@ -268,16 +286,16 @@ class RenderSmokeTest {
         val targetY = drag.rootYOf(target.center + 4f)
 
         scene.sendPointerEvent(PointerEventType.Move, Offset(handleX, handleY))
-        scene.render()
+        settle(scene, frames = 2)
         scene.sendPointerEvent(PointerEventType.Press, Offset(handleX, handleY))
-        scene.render()
+        settle(scene, frames = 2)
         // 分两步移动,确保越过触摸阈值并触发拖拽
         scene.sendPointerEvent(PointerEventType.Move, Offset(handleX, handleY + 24f))
-        scene.render()
+        settle(scene, frames = 2)
         scene.sendPointerEvent(PointerEventType.Move, Offset(handleX, targetY))
-        scene.render()
+        settle(scene, frames = 2)
         scene.sendPointerEvent(PointerEventType.Release, Offset(handleX, targetY))
-        scene.render()
+        settle(scene, frames = 2)
         scene.close()
 
         val after = vm.engine.list(ListQuery.Today).map { it.id }

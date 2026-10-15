@@ -26,6 +26,7 @@ import { MemoryOrdoStore } from '../core/storage/MemoryStore.ets';
 import { KvKeys, OrdoStore } from '../core/storage/OrdoStore.ets';
 import { RdbOrdoStore } from '../core/storage/RelationalStore.ets';
 import { buildSeedState } from '../core/SeedData.ets';
+import { applyResetToSeedData, applySeedPolicy } from './SeedPolicy.ets';
 import { parseNaturalNow, ParsedInput } from '../core/nlp/NaturalDateParser.ets';
 import {
   DayGroup,
@@ -314,6 +315,7 @@ export class AppStore {
   /**
    * 首次进入该工作区时的演示数据(契约 §7.6.3 的本地化版本):
    * v1.5 没有服务端可比对,判据就是"本地为空且没写过种子标记"。
+   * 判据本身抽在 viewmodel/SeedPolicy.ets(纯逻辑,宿主机用例直接跑,不依赖 RDB/ArkUI)。
    */
   private async seedDemoDataIfEmpty(): Promise<void> {
     const store: OrdoStore | null = this.ordoStore;
@@ -321,16 +323,11 @@ export class AppStore {
     if (store === null || engine === null) {
       return;
     }
-    const seeded: string | null = await store.getKv(KvKeys.SEEDED);
-    if (seeded === '1') {
-      return;
-    }
-    if (engine.todos().length === 0 && engine.projects().length === 0) {
-      const seed = buildSeedState(todayISO());
-      await engine.persistAll(seed);
+    const seed = buildSeedState(todayISO());
+    const wrote: boolean = await applySeedPolicy(store, engine, seed);
+    if (wrote) {
       this.localEvents = seed.events;
     }
-    await store.setKv(KvKeys.SEEDED, '1');
   }
 
   private setAuthPhase(phase: AuthPhase): void {
@@ -1355,18 +1352,45 @@ export class AppStore {
     this.afterWrite(null);
   }
 
-  /** 恢复内置示例数据(设置页入口;二次确认由 UI 层负责) */
+  /**
+   * 恢复内置示例数据(设置页入口;二次确认由 UI 层负责)。
+   * 写入演示数据 **并补回播种标记** —— 理由见 viewmodel/SeedPolicy.ets 的 applyResetToSeedData。
+   */
   async resetToSeedData(): Promise<void> {
     const e: OrdoEngine | null = this.engine;
-    if (e === null) {
+    const store: OrdoStore | null = this.ordoStore;
+    if (e === null || store === null) {
       return;
     }
     const seed = buildSeedState(todayISO());
-    await e.persistAll(seed);
+    await applyResetToSeedData(store, e, seed);
     this.localEvents = seed.events;
     ReminderAgent.cancelAll();
     this.invalidateDerived();
     this.showToast('已恢复示例数据');
+    this.bump();
+  }
+
+  /**
+   * 清空本地数据(设置页入口;二次确认由 UI 层负责)。
+   *
+   * 与 resetToSeedData 的关键区别:这里连**播种标记**一起清掉(见 OrdoEngine.clearAll),
+   * 于是应用退回"全新安装态" —— 下次冷启动会重新写入演示数据,而不是只剩一个空界面;
+   * 而用户**自己逐条删空**待办时不会走这条路径,标记仍在,所以不会被演示数据复活。
+   *
+   * localEvents(设备本地只读日历事件,契约 §2.8)不在本地库里,保持不动:冷启动本来就会按
+   * 当天重建,没必要为了"清空"先抹掉它、让日程区块空一屏。
+   */
+  async clearAllData(): Promise<void> {
+    const e: OrdoEngine | null = this.engine;
+    if (e === null) {
+      return;
+    }
+    await e.clearAll();
+    this.selectedTodoId = '';
+    ReminderAgent.cancelAll();
+    this.invalidateDerived();
+    this.showToast('已清空本地数据');
     this.bump();
   }
 

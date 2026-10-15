@@ -683,17 +683,33 @@ class OrdoEngine(
 
     // ---------------------------------------------------------------- 演示数据
 
-    /** 首次启动写入演示数据;force = true 时覆盖现有内容(设置里的"重置为示例数据") */
+    /**
+     * 首次启动写入演示数据;force = true 时覆盖现有内容(设置里的"重置为示例数据")。
+     *
+     * 非 force 时要求「库为空 **且** 还没播过种」:
+     * ①用户自己把待办删空,不该在下次启动被塞回演示数据;
+     * ②「清空本地数据」会把播种标记一起清掉(见 [clearAll]),
+     *   所以清空 = 回到全新安装状态,下次启动会照常播种。
+     */
     fun seedDemoData(force: Boolean = false): Boolean {
-        if (!force && state.todos.isNotEmpty()) return false
+        if (!force) {
+            if (state.todos.isNotEmpty()) return false
+            if (storage.kvGet(SEED_MARK_KEY) == SEED_MARK_VALUE) return false
+        }
         state = com.ordo.core.seed.SeedData.demo(clock.nowMillis(), OrdoDate.todayISO(clock))
         storage.saveSnapshot(state)
         storage.kvSet(KEY_SCHEMA, state.schemaVersion.toString())
+        storage.kvSet(SEED_MARK_KEY, SEED_MARK_VALUE)
         notifyListeners()
         return true
     }
 
-    /** 清空全部本地数据(账号注销 / 退出登录时使用) */
+    /**
+     * 清空全部本地数据(设置里的"清空本地数据")。
+     *
+     * 连**播种标记**一起清掉:清空之后的应用就等同全新安装,
+     * 下次启动会重新写入演示数据(用户反馈:清空后重启看不到演示数据)。
+     */
     fun clearAll() {
         state = OrdoSnapshot()
         storage.saveSnapshot(state)
@@ -702,6 +718,7 @@ class OrdoEngine(
         val ids = outbox.map { it.opId }
         storage.clearOutbox(ids)
         outbox.clear()
+        storage.kvSet(SEED_MARK_KEY, null)
         notifyListeners()
     }
 
@@ -773,5 +790,11 @@ class OrdoEngine(
         const val KEY_DEVICE_ID = "ordo.deviceId"
         const val KEY_LAST_SEQ = "ordo.lastServerSeq"
         const val KEY_SCHEMA = "ordo.schemaVersion"
+
+        /** 播种标记:存在即表示本机播过演示数据,用户自己删空不算「新装」 */
+        private const val SEED_MARK_KEY = "ordo.seedMark"
+
+        /** 播种标记的值(固定串,只用于「存在且相等」的判断) */
+        private const val SEED_MARK_VALUE = "demo"
     }
 }

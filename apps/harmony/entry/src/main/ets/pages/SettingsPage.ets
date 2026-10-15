@@ -2,7 +2,7 @@
  * Ordo · 设置
  *  - SettingsPage:@Entry 页面(可在 main_pages 中作为独立页打开)
  *  - SettingsSheet:主页面内以浮层形式打开的设置面板(04 §4 浮层规范)
- * 内容:外观(自动/浅色/深色)、数据与存储、本地数据、同步状态、示例数据重置、快捷键与手势说明
+ * 内容:外观(自动/浅色/深色)、数据与存储、本地数据、同步状态、示例数据重置、清空本地数据(二次确认)、快捷键与手势说明
  *
  * v1.4:登录被移除 —— 设置页不再有「账号 / 账号标识 / 升级为正式账号 / 退出登录 / 服务器地址」区块;
  * 服务器地址改成**隐藏覆盖**(只读应用级 kv,无输入框,见 README §6.6)。
@@ -25,6 +25,13 @@ export struct SettingsSheet {
    * 不要再写死数字:矮屏/分屏上写死会让内容溢出面板、画到底部状态栏上。
    */
   @Prop maxHeight: number = SETTINGS_SHEET_DESIGN_MAX;
+
+  /**
+   * 「清空本地数据」是否已进入二次确认态。
+   * 放在组件内(而不是 AppStore)是刻意的:它是**纯 UI 瞬时状态**,不进 @Observed 模型、
+   * 不参与任何派生缓存;面板关掉/重建就该消失,不该被持久化。
+   */
+  @State private confirmClear: boolean = false;
 
   private c(): OrdoColorTokens {
     return OrdoColors.of(this.store.isDark());
@@ -93,6 +100,51 @@ export struct SettingsSheet {
       .onClick(() => {
         this.store.setTheme(mode);
       })
+  }
+
+  /**
+   * 「清空本地数据」的二次确认(写法参照安卓端 SettingsScreen 的 confirmReset):
+   * 不可撤销的破坏性操作**不弹系统对话框**,而是在原地长出一行红色说明 + 确认/取消两个按钮。
+   * 这样少一次模态跳转,面板也不会被系统弹窗压住;默认只有一个按钮,误触不会直接毁数据。
+   */
+  @Builder
+  confirmClearBar() {
+    Column({ space: OrdoSpace.xs }) {
+      Text('清空后待办、项目、区域、标签与待同步队列全部消失,且无法撤销;下次启动会重新写入示例数据。')
+        .fontSize(OrdoFont.micro.size)
+        .fontColor(this.c().stateDanger)
+        .width('100%')
+      Row({ space: OrdoSpace.s }) {
+        Text('确认清空')
+          .fontSize(OrdoFont.caption.size)
+          .fontColor(this.c().stateDanger)
+          .height(32)
+          .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+          .borderRadius(OrdoRadius.pill)
+          .backgroundColor(this.c().chipBg)
+          .textAlign(TextAlign.Center)
+          .id('ordo_settings_clear_confirm')
+          .onClick(() => {
+            this.confirmClear = false;
+            this.store.clearAllData();
+          })
+        Text('取消')
+          .fontSize(OrdoFont.caption.size)
+          .fontColor(this.c().textPrimary)
+          .height(32)
+          .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+          .borderRadius(OrdoRadius.pill)
+          .backgroundColor(this.c().chipBg)
+          .textAlign(TextAlign.Center)
+          .id('ordo_settings_clear_cancel')
+          .onClick(() => {
+            this.confirmClear = false;
+          })
+        Blank()
+      }
+      .width('100%')
+    }
+    .width('100%')
   }
 
   build() {
@@ -170,6 +222,31 @@ export struct SettingsSheet {
             Blank()
           }
           .width('100%')
+
+          /*
+           * 与「恢复默认示例数据」是两条不同的语义(见 viewmodel/SeedPolicy.ets 的文件头):
+           * 这里回到**全新安装态**,下次冷启动才重新播种;用户自己逐条删空不会被复活。
+           */
+          this.sectionTitle('清空数据')
+          Row({ space: OrdoSpace.s }) {
+            Text('清空本地数据')
+              .fontSize(OrdoFont.caption.size)
+              .fontColor(this.c().stateDanger)
+              .height(32)
+              .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+              .borderRadius(OrdoRadius.pill)
+              .backgroundColor(this.c().chipBg)
+              .textAlign(TextAlign.Center)
+              .id('ordo_settings_clear')
+              .onClick(() => {
+                this.confirmClear = true;
+              })
+            Blank()
+          }
+          .width('100%')
+          if (this.confirmClear) {
+            this.confirmClearBar()
+          }
         }
         .width('100%')
       }

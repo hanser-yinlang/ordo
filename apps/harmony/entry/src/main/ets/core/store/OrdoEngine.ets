@@ -42,7 +42,7 @@ import {
   newTodo,
   newTombstone
 } from '../model/Entities.ets';
-import { OrdoStore, StorageSnapshot } from '../storage/OrdoStore.ets';
+import { KvKeys, OrdoStore, StorageSnapshot } from '../storage/OrdoStore.ets';
 import { todayISO } from '../util/DateUtil.ets';
 import { newChecklistItemId, newId, newOpId, nowMillis } from '../util/Ids.ets';
 import { ParsedInput, parseNaturalNow } from '../nlp/NaturalDateParser.ets';
@@ -161,6 +161,37 @@ export class OrdoEngine {
     };
     // 增量对账:只写变化实体、只删快照中消失的 id,且在一个事务内完成
     await this.store.saveSnapshot(snapshot);
+    this.emit();
+  }
+
+  /**
+   * 清空本地数据:把库退回「全新安装态」(设置页「清空本地数据」,语义对齐 Windows 端
+   * `OrdoEngine.clearAll()`,与"立即重新写入演示数据"的 resetToSeedData 是两条不同的路径)。
+   *
+   * 为什么连**播种标记**一起删:只清实体的话下次冷启动 seedDemoDataIfEmpty 会因为标记仍在而
+   * 不再播种,用户看到的就是一个空界面;删掉标记才是"全新安装态"。反过来,用户**自己逐条删空**
+   * 待办时根本不会走到这里,标记仍在,因此不会被演示数据复活。
+   *
+   * 墓碑没有专门的清空 API:pruneTombstones(now + 1) 的判据是 `deletedAt < before`
+   * (契约 §7.3.5),把 before 放到"现在之后"即可一次删光全部墓碑。
+   * 只删设备级的播种标记,不动 deviceId / 外观等 kv —— 工作区标识一变,用户会以为数据换了个库。
+   */
+  async clearAll(): Promise<void> {
+    const opIds: string[] = [];
+    for (let i = 0; i < this.outbox.length; i++) {
+      opIds.push(this.outbox[i].opId);
+    }
+    // 内存状态必须先清:否则落库清空了、UI 还显示旧数据(下一帧 emit 会把它画出来)
+    const empty: OrdoState = { areas: [], projects: [], todos: [], tags: [], events: [] };
+    this.state = empty;
+    this.outbox = [];
+    this.tombstones = [];
+    await this.store.clearEntities();
+    if (opIds.length > 0) {
+      await this.store.removeOutbox(opIds);
+    }
+    await this.store.pruneTombstones(nowMillis() + 1);
+    await this.store.removeKv(KvKeys.SEEDED);
     this.emit();
   }
 

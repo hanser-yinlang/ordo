@@ -3,7 +3,7 @@
 > 契约来源：[03 · 数据模型与同步协议](../../docs/03-数据模型与同步协议.md) · [04 · UI 设计规范](../../docs/04-UI设计规范.md)（FROZEN v1）
 > 业务核心：KMP `shared:core`（**只调用、不修改**）· 交互参照：`things-clone/`（Web 原型，仅复用信息架构；名称/图标/配色一律按 04 文档的 Ordo 品牌）
 > **v1.4 产品决策：彻底删除云同步 —— 本应用是纯本地应用，不联网、不申请 INTERNET 权限。**
-> 规模：43 个 Kotlin 文件（33 主 + 10 测试）· 10 个测试类 / **114 个用例**（本机 `assembleDebug` + `assembleRelease` + `testDebugUnitTest` 真实执行通过，见 §7.6/§7.7）
+> 规模：44 个 Kotlin 文件（33 主 + 11 测试）· 11 个测试类 / **120 个用例**（本机 `assembleDebug` + `assembleRelease` + `testDebugUnitTest` 真实执行通过，见 §7.6/§7.7/§7.8）
 
 ## 1. 构建
 
@@ -22,7 +22,7 @@
 # 在仓库根目录（ordo/）执行
 ./gradlew :apps:android:app:assembleDebug        # 打 debug 包
 ./gradlew :apps:android:app:assembleRelease      # 打 release 包（未签名，见 build.gradle.kts）
-./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（9 个测试类 / 104 个用例，见 §7.6）
+./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（11 个测试类 / 120 个用例，见 §7.6）
 ./gradlew :apps:android:app:installDebug         # 安装到设备
 ```
 
@@ -32,20 +32,21 @@
 
 - **不联网**：没有服务器地址、没有账号、没有同步；数据全部落在本机 `filesDir/`。
 - 深链：`ordo://list/today`、`ordo://todo/{id}`、`ordo://project/{id}`；点提醒通知即走 `ordo://todo/{id}`。
-- 首次启动由 `OrdoEngine.seedDemoData()` 写入示例数据；「设置 → 数据 → 重置为示例数据」可恢复。
+- 首次启动由 `OrdoEngine.seedDemoData(force = false)` 写入示例数据；「设置 → 数据 → 重置为示例数据」可随时恢复（`force = true`）。
+- 播种判据是**播种标记**（核心 kv `ordo.seedMark` = `demo`），不是「库文件在不在」：用户自己逐条删空待办不会被演示数据复活；而「设置 → 数据 → 清空本地数据」会把标记一起清掉 → **下次冷启动＝全新安装态，自动重新播种**（用户反馈的 Windows 端 bug，三端同修，见 §7.8）。
 
 ### 1.4 启动流程（纯本地，v1.4）
 
 ```
 App 启动（OrdoApp.onCreate → ServiceLocator.init）
   ├─ 解析本机数据目录 id（契约 §7.6.6）：kv 已钉住 > 磁盘上唯一既有目录 > 新建 local-<16hex>
-  ├─ 打开该目录的 SQLite（filesDir/<dirId>/ordo.db），首次运行写演示数据
+  ├─ 打开该目录的 SQLite（filesDir/<dirId>/ordo.db），由引擎的播种标记决定要不要写演示数据（首次安装 / 刚清空过 → 写）
   ├─ 起本地提醒（Notifier 渠道 + ReminderWorker）
   └─ 界面：ViewModel 订阅本地引擎 → 直接渲染；**全程不发任何网络请求**
 ```
 
 - 没有登录、没有会话/令牌、没有同步调度器、没有实时通道；`AuthApi`/`SyncApi` 的 Android 实现已整体删除。
-- 设置页只有 外观 / 数据（重置为示例数据）/ 关于。
+- 设置页只有 外观 / 数据（重置为示例数据 · 清空本地数据）/ 关于。
 
 ### 1.5 纯本地的证明方式（4 条，可复现）
 
@@ -109,7 +110,7 @@ apps/android/
                 ├── schedule/ScheduleSheet.kt (234)            自然语言 + 快捷项 + 提醒 + 月历 + 清除
                 ├── search/FastFind.kt (223)                   快找浮层（↑↓/Enter/Esc）+ 搜索页
                 ├── quickadd/QuickAdd.kt                       快加号 / 长按菜单（v1.3 图标对齐参照原型）
-                └── settings/SettingsScreen.kt                 外观 / 数据 / 关于（**已删除账号/退出登录/服务器地址**）
+                └── settings/SettingsScreen.kt                 外观 / 数据（重置为示例数据 · 清空本地数据）/ 关于（**已删除账号/退出登录/服务器地址**）
         └── test/java/com/ordo/android/
             ├── FakeStorage.kt (37)     测试设施（固定时钟 + 引擎工厂；内存仓储已由 core 的 InMemoryStorage 取代）
             ├── TestStrings.kt (42)     只读解析 res/values/strings.xml（文案契约测试，不引入 Robolectric）
@@ -121,7 +122,8 @@ apps/android/
             ├── LocalAccountTest.kt 契约 §7.6.6（本机目录 id 生成与解析优先级）
             ├── UserDataDirTest.kt 契约 §7.6.3（目录隔离、既有目录扫描）
             ├── ProjectCompletionTest.kt (215) 契约 §2.2 v1.1（拒绝原因与文案带 N/标题未归档也允许完成+自动归档/归档 Op 与完成 Op/已完成态/取消不阻塞/卡片主动作）
-            └── ComposerStateTest.kt (74) 快加浮层（打开状态正确/已打开时再点加号不丢草稿且重新聚焦/空标题不产生待办/关闭再开是新的一轮）
+            ├── ComposerStateTest.kt (74) 快加浮层（打开状态正确/已打开时再点加号不丢草稿且重新聚焦/空标题不产生待办/关闭再开是新的一轮）
+            └── ClearDataReseedTest.kt (115) 清空本地数据（清空后冷启动重新播种 / 不重复播种 / 用户自己删空不复活 / 启动判据与设置页接线的源码级断言）
 ```
 
 ## 3. 功能实现对照
@@ -134,14 +136,14 @@ apps/android/
 | 详情卡片 | `ui/detail/DetailCard.kt` | 标题/备注(Markdown 预览)/何时/截止/提醒/重复/移动/标签/清单，字段均为可点胶囊 |
 | 排期面板 | `ui/schedule/ScheduleSheet.kt` | 今天/今晚/明天/本周末/某天 + 提醒快捷 + 月历 + 自然语言输入 + 危险色清除 |
 | 快找 | `ui/search/FastFind.kt` | 顶部搜索按钮进入；↑↓/Enter/Esc；结果含待办/项目/区域/标签；标签直达 |
-| 快加号 | `ui/quickadd/QuickAdd.kt`、`vm/ComposerState.kt`、`ui/theme/Tokens.kt` | 单击新建（NLP 解析日期/时间/标签）、长按菜单（待办/项目/区域）；打开即聚焦+弹键盘，已打开时再点是"重新聚焦"而不是空操作，返回键/Esc 关闭且不产生空待办。**UI §5.2 v1.5 视觉**：填充亮蓝 `#0A84FF`（`colors.fab`）+ 同色**径向渐变柔光** 24dp（`colors.fabGlow`，浅 35% / 深 45%），柔光 `requiredSize` 溢出边界不参与布局，FAB 底边距按 `statusBar + fabGlow` 推导 —— 按钮连同柔光整体浮在状态栏之上 |
+| 快加号 | `ui/quickadd/QuickAdd.kt`、`vm/ComposerState.kt`、`ui/theme/Tokens.kt` | 单击新建（NLP 解析日期/时间/标签）、长按菜单（待办/项目/区域）；打开即聚焦+弹键盘，已打开时再点是"重新聚焦"而不是空操作，返回键/Esc 关闭且不产生空待办。**UI §5.2 v1.5 视觉（2026-10-13 两次修订后的当前实现）**：填充亮蓝 `#0A84FF`（`colors.fab`）+ **纯色、无柔光**（同日用户要求三端去掉柔光，`colors.fabGlow` 令牌与 `radialGradient` 层已删除）；FAB 底边距 = 状态栏实测 44dp + 留白 16dp = 60dp（`OrdoLayout.fabBottomInset` / `fabContentInset`），按钮整体浮在状态栏之上 |
 | 项目完成 | `ui/list/ListScreen.kt`、`vm/ProjectCompletion.kt` | 契约 §2.2 v1.1：唯一硬约束是"项目下没有未完成的待办"，标题未归档由引擎自动归档；拒绝文案带 N 且不提「标题」；已完成项目显示「已完成 + 重新打开」而不是「完成项目」 |
 | 路由 | `nav/Routes.kt`、`OrdoNavHost.kt` | inbox/today/upcoming/anytime/someday/logbook/project/{id}/area/{id}/tag/{name}/search |
 | 本地存储(SQLite) | `data/SqliteStorage.kt`、`data/LocalAccount.kt`、`data/UserDataDir.kt` | 实体按 **JSON 快照整行**存放(`entities(entity,id,payload,updated_at,deleted)`)，字段名与契约 §2 永远一致；outbox 主键 `op_id` 天然幂等；kv 存 schemaVersion / serverSeq / deviceId / 目录 id / 外观。**目录 id 是本机钉住的**（契约 §7.6.6） |
 | **纯本地（不联网）** | 全模块 | v1.4：云同步 / 登录 / 会话 / 令牌 / Ktor / WebSocket / 同步 UI 全部删除；**清单里没有 INTERNET 权限**；启动直接读本地 SQLite 渲染（§1.5 有四条可复现的证明命令） |
 | 提醒 | `notify/Notifier.kt`、`ReminderWorker.kt` | `ordo_reminders` 渠道；准点一次性任务 + 15 分钟周期兜底；点击深链打开待办（纯本地，无网络约束） |
 | 深链 | `AndroidManifest.xml`、`MainActivity.kt` | `ordo://` scheme，`Routes.fromDeepLink` 解析 |
-| 单元测试 | `src/test/**` | 9 个测试类 / 104 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
+| 单元测试 | `src/test/**` | 11 个测试类 / 120 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
 
 ## 4. 设计令牌落地（04 文档 §2）
 
@@ -169,7 +171,8 @@ apps/android/
 | 本地存储 | `OrdoStorage` | `SqliteStorage` 实现(原生 `SQLiteOpenHelper`,零注解处理) |
 | 同步 | `SyncEngine(engine, api).syncOnce()/fullResync()` | `KtorSyncApi : SyncApi`；`SyncScheduler` 负责触发与状态 |
 | 实时 | `RealtimeChannel` | `RealtimeClient` 实现；`ops` → `engine.applyRemote`，`reminder` → 通知（快车道） |
-| 演示数据 | `engine.seedDemoData(force)` | 首次启动写入；设置里「重置为示例数据」传 `force = true` |
+| 演示数据 | `engine.seedDemoData(force)` | 首次启动写入（`force = false`，且受播种标记 `ordo.seedMark` 守卫）；设置里「重置为示例数据」传 `force = true` 立刻覆盖 |
+| 清空本地数据 | `engine.clearAll()` + `vm/OrdoViewModel.clearAllData()` | 实体 / outbox / 墓碑 / **播种标记**全清＝回到全新安装态；设置页「清空本地数据」带两步确认，确认后提示「已清空本地数据」，下次冷启动重新播种（§7.8） |
 
 **为什么不用 Room**:KSP 注解处理器的版本与 Kotlin 编译器版本强耦合(当前 KSP 稳定版落后于 Kotlin 2.4.20),会给"本机无 SDK、需在客户环境首次构建成功"的场景带来不必要风险。改用原生 `SQLiteOpenHelper` 后:构建只需 AGP + Kotlin;同时因为实体以 JSON 整行存放,**契约新增字段无需数据库迁移**。若团队后续希望回到 Room,只需新增一个 `RoomStorage : OrdoStorage` 并替换 `ServiceLocator` 中的一行装配。
 
@@ -350,6 +353,9 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 
 ### 7.7 本轮：快加号对齐 §5.2 v1.5（亮蓝 + 柔光 + 浮在状态栏之上，2026-10-13）
 
+> **⚠ 本节记录的是 2026-10-13 上午的方案，当天下午已被用户推翻**：三端去掉柔光 —— `colors.fabGlow` 令牌、`radialGradient` 层、`requiredSize` 溢出全部删除，底边距规则改为「状态栏实测 44 + 留白 16 = 60dp」（`OrdoFabTokens` / `OrdoLayout.fabBottomInset`）。
+> 现在的实现以 §3 表格与 `QuickAddFabStyleTest` 为准；本节保留作为历史，以及「为什么不用彩色阴影（`ambientColor`/`spotColor`）」的论证。
+
 **改了什么**
 
 | 项 | 之前 | 现在 |
@@ -390,6 +396,40 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 柔光的实际观感（渐变范围、透明度在浅/深色下的强度）、FAB 与状态栏「本地」文字的最终间距、
 以及长按/单击手感都只做了令牌与源码级保证，需在真机上回归一次。
 
+### 7.8 本轮：清空本地数据 + 播种标记（Android 侧，2026-10-14）
+
+**用户需求**：「安卓端和鸿蒙端加一个清除本地数据或者清除演示数据，跟 Windows 端一样的功能。」（Windows 端同日已先做完，本端按同一语义对齐）
+
+**Windows 端暴露、三端同源的 bug**：播种判据把「库文件在不在」当了替身 —— 用户点「清空本地数据」后文件仍在、内容为空，于是重启后既不算全新安装（文件在）、也不会写演示数据，界面一直是空的，还得再点一次「重置为示例数据」。真机观感就是「清空后重启，数据没回来」。
+
+**改法（与 Windows 端逐条对齐）**
+
+| 项 | 位置 | 说明 |
+|---|---|---|
+| 播种判据收口到引擎 | `OrdoEngine.seedDemoData(force = false)`（`shared:core`，同日改） | 非 force 时要求「库为空 **且** 没播过种」（kv `ordo.seedMark` = `demo`）；`clearAll()` 把标记一起清掉 |
+| 启动不再看文件 | `di/ServiceLocator.kt` 的 `init()` → `bindDataDir(dirId, seedIfEmpty = true)` | 删掉 `firstRun = !UserDataDir.dbFileFor(...).exists()`；由 `seedIfEmpty` 触发一次**引擎的**播种判定 |
+| 清空入口 | `vm/OrdoViewModel.clearAllData()`（新）+ `ui/settings/SettingsScreen.kt` | 数据区第二个按钮「清空本地数据」（danger）+ 两步确认 `ConfirmStrip`；确认后 `engine.clearAll()` → 刷新界面 → 提示「已清空本地数据」 |
+| 文案 | `res/values/strings.xml` | `settings_clear`「清空本地数据」/ `settings_clear_confirm`（点明"下次启动会回到全新安装状态"）/ `toast_cleared`「已清空本地数据」 |
+| 语义边界 | 不动目录 | 清空 ≠ 卸载：`filesDir/<dirId>/ordo.db` 与目录 id 都保留，下次启动仍在同一工作区；与 Windows 端「清空只影响本机这一份」一致 |
+
+**两条入口的语义必须严格区分（回归用例守的就是这个）**
+
+- 「重置为示例数据」= 立刻写入演示数据（`force = true`），界面马上有内容；
+- 「清空本地数据」= 清空 + 退回全新安装态，**下次冷启动**才重新播种；
+- 用户自己逐条删空待办（标记还在）→ 永远不复活。
+
+**用例（新增 `ClearDataReseedTest`，6 条）**：清空后冷启动重新播种 / 清空后再次冷启动不重复播种 / 用户自己逐条删空待办不复活 / 启动判据收口到引擎（源码级：不得再出现 `dbFileFor(...).exists()`、`loadSnapshot() == null`）/ 设置页确实挂了按钮且先确认再执行（含文案契约）/ 清空不动工作区目录。
+
+真实构建/测试证据（JDK 21 + Android SDK 36 + Gradle 8.14，`--rerun` 强制重跑）：
+
+| 验证项 | 结果 |
+|---|---|
+| `:apps:android:app:testDebugUnitTest` | ✅ `BUILD SUCCESSFUL`；**11 个测试类 / 120 个用例全绿**（114 → 120，新增 6），0 failures / 0 errors |
+| 逐类结果（JUnit XML 汇总） | `ClearDataReseedTest` 6 · `NlpParsingTest` 29 · `GestureRulesTest` 17 · `QueryRulesTest` 15 · `QuickAddMenuTest` 12 · `QuickAddFabStyleTest` 10 · `RepeatEngineTest` 9 · `LocalAccountTest` 6 · `ProjectCompletionTest` 6 · `ComposerStateTest` 5 · `UserDataDirTest` 5 |
+| 写入范围 | ✅ 只改 `apps/android/**`（`shared:core` 的播种标记属同日三端同修，在 Windows/鸿蒙侧各自记录） |
+
+**无法验证的部分（诚实标注）**：本机**没有 Android 设备/模拟器**，「清空 → 杀进程 → 重开」只能由 JVM 单测模拟（同一份存储上重开引擎＝冷启动路径），按钮手感与真机重启后的观感仍需人工回归一次（见 §8 TODO）。
+
 ## 8. 后续 TODO
 
 1. 长按拖拽排序（`detectDragGesturesAfterLongPress`）+ `engine.reorderTodos`。
@@ -399,3 +439,4 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 5. 真实设备上的对比度实测（04 文档 §2.1）与五张基线图截图回归（§9）。
 6. `OrdoErrors.needsUpgrade` 的界面呈现（`VALIDATION_FAILED` 时提示升级客户端）。
 7. 真机上人工回归本轮两个修复：项目卡片「完成项目/重新打开」分流、快加号浮层的聚焦/软键盘/返回键/Esc（§7.4）。
+8. 真机上人工回归「清空本地数据 → 杀进程 → 重开」应重新出现演示数据；「逐条删空 → 重开」不应复活（§7.8）。

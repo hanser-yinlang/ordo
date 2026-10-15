@@ -48,6 +48,57 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+// —— NSIS 安装包(每用户安装,不需要管理员)——
+//
+// 用 **Tauri bundler 下载的那份 NSIS 3.11** 编译(`%LOCALAPPDATA%\tauri\NSIS\makensis.exe`),
+// 脚本在 `installer/Ordo.nsi`。注意这里并没有引入 Tauri 外壳:本端是 Compose Multiplatform(JVM)
+// 桌面应用,Tauri 的 WebView 外壳对它没有意义(理由见 README §2「为什么不是 Tauri 应用」),
+// 要的只是 Tauri 已经在机器上备好的这个 NSIS 打包器。
+//
+// 产物:build/compose/binaries/main/nsis/Ordo_1.0.0_x64-setup.exe
+// 依赖 createDistributable 且把 app-image 声明为输入,所以源码变了会重新打(踩过坑:
+// jpackage 那套在 app-image 陈旧时可能仍然 UP-TO-DATE,打出来的安装包是旧代码)。
+val packageNsis by tasks.registering(Exec::class) {
+    group = "compose desktop"
+    description = "用 NSIS 打每用户安装包(不需要管理员;与 Tauri bundler 共用同一份 NSIS)"
+
+    dependsOn("createDistributable")
+
+    val imageDir = layout.buildDirectory.dir("compose/binaries/main/app/Ordo")
+    val outFile = layout.buildDirectory.file("compose/binaries/main/nsis/Ordo_1.0.0_x64-setup.exe")
+    val scriptFile = project.file("installer/Ordo.nsi")
+    val iconFile = project.file("icons/ordo-ring.ico")
+
+    inputs.dir(imageDir)
+    inputs.file(scriptFile)
+    inputs.file(iconFile)
+    outputs.file(outFile)
+
+    doFirst {
+        val makensis = listOf(
+            System.getenv("LOCALAPPDATA")?.let { File(it, "tauri/NSIS/makensis.exe") },
+            File("C:/Program Files (x86)/NSIS/makensis.exe"),
+            File("C:/Program Files/NSIS/makensis.exe"),
+        ).filterNotNull().firstOrNull { it.isFile }
+            ?: throw GradleException(
+                "找不到 makensis.exe。装一个 NSIS 3.x,或先让 Tauri CLI 下载一份" +
+                    "(会落在 %LOCALAPPDATA%\\tauri\\NSIS),见 apps/windows/README.md §2。"
+            )
+
+        val out = outFile.get().asFile
+        out.parentFile.mkdirs()
+        // 脚本是 UTF-8(无 BOM),必须显式告诉 makensis,否则它按 GBK 读会报 Bad text encoding
+        commandLine(
+            makensis.absolutePath,
+            "/INPUTCHARSET", "UTF8",
+            "/DSRC_DIR=${imageDir.get().asFile.absolutePath}",
+            "/DOUT_FILE=${out.absolutePath}",
+            "/DAPP_ICON=${iconFile.absolutePath}",
+            scriptFile.absolutePath,
+        )
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "com.ordo.desktop.MainKt"

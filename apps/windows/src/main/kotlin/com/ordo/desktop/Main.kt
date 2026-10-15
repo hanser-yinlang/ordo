@@ -252,6 +252,11 @@ private fun ApplicationScope.LocalApp(
             windowIds.isEmpty() -> openWindow(OrdoRoute.Today)
             else -> windowIds.first().let { raiseWindow(it) }
         }
+        // 唤回窗口时补一次「该不该播种」的判断:进程常驻托盘时窗口关了再开**不会**重建 ViewModel,
+        // 用户「清空本地数据」后重启应用就会看到空界面(实测反馈)。播种与否由共享核心的持久化标记决定,
+        // 所以这里只是"再问一次",用户自己删空的数据不会被复活。
+        // (窗口刚创建的那一次 vmRegistry 里还没有 vm,那一路由第一个窗口自己的 [OrdoViewModel.init] 负责)
+        windowIds.firstOrNull()?.let { id -> vmRegistry[id]?.onAppActivated() }
     }
 
     val tray = remember {

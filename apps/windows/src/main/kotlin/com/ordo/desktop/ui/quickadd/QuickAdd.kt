@@ -1,15 +1,8 @@
 package com.ordo.desktop.ui.quickadd
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,6 +46,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -130,29 +124,40 @@ fun QuickAdd(state: UiState, vm: OrdoViewModel, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(OrdoSpace.s)
         ) {
             // 菜单从按钮左上方弹出(面板结束边与按钮右缘对齐,向上生长)
-            // 动效:淡入 + 从 0.92 缩放(锚点在右下角,像从按钮"长出来")+ 自下方上滑 8dp
-            AnimatedVisibility(
-                visible = state.quickAddMenuOpen,
-                enter = fadeIn(tween(motionMillis(180))) + scaleIn(
-                    initialScale = 0.92f,
-                    transformOrigin = TransformOrigin(1f, 1f),
-                    animationSpec = tween(motionMillis(180))
-                // 上滑幅度**必须小于面板与按钮之间的间距**(OrdoSpace.s = 8dp),否则动画起始帧里
-                // 面板会压住按钮:真实点击会被面板吃掉(离屏用例同样会卡在"点按钮没反应")
-                ) + slideInVertically(tween(motionMillis(180))) { slidePx },
-                exit = fadeOut(tween(motionMillis(140))) + scaleOut(
-                    targetScale = 0.92f,
-                    transformOrigin = TransformOrigin(1f, 1f),
-                    animationSpec = tween(motionMillis(140))
-                ) + slideOutVertically(tween(motionMillis(140))) { slidePx }
-            ) {
-                QuickAddMenu(state = state) { action ->
-                    vm.setQuickAddMenu(false)
-                    when (action) {
-                        MenuAction.TODO -> vm.openComposer()
-                        MenuAction.PROJECT -> prompt = NamePrompt.PROJECT
-                        MenuAction.AREA -> prompt = NamePrompt.AREA
-                        MenuAction.HEADING -> prompt = NamePrompt.HEADING
+            // 动效:从 0.92 缩放(锚点在右下角,像从按钮"长出来")+ 自下方上滑 6dp
+            //
+            // 2026-10-14 客户实测:「展开时先看到一块硬边(方形)阴影,动效结束才变成圆角阴影」。
+            // 根因不在 shape,而在 `Modifier.shadow`:它在 **alpha < 1 的图层里根本不画阴影**。
+            // 原来的 AnimatedVisibility(fadeIn…) 给整棵子树蒙了一层 alpha 0→1 的图层,
+            // 于是过渡期间面板一点投影都没有(看起来就是一块没有阴影的方角矩形),
+            // 直到最后一帧 alpha 落到 1,圆角投影才"啪"地冒出来 —— 两段式就是这么来的。
+            // 所以这里**不再用 AnimatedVisibility**,自己驱动 graphicsLayer:只动 scale / translationY,
+            // alpha 恒为 1,圆角阴影从第一帧起就跟着面板一起缩放。
+            // 收起时进度回到 0 → 面板卸载(只有 0.92 缩放的一小段,没有淡出)。
+            val panelProgress by animateFloatAsState(
+                targetValue = if (state.quickAddMenuOpen) 1f else 0f,
+                animationSpec = tween(motionMillis(if (state.quickAddMenuOpen) 180 else 140)),
+                label = "quickAddPanel"
+            )
+            if (state.quickAddMenuOpen || panelProgress > 0f) {
+                Box(
+                    Modifier.graphicsLayer {
+                        scaleX = 0.92f + 0.08f * panelProgress
+                        scaleY = 0.92f + 0.08f * panelProgress
+                        transformOrigin = TransformOrigin(1f, 1f)
+                        // 上滑幅度**必须小于面板与按钮之间的间距**(OrdoSpace.s = 8dp),否则动画起始帧里
+                        // 面板会压住按钮:真实点击会被面板吃掉(离屏用例同样会卡在"点按钮没反应")
+                        translationY = (1f - panelProgress) * slidePx
+                    }
+                ) {
+                    QuickAddMenu(state = state) { action ->
+                        vm.setQuickAddMenu(false)
+                        when (action) {
+                            MenuAction.TODO -> vm.openComposer()
+                            MenuAction.PROJECT -> prompt = NamePrompt.PROJECT
+                            MenuAction.AREA -> prompt = NamePrompt.AREA
+                            MenuAction.HEADING -> prompt = NamePrompt.HEADING
+                        }
                     }
                 }
             }

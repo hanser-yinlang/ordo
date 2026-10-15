@@ -11,7 +11,35 @@ import com.ordo.core.query.ListSection
 import com.ordo.core.query.SidebarCounts
 
 /** 外观模式(04-UI规范 §6:Ctrl+D 循环 自动 / 浅色 / 深色) */
-enum class ThemeMode { AUTO, LIGHT, DARK }
+enum class ThemeMode {
+    AUTO, LIGHT, DARK;
+
+    /**
+     * 中文名:设置页选项与切换提示条**共用同一个来源**。
+     *
+     * 早先这段文案只写在设置页里(跟随系统 / 浅色 / 深色),提示条要复述同一个模式时
+     * 若再抄一遍就必然出现"设置页写浅色、提示条写亮色"这类漂移,所以上提到枚举。
+     */
+    val label: String
+        get() = when (this) {
+            AUTO -> "跟随系统"
+            LIGHT -> "浅色"
+            DARK -> "深色"
+        }
+
+    /**
+     * 切换外观后的提示条文案(用户需求:切换背景颜色要提示「已切换到深色模式」)。
+     *
+     * 纯值:只取决于"切到哪个模式"和"这个模式下是不是深色",因此可以逐字单测,
+     * 也不存在"提示说的模式"与 [UiState.themeMode] / [UiState.dark] 不一致的可能。
+     * `AUTO` 额外报出当时跟随到的深浅 —— 否则"跟随系统"看不出画面到底变成了什么。
+     */
+    fun switchToast(dark: Boolean): String = when (this) {
+        LIGHT -> "已切换到浅色模式"
+        DARK -> "已切换到深色模式"
+        AUTO -> "已切换到跟随系统模式(${if (dark) "深色" else "浅色"})"
+    }
+}
 
 /** 提示条(§4 Toast) */
 data class ToastMessage(val text: String, val id: Long)

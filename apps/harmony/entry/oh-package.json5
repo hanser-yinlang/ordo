@@ -4,6 +4,6 @@
   "description": "Ordo 鸿蒙端主模块(entry HAP)",
   "main": "",
   "author": "Ordo",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "dependencies": {}
 }

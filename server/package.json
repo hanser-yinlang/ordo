@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Ordo(序)后端:数据模型 / 同步协议 / Fastlane 提醒 / 实时通道 —— 契约 03 v1 参考实现",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },

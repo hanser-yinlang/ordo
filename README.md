@@ -128,3 +128,11 @@ gradle :apps:android:app:assembleDebug
 4. 合并前填写 `docs/05` 的契约一致性检查表。
 
 完整规范见 [08 工程规范与协作流程](docs/08-工程规范与协作流程.md)。
+
+## 8. 许可证
+
+本项目以 **MIT 许可证**开源,版权归 Ordo Project —— 可自由使用、修改、商用与再分发,只需保留版权与许可声明(全文见 [LICENSE](LICENSE))。
+
+- 第三方依赖的许可证清单与边界见 [07 风险合规与安全](docs/07-风险合规与安全.md) §2.2:全部为 Apache-2.0 / MIT / 平台自带,**不含任何 GPL/AGPL 依赖**。
+- 产品名与参考产品的边界(不复制其图标、截图、文案与专有功能名)同样记在 07 §2.1。
+- 打包产物里的署名与此保持一致(`© 2026 Ordo Project`,见 `apps/windows/build.gradle.kts` 与 `installer/Ordo.nsi`)。

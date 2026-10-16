@@ -3,7 +3,7 @@
 > 契约来源：[03 · 数据模型与同步协议](../../docs/03-数据模型与同步协议.md) · [04 · UI 设计规范](../../docs/04-UI设计规范.md)（FROZEN v1）
 > 业务核心：KMP `shared:core`（**只调用、不修改**）· 交互参照：`things-clone/`（Web 原型，仅复用信息架构；名称/图标/配色一律按 04 文档的 Ordo 品牌）
 > **v1.4 产品决策：彻底删除云同步 —— 本应用是纯本地应用，不联网、不申请 INTERNET 权限。**
-> 规模：49 个 Kotlin 文件（34 主 + 15 测试）· 12 个测试类 / **127 个用例**（本机 `assembleDebug` + `assembleRelease` + `testDebugUnitTest` 真实执行通过，见 §7.6/§7.7/§7.8/§7.9）
+> 规模：49 个 Kotlin 文件（34 主 + 15 测试）· 12 个测试类 / **131 个用例**（本机 `assembleDebug` + `assembleRelease` + `testDebugUnitTest` 真实执行通过，见 §7.6/§7.7/§7.8/§7.9/§7.10）
 
 ## 1. 构建
 
@@ -22,7 +22,7 @@
 # 在仓库根目录（ordo/）执行
 ./gradlew :apps:android:app:assembleDebug        # 打 debug 包
 ./gradlew :apps:android:app:assembleRelease      # 打 release 包（未签名，见 build.gradle.kts）
-./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（12 个测试类 / 127 个用例，见 §7.6）
+./gradlew :apps:android:app:testDebugUnitTest    # 跑纯逻辑单测（12 个测试类 / 131 个用例，见 §7.6）
 ./gradlew :apps:android:app:installDebug         # 安装到设备
 ```
 
@@ -34,6 +34,7 @@
 - 深链：`ordo://list/today`、`ordo://todo/{id}`、`ordo://project/{id}`；点提醒通知即走 `ordo://todo/{id}`。
 - 首次启动由 `OrdoEngine.seedDemoData(force = false)` 写入示例数据；「设置 → 数据 → 重置为示例数据」可随时恢复（`force = true`）。
 - 播种判据是**播种标记**（核心 kv `ordo.seedMark` = `demo`），不是「库文件在不在」：用户自己逐条删空待办不会被演示数据复活；而「设置 → 数据 → 清空本地数据」会把标记一起清掉 → **下次冷启动＝全新安装态，自动重新播种**（用户反馈的 Windows 端 bug，三端同修，见 §7.8）。
+- **「清除演示数据」（v1.8 新增，见 §7.10）**与之相反：内容照清，但**钉住播种标记** → 清空后重启**不会再**出现演示数据；想找回示例数据需显式点「重置为示例数据」。
 
 ### 1.4 启动流程（纯本地，v1.4）
 
@@ -46,7 +47,7 @@ App 启动（OrdoApp.onCreate → ServiceLocator.init）
 ```
 
 - 没有登录、没有会话/令牌、没有同步调度器、没有实时通道；`AuthApi`/`SyncApi` 的 Android 实现已整体删除。
-- 设置页只有 外观 / 数据（重置为示例数据 · 清空本地数据）/ 关于。
+- 设置页只有 外观 / 数据（重置为示例数据 · 清空本地数据 · 清除演示数据）/ 关于。
 
 ### 1.5 纯本地的证明方式（4 条，可复现）
 
@@ -110,7 +111,7 @@ apps/android/
                 ├── schedule/ScheduleSheet.kt (234)            自然语言 + 快捷项 + 提醒 + 月历 + 清除
                 ├── search/FastFind.kt (223)                   快找浮层（↑↓/Enter/Esc）+ 搜索页
                 ├── quickadd/QuickAdd.kt                       快加号 / 长按菜单（v1.3 图标对齐参照原型）
-                └── settings/SettingsScreen.kt                 外观 / 数据（重置为示例数据 · 清空本地数据）/ 关于（**已删除账号/退出登录/服务器地址**）
+                └── settings/SettingsScreen.kt                 外观 / 数据（重置为示例数据 · 清空本地数据 · 清除演示数据）/ 关于（**已删除账号/退出登录/服务器地址**）
         └── test/java/com/ordo/android/
             ├── FakeStorage.kt (37)     测试设施（固定时钟 + 引擎工厂；内存仓储已由 core 的 InMemoryStorage 取代）
             ├── TestStrings.kt (42)     只读解析 res/values/strings.xml（文案契约测试，不引入 Robolectric）
@@ -123,7 +124,7 @@ apps/android/
             ├── UserDataDirTest.kt 契约 §7.6.3（目录隔离、既有目录扫描）
             ├── ProjectCompletionTest.kt (215) 契约 §2.2 v1.1（拒绝原因与文案带 N/标题未归档也允许完成+自动归档/归档 Op 与完成 Op/已完成态/取消不阻塞/卡片主动作）
             ├── ComposerStateTest.kt (74) 快加浮层（打开状态正确/已打开时再点加号不丢草稿且重新聚焦/空标题不产生待办/关闭再开是新的一轮）
-            └── ClearDataReseedTest.kt (115) 清空本地数据（清空后冷启动重新播种 / 不重复播种 / 用户自己删空不复活 / 启动判据与设置页接线的源码级断言）
+            └── ClearDataReseedTest.kt (200) 清空本地数据 / 清除演示数据（清空后冷启动重新播种 / 清除演示数据后冷启动不播种 / 不重复播种 / 用户自己删空不复活 / 两入口只差播种标记 / 启动判据与设置页接线的源码级断言）
 ```
 
 ## 3. 功能实现对照
@@ -143,7 +144,7 @@ apps/android/
 | **纯本地（不联网）** | 全模块 | v1.4：云同步 / 登录 / 会话 / 令牌 / Ktor / WebSocket / 同步 UI 全部删除；**清单里没有 INTERNET 权限**；启动直接读本地 SQLite 渲染（§1.5 有四条可复现的证明命令） |
 | 提醒 | `notify/Notifier.kt`、`ReminderWorker.kt` | `ordo_reminders` 渠道；准点一次性任务 + 15 分钟周期兜底；点击深链打开待办（纯本地，无网络约束） |
 | 深链 | `AndroidManifest.xml`、`MainActivity.kt` | `ordo://` scheme，`Routes.fromDeepLink` 解析 |
-| 单元测试 | `src/test/**` | 12 个测试类 / 127 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
+| 单元测试 | `src/test/**` | 12 个测试类 / 131 个用例，全部只依赖 `shared:core`，不依赖 Android 框架；用 `FixedOrdoClock` 固定"今天"，断言完全确定 |
 
 ## 4. 设计令牌落地（04 文档 §2）
 
@@ -173,6 +174,7 @@ apps/android/
 | 实时 | `RealtimeChannel` | `RealtimeClient` 实现；`ops` → `engine.applyRemote`，`reminder` → 通知（快车道） |
 | 演示数据 | `engine.seedDemoData(force)` | 首次启动写入（`force = false`，且受播种标记 `ordo.seedMark` 守卫）；设置里「重置为示例数据」传 `force = true` 立刻覆盖 |
 | 清空本地数据 | `engine.clearAll()` + `vm/OrdoViewModel.clearAllData()` | 实体 / outbox / 墓碑 / **播种标记**全清＝回到全新安装态；设置页「清空本地数据」带两步确认，确认后提示「已清空本地数据」，下次冷启动重新播种（§7.8） |
+| 清除演示数据 | `engine.clearDemoData()` + `vm/OrdoViewModel.clearDemoData()` | 实体 / outbox / 墓碑照清，但**保留播种标记**（核心 `clearAll(keepSeedMark = true)` 的语法糖）＝清空后**不再**自动播种；设置页「清除演示数据」带两步确认，确认后提示「已清除演示数据」（§7.10） |
 
 **为什么不用 Room**:KSP 注解处理器的版本与 Kotlin 编译器版本强耦合(当前 KSP 稳定版落后于 Kotlin 2.4.20),会给"本机无 SDK、需在客户环境首次构建成功"的场景带来不必要风险。改用原生 `SQLiteOpenHelper` 后:构建只需 AGP + Kotlin;同时因为实体以 JSON 整行存放,**契约新增字段无需数据库迁移**。若团队后续希望回到 Room,只需新增一个 `RoomStorage : OrdoStorage` 并替换 `ServiceLocator` 中的一行装配。
 
@@ -454,6 +456,35 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 
 **无法验证的部分（诚实标注）**：本机没有 Android 设备/模拟器，动效的"观感"无法自动断言 —— 上面守的是**源码契约**（谁在动、动多久、有没有被 alpha 层吞掉阴影），真机上的手感仍需人工回归一次（见 §8 TODO 第 9 条）。
 
+## 7.10 本轮：清除演示数据（与「清空本地数据」并存，2026-10-16）
+
+**用户需求**：「移动端新增清除演示数据或者清除本地数据，但要保证清除演示数据后，重新打开应用不会在显示演示数据」。
+
+**为什么是新增第三条入口，而不是改「清空本地数据」**：上一轮（§7.8，2026-10-14）用户反馈的正是相反方向 ——「清空后重启看不到演示数据」，所以「清空本地数据 = 回到全新安装态、下次冷启动重新播种」这条语义**必须保留**。本轮要的是它的反面：清完之后重启**不要**再出现演示数据。两条相反的诉求只能拆成两个入口。
+
+**为什么不"只删演示的那几十条"**：`SeedData` 的演示数据用的是固定 id（`a-work` / `p-launch` / `seed-t01` …），但用户改过名、改过期、挪进项目之后就对不上 id 了 —— 按 id 逐条比对会漏删，还会留下指向已删项目的悬挂引用。可靠判据只有**播种标记**：要么"这台机器算全新安装"（标记清掉），要么"不算"（标记钉住）。于是本入口 = **清空内容 + 钉住标记**。
+
+**改法**
+
+| 项 | 位置 | 说明 |
+|---|---|---|
+| 核心口径 | `shared/core` 的 `OrdoEngine.clearAll(keepSeedMark: Boolean = false)` / `clearDemoData()` | `clearAll(false)` = 旧行为（标记一起清）；`clearDemoData()` = `clearAll(true)`（内容清空，但 `kvSet(SEED_MARK_KEY, SEED_MARK_VALUE)` 把标记钉回去） |
+| 端侧动作 | `vm/OrdoViewModel.clearDemoData()` | `engine.clearDemoData()` → 刷新界面 → 提示「已清除演示数据」 |
+| 入口 | `ui/settings/SettingsScreen.kt` | 数据区第三颗按钮「清除演示数据」（danger，单独一行）+ **独立的** `ConfirmStrip` 两步确认（三个入口各一份确认态，互不串台） |
+| 文案 | `res/values/strings.xml` | `settings_clear_demo`「清除演示数据」/ `settings_clear_demo_confirm`（点明"清除后重启应用不会再出现演示数据"）/ `toast_demo_cleared`「已清除演示数据」 |
+
+**用例（`ClearDataReseedTest` 6 → 10 条，新增 4）**：清除演示数据后冷启动不会重新播种 / 清除演示数据后仍可显式找回示例数据 / 清空本地数据与清除演示数据只差播种标记 / 设置页挂了清除演示数据且先确认再执行。
+
+真实构建/测试证据（JDK 21 + Android SDK 36 + Gradle 8.14）：
+
+| 验证项 | 结果 |
+|---|---|
+| `:apps:android:app:testDebugUnitTest` | ✅ `BUILD SUCCESSFUL`（46s，42 tasks：16 executed）；**12 个测试类 / 131 个用例全绿**（127 → 131，新增 4），0 failures / 0 errors |
+| 逐类结果（JUnit XML 汇总） | `ClearDataReseedTest` **10** · `NlpParsingTest` 29 · `GestureRulesTest` 17 · `QueryRulesTest` 15 · `QuickAddMenuTest` 12 · `QuickAddFabStyleTest` 10 · `RepeatEngineTest` 9 · `TransitionMotionTest` 7 · `LocalAccountTest` 6 · `ProjectCompletionTest` 6 · `ComposerStateTest` 5 · `UserDataDirTest` 5 |
+| 写入范围 | ✅ 只改 `apps/android/**` 与共享核心 `clearAll` 的签名（清空类改动三端同批，Windows/鸿蒙侧各自记录） |
+
+**无法验证的部分（诚实标注）**：本机**没有 Android 设备/模拟器**，「清除演示数据 → 杀进程 → 重开」同样只能由 JVM 单测模拟冷启动路径（同一份存储上重开引擎）；真机手感与观感仍需人工回归一次（见 §8 TODO 第 10 条）。
+
 ## 8. 后续 TODO
 
 1. 长按拖拽排序（`detectDragGesturesAfterLongPress`）+ `engine.reorderTodos`。
@@ -465,3 +496,4 @@ $env:JAVA_HOME="…\_tools\jdk-21.0.12.1+1"; $env:ANDROID_HOME="C:\Users\admin\A
 7. 真机上人工回归本轮两个修复：项目卡片「完成项目/重新打开」分流、快加号浮层的聚焦/软键盘/返回键/Esc（§7.4）。
 8. 真机上人工回归「清空本地数据 → 杀进程 → 重开」应重新出现演示数据；「逐条删空 → 重开」不应复活（§7.8）。
 9. 真机上人工回归过渡动效（§7.9 / 04 文档 §5.5）：浮层入场退场、页面切换淡入、抽屉移入、清单展开、详情卡片入场；并确认「减弱动态效果」开启后全部变成直接切换。
+10. 真机上人工回归「清除演示数据 → 杀进程 → 重开」**不应**再出现演示数据，且点「重置为示例数据」仍能找回（§7.10）。

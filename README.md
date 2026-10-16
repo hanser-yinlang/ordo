@@ -47,12 +47,12 @@ ordo/
 | ---------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | 共享核心 `shared/core`     | ✅ **已编译 + 69 个单元测试全绿**(jvm + android 两个目标)                       | JDK 21 + Gradle 8.14 实跑                                                                   |
 | **产品形态(2026-10-13 起)** | ✅ **三端纯本地**:无登录、无云同步、无网络请求;数据只存本机                                | Windows 有 `NoNetworkTest`(依赖/类路径/源码/行为四层断言);契约检查器不再要求客户端有网络层                              |
-| Windows 桌面端            | ✅ **已编译 + 221 个测试全绿(含 10 条过渡动效用例)+ MSI/EXE 打包成功**             | `gradlew :apps:windows:test`(30 类);`packageDistributionForCurrentOS`                      |
+| Windows 桌面端            | ✅ **已编译 + 226 个测试全绿(含 10 条过渡动效用例 + 5 条清空语义用例)+ MSI/EXE 打包成功**             | `gradlew :apps:windows:test`(30 类);`packageDistributionForCurrentOS`                      |
 | 后端 `server`            | ✅ **构建 + 174 个测试 + 真库 125 项断言全过**(客户端已不再调用)                      | `pnpm test`;真库 `127.0.0.1:55432`                                                          |
-| Android 端              | ✅ **已编译 + APK(debug / 已签名 release)+ 127 个测试全绿(含 7 条过渡动效契约)**   | `gradlew :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest`(12 类;本机无设备,未做真机) |
-| 鸿蒙端                    | ✅ **已编译 + HAP 产出 + ArkTS 0 错误 + 宿主 135 用例全绿(含 5 条减弱动效折算)+ 模拟器 `aa test` 通过** | `_qa/build.ps1`(assembleHap + ohosTest);`python apps/harmony/_qa/build-harness.py`;`hdc shell aa test …`(设备端 136 条为第六轮实测,本机现无设备未重跑) |
+| Android 端              | ✅ **已编译 + APK(debug / 已签名 release)+ 131 个测试全绿(含 7 条过渡动效契约 + 4 条清空语义用例)**   | `gradlew :apps:android:app:assembleDebug :apps:android:app:testDebugUnitTest`(12 类;本机无设备,未做真机) |
+| 鸿蒙端                    | ✅ **已编译 + HAP 产出 + ArkTS 0 错误 + 宿主 139 用例全绿(含 5 条减弱动效折算 + 4 条清空语义用例)+ 模拟器 `aa test` 通过** | `_qa/build.ps1`(assembleHap + ohosTest);`python apps/harmony/_qa/build-harness.py`;`hdc shell aa test …`(设备端 136 条为第六轮实测,本机现无设备未重跑) |
 
-**合计**:三端**共 417 个应用用例(核心 69 + Windows 221 + Android 127)全绿**,另有**鸿蒙宿主 135 用例**与**设备端 `aa test`**、后端 **174 用例 + 真实 PostgreSQL 125 项断言**;契约一致性检查 39 项 × **5 个代码库**全部通过;编码扫描零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
+**合计**:三端**共 426 个应用用例(核心 69 + Windows 226 + Android 131)全绿**,另有**鸿蒙宿主 139 用例**与**设备端 `aa test`**、后端 **174 用例 + 真实 PostgreSQL 125 项断言**;契约一致性检查 39 项 × **5 个代码库**全部通过;编码扫描零问题 —— 详见 [09 交付与验收报告](docs/09-交付与验收报告.md) 与 [10 环境安装与构建指南](docs/10-环境安装与构建指南.md)。
 
 > 环境实情:本仓库的开发机为 Windows(仅有 JDK 21 + Gradle 8.14 + Node/pnpm)。凡标注"未编译"的端,均已在对应 README 给出目标环境的完整构建步骤,并用自动检查器逐条核对了契约字段/规则。
 
@@ -111,7 +111,7 @@ gradle :apps:android:app:assembleDebug
 
 ## 6. 已知限制
 
-- **Android 本机没有可用设备/模拟器**:验证码链路只到编译 + 135 个单元测试;且清单未允许明文 HTTP(targetSdk 36),连本机 `http://` 后端需先加 debug-only 明文放行或让后端上 HTTPS。
+- **Android 本机没有可用设备/模拟器**:验证码链路只到编译 + 131 个单元测试;且清单未允许明文 HTTP(targetSdk 36),连本机 `http://` 后端需先加 debug-only 明文放行或让后端上 HTTPS。
 - **鸿蒙已在模拟器上做设备端验证**(`aa test` 134/134、unsigned HAP 可直接装模拟器),但**真机**(需华为证书)与手感/帧率仍未走查;`_qa` 宿主是 Hypium 垫片。
 - **真实邮件通道未接入**:验证码默认走 `console` 开发通道(可选 `http` 通用网关),拿到 SMTP/网关凭据后配置 `ORDO_MAIL_TRANSPORT=http` + `ORDO_MAIL_HTTP_URL/TOKEN` 即可,无需改代码。
 - 多设备真实同步联调未做(单机真实 PostgreSQL 125 项断言与黑盒端到端 25 项已过)。

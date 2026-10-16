@@ -1394,6 +1394,27 @@ export class AppStore {
     this.bump();
   }
 
+  /**
+   * 清除演示数据(设置页入口;二次确认由 UI 层负责)。用户明确要求:**清完之后重新打开应用,
+   * 不能再出现演示数据**。
+   *
+   * 与 clearAllData 的唯一区别就是引擎里的播种标记留不留(见 OrdoEngine.clearDemoData):
+   * 标记留下 → 冷启动的 applySeedPolicy 直接返回,演示数据不会自己长回来;想找回示例数据,
+   * 只能显式点「恢复默认示例数据」(resetToSeedData,它会重新写数据)。
+   */
+  async clearDemoData(): Promise<void> {
+    const e: OrdoEngine | null = this.engine;
+    if (e === null) {
+      return;
+    }
+    await e.clearDemoData();
+    this.selectedTodoId = '';
+    ReminderAgent.cancelAll();
+    this.invalidateDerived();
+    this.showToast('已清除演示数据');
+    this.bump();
+  }
+
   /* ------------------------------------------------------------ 本地工作区(v1.5 纯本地) */
 
   /** 当前工作区的本地目录名(契约 §7.6.6;设置页「本地数据」展示) */

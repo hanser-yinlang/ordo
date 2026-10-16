@@ -2,7 +2,7 @@
  * Ordo · 设置
  *  - SettingsPage:@Entry 页面(可在 main_pages 中作为独立页打开)
  *  - SettingsSheet:主页面内以浮层形式打开的设置面板(04 §4 浮层规范)
- * 内容:外观(自动/浅色/深色)、数据与存储、本地数据、同步状态、示例数据重置、清空本地数据(二次确认)、快捷键与手势说明
+ * 内容:外观(自动/浅色/深色)、数据与存储、本地数据、同步状态、示例数据重置、清空本地数据 / 清除演示数据(各带二次确认)、快捷键与手势说明
  *
  * v1.4:登录被移除 —— 设置页不再有「账号 / 账号标识 / 升级为正式账号 / 退出登录 / 服务器地址」区块;
  * 服务器地址改成**隐藏覆盖**(只读应用级 kv,无输入框,见 README §6.6)。
@@ -32,6 +32,9 @@ export struct SettingsSheet {
    * 不参与任何派生缓存;面板关掉/重建就该消失,不该被持久化。
    */
   @State private confirmClear: boolean = false;
+
+  /** 「清除演示数据」是否已进入二次确认态(同上,两条入口各管各的确认态) */
+  @State private confirmClearDemo: boolean = false;
 
   private c(): OrdoColorTokens {
     return OrdoColors.of(this.store.isDark());
@@ -103,19 +106,24 @@ export struct SettingsSheet {
   }
 
   /**
-   * 「清空本地数据」的二次确认(写法参照安卓端 SettingsScreen 的 confirmReset):
+   * 「清空数据」两条入口的二次确认(写法参照安卓端 SettingsScreen 的 confirmReset):
    * 不可撤销的破坏性操作**不弹系统对话框**,而是在原地长出一行红色说明 + 确认/取消两个按钮。
    * 这样少一次模态跳转,面板也不会被系统弹窗压住;默认只有一个按钮,误触不会直接毁数据。
+   *
+   * 两条入口共用这一段 UI(只差措辞、测试 id 与最后调哪个方法),所以用 isDemo 分支而不是复制一份:
+   * 复制早晚会漂移,而这里漂移的后果是"确认文案说的后果"和"真正执行的操作"对不上。
    */
   @Builder
-  confirmClearBar() {
+  confirmClearBar(isDemo: boolean) {
     Column({ space: OrdoSpace.xs }) {
-      Text('清空后待办、项目、区域、标签与待同步队列全部消失,且无法撤销;下次启动会重新写入示例数据。')
+      Text(isDemo
+        ? '清除后待办、项目、区域、标签与待同步队列全部消失,且无法撤销;重启后不会再自动写入示例数据(想找回可点「恢复默认示例数据」)。'
+        : '清空后待办、项目、区域、标签与待同步队列全部消失,且无法撤销;下次启动会重新写入示例数据。')
         .fontSize(OrdoFont.micro.size)
         .fontColor(this.c().stateDanger)
         .width('100%')
       Row({ space: OrdoSpace.s }) {
-        Text('确认清空')
+        Text(isDemo ? '确认清除' : '确认清空')
           .fontSize(OrdoFont.caption.size)
           .fontColor(this.c().stateDanger)
           .height(32)
@@ -123,10 +131,15 @@ export struct SettingsSheet {
           .borderRadius(OrdoRadius.pill)
           .backgroundColor(this.c().chipBg)
           .textAlign(TextAlign.Center)
-          .id('ordo_settings_clear_confirm')
+          .id(isDemo ? 'ordo_settings_clear_demo_confirm' : 'ordo_settings_clear_confirm')
           .onClick(() => {
-            this.confirmClear = false;
-            this.store.clearAllData();
+            if (isDemo) {
+              this.confirmClearDemo = false;
+              this.store.clearDemoData();
+            } else {
+              this.confirmClear = false;
+              this.store.clearAllData();
+            }
           })
         Text('取消')
           .fontSize(OrdoFont.caption.size)
@@ -136,9 +149,13 @@ export struct SettingsSheet {
           .borderRadius(OrdoRadius.pill)
           .backgroundColor(this.c().chipBg)
           .textAlign(TextAlign.Center)
-          .id('ordo_settings_clear_cancel')
+          .id(isDemo ? 'ordo_settings_clear_demo_cancel' : 'ordo_settings_clear_cancel')
           .onClick(() => {
-            this.confirmClear = false;
+            if (isDemo) {
+              this.confirmClearDemo = false;
+            } else {
+              this.confirmClear = false;
+            }
           })
         Blank()
       }
@@ -224,10 +241,16 @@ export struct SettingsSheet {
           .width('100%')
 
           /*
-           * 与「恢复默认示例数据」是两条不同的语义(见 viewmodel/SeedPolicy.ets 的文件头):
-           * 这里回到**全新安装态**,下次冷启动才重新播种;用户自己逐条删空不会被复活。
+           * 两条清空入口的语义只差一件事:清完之后还算不算「全新安装」(见 viewmodel/SeedPolicy.ets 的文件头)。
+           *  - 清空本地数据:回到**全新安装态**,下次冷启动才重新播种;用户自己逐条删空不会被复活。
+           *  - 清除演示数据:内容一样清空,但**标记钉住** → 重启后演示数据不会自己长回来(用户明确要求)。
+           * 两行都不可撤销,所以各行一套二次确认,互不干扰。
            */
           this.sectionTitle('清空数据')
+          Text('「清空本地数据」= 回到全新安装态,下次启动重新写入示例数据;「清除演示数据」= 清空后保持空清单,重启不会再出现演示数据。')
+            .fontSize(OrdoFont.micro.size)
+            .fontColor(this.c().textTertiary)
+            .width('100%')
           Row({ space: OrdoSpace.s }) {
             Text('清空本地数据')
               .fontSize(OrdoFont.caption.size)
@@ -241,11 +264,26 @@ export struct SettingsSheet {
               .onClick(() => {
                 this.confirmClear = true;
               })
+            Text('清除演示数据')
+              .fontSize(OrdoFont.caption.size)
+              .fontColor(this.c().stateDanger)
+              .height(32)
+              .padding({ left: OrdoSpace.m, right: OrdoSpace.m })
+              .borderRadius(OrdoRadius.pill)
+              .backgroundColor(this.c().chipBg)
+              .textAlign(TextAlign.Center)
+              .id('ordo_settings_clear_demo')
+              .onClick(() => {
+                this.confirmClearDemo = true;
+              })
             Blank()
           }
           .width('100%')
           if (this.confirmClear) {
-            this.confirmClearBar()
+            this.confirmClearBar(false)
+          }
+          if (this.confirmClearDemo) {
+            this.confirmClearBar(true)
           }
         }
         .width('100%')

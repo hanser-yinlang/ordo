@@ -254,9 +254,20 @@ class OrdoViewModel(
     fun requestDeleteHeading(id: String, name: String) =
         _state.update { it.copy(confirm = ConfirmRequest(ConfirmKind.HEADING, id, name)) }
 
+    /** 设置页「清空本地数据」:先亮出后果,确认后才动库(不可撤销) */
+    fun requestClearAll() =
+        _state.update { it.copy(confirm = ConfirmRequest(ConfirmKind.CLEAR_ALL, "", "")) }
+
+    /**
+     * 设置页「清除演示数据」:同样先确认。与「清空本地数据」的唯一区别是**播种标记留下**,
+     * 于是重启 / 托盘唤回都不会再把演示数据写回来(用户明确要求)。
+     */
+    fun requestClearDemoData() =
+        _state.update { it.copy(confirm = ConfirmRequest(ConfirmKind.CLEAR_DEMO, "", "")) }
+
     fun cancelConfirm() = _state.update { it.copy(confirm = null) }
 
-    /** 确认删除:按类型落到引擎(契约 §3 一律软删除 + 墓碑) */
+    /** 确认破坏性操作:按类型落到引擎(契约 §3 一律软删除 + 墓碑;清空类见 [clearAllData] / [clearDemoData]) */
     fun confirmDelete() {
         val request = _state.value.confirm ?: return
         _state.update { it.copy(confirm = null) }
@@ -264,6 +275,8 @@ class OrdoViewModel(
             ConfirmKind.PROJECT -> deleteProject(request.id)
             ConfirmKind.AREA -> deleteArea(request.id)
             ConfirmKind.HEADING -> deleteHeading(request.id)
+            ConfirmKind.CLEAR_ALL -> clearAllData()
+            ConfirmKind.CLEAR_DEMO -> clearDemoData()
         }
     }
 
@@ -516,7 +529,8 @@ class OrdoViewModel(
      * 必须去设置里点一次「重置为示例数据」才回来(实测反馈)。
      *
      * 这里只补一次「该不该播种」的判断,**是否播种由共享核心的持久化标记决定**:
-     * 全新安装 / 刚清空(标记已清)→ 补种演示数据;用户自己删空(标记还在)→ 绝不复活。
+     * 全新安装 / 刚清空(标记已清)→ 补种演示数据;用户自己删空或点过「清除演示数据」(标记还在)
+     * → 绝不复活。
      */
     fun onAppActivated() {
         engine.seedDemoData(force = false)
@@ -535,6 +549,21 @@ class OrdoViewModel(
         _state.update { it.copy(selectedId = null) }
         refresh()
         toast("已清空本地数据")
+    }
+
+    /**
+     * 清除演示数据(设置页入口,二次确认走 [requestClearDemoData]):
+     * 清空本地内容 + **钉住播种标记** —— 用户要的"清完重开不再出现演示数据"全落在这件事上。
+     *
+     * 与 [clearAllData] 只差标记留不留(见共享核心 `OrdoEngine.clearDemoData`):标记留下之后,
+     * 冷启动与托盘唤回走的 `seedDemoData(force = false)` 都直接返回,演示数据不会自己长回来;
+     * 想找回示例数据,只能显式点「重置为示例数据」。
+     */
+    fun clearDemoData() {
+        engine.clearDemoData()
+        _state.update { it.copy(selectedId = null) }
+        refresh()
+        toast("已清除演示数据")
     }
 
     fun todayISO(): String = OrdoDate.todayISO()

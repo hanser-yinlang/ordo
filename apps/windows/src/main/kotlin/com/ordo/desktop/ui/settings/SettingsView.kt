@@ -47,6 +47,10 @@ import com.ordo.desktop.ui.theme.ordoColors
  *
  * 纯本地版本:这里**没有**账号、登录、服务器地址、同步与同步诊断 —— 应用不联网,
  * 只剩"外观与启动 / 数据 / 快捷键"这些本机设置。
+ *
+ * 「数据」段有三个入口(全靠 `state.confirm` 那一套二次确认,不另起模态):
+ * 「重置为示例数据」写回演示数据;「清空本地数据」回到全新安装状态(下次启动会再播种);
+ * 「清除演示数据」清空并**钉住播种标记**,重启不再出现演示数据。
  */
 @Composable
 fun SettingsView(state: UiState, vm: OrdoViewModel) {
@@ -176,9 +180,18 @@ private fun SettingsPanel(state: UiState, vm: OrdoViewModel) {
             SectionTitle("数据")
             Row(horizontalArrangement = Arrangement.spacedBy(OrdoSpace.m)) {
                 OrdoTextButton(text = "重置为示例数据", onClick = { vm.resetDemoData() })
-                OrdoTextButton(text = "清空本地数据", onClick = { vm.clearAllData() }, danger = true)
+                OrdoTextButton(text = "清空本地数据", onClick = { vm.requestClearAll() }, danger = true)
+                OrdoTextButton(text = "清除演示数据", onClick = { vm.requestClearDemoData() }, danger = true)
             }
             Spacer(Modifier.height(OrdoSpace.xs))
+            Text(
+                text = "「清空本地数据」= 回到全新安装状态，下次启动会重新写入示例数据；" +
+                    "「清除演示数据」= 清空后保持空清单，重启也不会再出现演示数据" +
+                    "（想找回示例数据可点「重置为示例数据」）。",
+                style = OrdoType.micro,
+                color = colors.textTertiary
+            )
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = "本地数据位于 %APPDATA%\\Ordo\\<数据目录 id>\\;" +
                     "清空只影响本机这份数据（纯本地应用，不联网、没有云端副本）。",

@@ -44,8 +44,13 @@ enum class ThemeMode {
 /** 提示条(§4 Toast) */
 data class ToastMessage(val text: String, val id: Long)
 
-/** 需要二次确认的破坏性操作(删除项目 / 区域 / 标题) */
-enum class ConfirmKind { PROJECT, AREA, HEADING }
+/**
+ * 需要二次确认的破坏性操作(删除项目 / 区域 / 标题;以及设置页的清空本地数据 / 清除演示数据)。
+ *
+ * 清空类操作与删除走**同一个确认位**:它们同样不可撤销,复用 `state.confirm` 比在设置面板里
+ * 另起一套模态便宜,而且用户看到的确认样式与删除完全一致。
+ */
+enum class ConfirmKind { PROJECT, AREA, HEADING, CLEAR_ALL, CLEAR_DEMO }
 
 /**
  * 项目卡片的一句话状态:把"能不能完成 / 为什么不能"收敛成一个**可测的纯值**,
@@ -80,7 +85,11 @@ data class ProjectCardState(
     }
 }
 
-/** 待确认的删除请求:只有点了"删除"才真正落库(契约 §3 一律软删除) */
+/**
+ * 待确认的破坏性操作请求:只有点了确认按钮才真正落库(契约 §3 一律软删除)。
+ *
+ * 清空类操作(`CLEAR_ALL` / `CLEAR_DEMO`)没有具体对象,`id` / `name` 传空串。
+ */
 data class ConfirmRequest(val kind: ConfirmKind, val id: String, val name: String) {
 
     val title: String
@@ -88,6 +97,16 @@ data class ConfirmRequest(val kind: ConfirmKind, val id: String, val name: Strin
             ConfirmKind.PROJECT -> "删除项目"
             ConfirmKind.AREA -> "删除区域"
             ConfirmKind.HEADING -> "删除标题"
+            ConfirmKind.CLEAR_ALL -> "清空本地数据"
+            ConfirmKind.CLEAR_DEMO -> "清除演示数据"
+        }
+
+    /** 确认按钮文案:清空类必须点明后果,不能沿用"删除" */
+    val confirmText: String
+        get() = when (kind) {
+            ConfirmKind.PROJECT, ConfirmKind.AREA, ConfirmKind.HEADING -> "删除"
+            ConfirmKind.CLEAR_ALL -> "确认清空"
+            ConfirmKind.CLEAR_DEMO -> "确认清除"
         }
 
     val message: String
@@ -95,6 +114,10 @@ data class ConfirmRequest(val kind: ConfirmKind, val id: String, val name: Strin
             ConfirmKind.PROJECT -> "「$name」及其下的待办会被删除(软删除,会同步到其它端)。"
             ConfirmKind.AREA -> "「$name」会被删除,区域内的项目将变为「无区域」。"
             ConfirmKind.HEADING -> "「$name」会被删除,标题下的待办移到「其他」。"
+            ConfirmKind.CLEAR_ALL -> "待办 / 项目 / 区域 / 标签全部消失,且无法撤销;下次启动会重新写入示例数据。"
+            ConfirmKind.CLEAR_DEMO ->
+                "待办 / 项目 / 区域 / 标签全部消失,且无法撤销;重启后**不会**再自动写入示例数据" +
+                    "(想找回示例数据可点「重置为示例数据」)。"
         }
 }
 

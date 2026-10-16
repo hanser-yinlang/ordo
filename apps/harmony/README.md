@@ -185,7 +185,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File _qa\build.ps1 -OhosTest     
 
 ### 3.4 跑测试(本机宿主 + 模拟器两条路)
 
-#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 135/135 · v1.6)
+#### 3.4.1 本机逻辑测试宿主(无需设备,已跑通 139/139 · v1.8)
 
 Hypium 用例在设备上跑需要签名,而本机没有证书。但**十二组用例全部只依赖纯逻辑模块**
 (`core/` 下除 `RelationalStore` / `ReminderAgent` 之外的模块,外加 `core/store/ApplyTypes.ets`、
@@ -215,19 +215,20 @@ python _qa\build-harness.py
    但 `DateUtil.todayISO()` 一类路径仍会读系统时间,不冻结就会跨天假失败;
 4. `tsc`(strict + noImplicitAny + strictNullChecks)编译 → Node 运行 → 汇总,退出码 0 = 全通过。
 
-实测结果(2026-10-15,三端过渡动效 §5.5 + 减弱动效适配落地后):
+实测结果(2026-10-16,「清除演示数据」v1.8 落地后):
 
 ```
-describe 块: 12     用例总数: 135     通过: 135     失败: 0
+describe 块: 12     用例总数: 139     通过: 139     失败: 0
 RESULT: ALL PASSED
 ```
 
-> **如实报数**:上一版是 **11 组 130 条**(2026-10-14),本轮新增 `MotionScale.test.ets` **5 条**
-> (§5.5 的减弱动态效果折算:默认不改时长 / 开启后每条过渡都归零 / 关掉可恢复 / 三端令牌同值 + 缓动同曲线 /
-> 折算只有 0 与原值两档)→ **12 组 135 条全过**(脚本输出的那三行是唯一权威)。
-> 设备端真库那组(`RelationalStore.test.ets`,2 条)仍不在宿主里跑,因此设备端总数 = 135 + 2 = **137 条**
+> **如实报数**:上一版是 **12 组 135 条**(2026-10-15,v1.7 动效调优后),本轮 `LocalDataReset.test.ets` 8 → **12 条**
+> (新增:清除演示数据只清内容并**钉住**播种标记 / 清除演示数据后冷启动不播种 / 与「清空本地数据」只差标记 /
+> 清除后仍可显式「恢复默认示例数据」找回)→ **12 组 139 条全过**(脚本输出的那三行是唯一权威)。
+> 设备端真库那组(`RelationalStore.test.ets`,2 条)仍不在宿主里跑,因此设备端总数 = 139 + 2 = **141 条**
 > (本机现无设备,未实跑,见 §3.4.3)。
 > 宿主统计只信任脚本输出的那三行,README 里的历史数字一律以最新实测行为准。
+> (更早沿革:11 组 130 条 → v1.6 动效新增 `MotionScale.test.ets` 5 条 → 12 组 135 条 → v1.7 只改钉值、不增条数。)
 
 > 第六轮新增第二组 8 条用例(总数 134 → 142,只增不减):
 > `FabMenu.test.ets`(§5.2 v1.3:项目视图 4 项 / 其余视图 3 项、**顺序与文案**、
@@ -506,23 +507,24 @@ TestFinished-ResultMsg: your test finished!!!
 ### 6.2 设置页(v1.5)
 
 保留:外观、数据与存储、**本地数据(工作区标识 / 数据目录 / 库文件)**、示例数据重置、键盘与手势。
-本轮新增:**清空本地数据**(见 §6.2.1)。
+新增:**清空本地数据**(见 §6.2.1)与 **清除演示数据**(v1.8,见 §6.2.2)。
 已删除:账号、退出登录、服务器地址、同步区块与「同步会话」。
 
 #### 6.2.1 演示数据与「清空本地数据」(2026-10-14)
 
-设置页有两个**语义不同**的数据入口,别混:
+设置页的数据入口**语义各不相同**,别混:
 
 | 入口 | 行为 | 播种标记 `ordo.seeded` |
 |---|---|---|
 | 「恢复默认示例数据」 | **立即**写一份演示数据进本地库(`engine.persistAll(seed)`,覆盖当前内容) | 置为 `1` |
 | 「清空本地数据」(二次确认) | 退回**全新安装态**:清空全部实体 + outbox + 墓碑,**并清掉播种标记** | 删除 |
+| 「清除演示数据」(二次确认,v1.8) | 内容照清,但**钉住播种标记** | 置回 `1` |
 
 - 「清空」后当前界面**立即变空**,并弹提示条「已清空本地数据」;
 - 因为标记被删,「**下次冷启动会自动重新写入演示数据**」——不是只剩一个空界面;
 - 反过来,**用户自己逐条把待办删空(没点过清空)不得被演示数据复活**:此时标记仍是 `1`,
   `shouldSeedDemoData()` 返回 false。这条判定(以及"清空后再冷启动会重新播种")由
-  `LocalDataReset.test.ets` 的 8 条用例逐个钉住;
+  `LocalDataReset.test.ets` 的用例逐个钉住(v1.8 起该文件共 **12 条**);
 - 落地位置:引擎 `OrdoEngine.clearAll()`(实体 / outbox / 墓碑 / 标记四件事)+ 设置页按钮的
   **两步确认**(第一次点击只展开红色确认文案与「确认清空 / 取消」,不直接执行);
 - 清空**不动**设备级 kv:工作区标识(`ordo.localAccountId`)、`deviceId`、主题皮肤都保留
@@ -530,6 +532,33 @@ TestFinished-ResultMsg: your test finished!!!
 - `localEvents`(本机只读日程示例事件)也不清:它不落库,冷启动会用同一份 `buildSeedState()` 重建;
 - 已知不覆盖:清空只做 `DELETE FROM <每张表>` + 清墓碑行,**不做 `VACUUM`**
   (与 Kotlin 核心 `OrdoEngine.clearAll()` 一致),所以 SQLite 文件体积不会立刻变小——这是有意对齐,不是遗漏。
+
+#### 6.2.2 「清除演示数据」:清空内容但**不再**播种(v1.8,2026-10-16)
+
+**用户需求**:「移动端新增清除演示数据或者清除本地数据,但要保证清除演示数据后,重新打开应用不会在显示演示数据」。
+
+**为什么是新增第三个入口而不是改「清空本地数据」**:上一轮(§6.2.1,2026-10-14)用户反馈的正是相反方向 ——「清空后重启看不到演示数据」,所以「清空本地数据 = 回到全新安装态、下次冷启动重新播种」这条语义**必须保留**。本轮要的是它的反面,两条相反的诉求只能拆成两个入口。
+
+**为什么不"只删演示的那几十条"**:`SeedData` 的演示数据用固定 id,但用户改过名 / 改过期 / 挪进项目之后就与种子对不上了 —— 按 id 逐条比对会漏删,还会留下指向已删项目的悬挂引用。可靠判据只有**播种标记**:要么"这台机器算全新安装"(标记清掉),要么"不算"(标记钉住)。于是本入口 = **清空内容 + 钉住标记**。
+
+| 项 | 位置 | 说明 |
+|---|---|---|
+| 引擎口径 | `core/store/OrdoEngine.ets` 的 `clearAll()` / `clearDemoData()` | 两者都收敛到私有 `clearWorkspace(keepSeedMark: boolean)`:清完实体 / outbox / 墓碑之后,`keepSeedMark` 为真就 `setKv(KvKeys.SEEDED, SEEDED_MARK_VALUE)`,否则 `removeKv(KvKeys.SEEDED)` |
+| 单一事实源 | `core/storage/OrdoStore.ets` 新增 `export const SEEDED_MARK_VALUE: string = '1'` | 引擎要写它、`viewmodel/SeedPolicy.ets` 要读它,字面量只留一个来源(`SeedPolicy` 改为 re-export,测试的 import 路径不变、无循环依赖) |
+| 端侧动作 | `viewmodel/AppStore.ets` 的 `clearDemoData()` | `engine.clearDemoData()` → 清选中 → `ReminderAgent.cancelAll()` → `invalidateDerived()` → 提示条「已清除演示数据」→ `bump()` |
+| 入口 | `pages/SettingsPage.ets` | 「清空数据」区新增「清除演示数据」按钮(同款危险色 pill,测试 id `ordo_settings_clear_demo`)+ 独立的二次确认条(`confirmClearBar(isDemo: boolean)`,`ordo_settings_clear_demo_confirm` / `_cancel`) |
+
+**用例(`LocalDataReset.test.ets` 8 → 12 条)**:清除演示数据只清内容并钉住标记 / 清除演示数据后冷启动不播种 / 与「清空本地数据」的差别只在标记 / 清除后仍可显式「恢复默认示例数据」找回。
+
+**门禁**(`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force` 后):
+
+| 验证项 | 结果 |
+|---|---|
+| `python _qa\build-harness.py` | ✅ tsc OK;`describe 块: 12  用例总数: 139  通过: 139  失败: 0`(`RESULT: ALL PASSED`,135 → 139) |
+| `_qa\build.ps1 -LogName v18-clear` | ✅ `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERR 0`(唯一 WARN 是既有的 `No signingConfig`) |
+| `_qa\build.ps1 -OhosTest -LogName v18-clear-ohostest` | ✅ `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERR 0`(用例 HAP 也能编) |
+
+**无法验证的部分(诚实标注)**:本机无设备/模拟器,「清除演示数据 → 杀进程 → 重开」只能由宿主用例模拟冷启动判定;真机观感与设备端 `aa test` 未重跑(见 §3.4.3 与 §10)。
 
 ### 6.3 本地存储与"一份工作区一份库"
 
@@ -550,7 +579,8 @@ TestFinished-ResultMsg: your test finished!!!
 > 判定与落盘收敛在 `viewmodel/SeedPolicy.ets`(`shouldSeedDemoData()` / `applySeedPolicy()` /
 > `applyResetToSeedData()`),`AppStore` 只负责调用与刷新 UI。播种标记 `ordo.seeded` 是
 > "已经播过种"的记忆:**用户在设置页点「清空本地数据」时会被删掉(下次冷启动重新播种)**,
-> 而**用户自己逐条删空待办时保留**(不会被演示数据复活)——见 §6.2.1。
+> **点「清除演示数据」时会被钉回来(重启不再出现演示数据)**,
+> 而**用户自己逐条删空待办时保留**(不会被演示数据复活)——见 §6.2.1 与 §6.2.2。
 
 ### 6.7 为什么可以移除 INTERNET 权限
 
@@ -888,3 +918,4 @@ E C01650/SqliteStatement: PrintInfoForDbError:DbError errCode:27394103 errno:25
 | 2026-10-13 | **v1.5 · 快加号对齐 §5.2 v1.5(亮蓝 + 柔光 + 位置避让)**:① `OrdoColorTokens` 新增 `fab = #0A84FF`(浅/深同值),FAB 圆填充从 `accentPrimary` 改为它,菜单项图标改 `textSecondary`(品牌靛紫不动);② 柔光改为**径向渐变**容器(`Column` 104 = 56 + 2×24,`borderRadius` 52,inner `#0A84FF59/73` @0.54 → outer `#0A84FF00` @1.0),`.position(-24,-24)` 溢出按钮边界 + `HitTestMode.None`,**不占布局、不吃点击**,并**删掉原来的中性 `.shadow()`**;③ 位置:`FAB_MARGIN_BOTTOM = 32(底栏)+ 24(光晕)+ 8(空隙) = 64`、`FAB_MARGIN_RIGHT = 24` 写成常量,`Index.ets` 不再写死 64;④ 交互不变(单击=行内新建、长按 400ms=菜单),真机复核两项均通过;⑤ 用例:宿主 **112/112**(FabMenu 由 8 条补到 11 条:亮蓝常量、光晕径向渐变/厚度/透明度/停靠点、底边距 ≥ 底栏+光晕);⑥ 门禁:`assembleHap` 与 ohosTest BUILD SUCCESSFUL / **ArkTS ERROR 0**,selfcheck 0 问题,check-encoding OK;⑦ 真机截图 `_qa/v15-fab-blue2.jpeg`(亮蓝圆钮 + 蓝光柔光,右下角不压底部文案)、`_qa/v15-fab-menu2.jpeg` + `_qa/v15-quickadd-panel2.jpeg`(长按菜单 / 单击输入行) |
 | 2026-10-15 | **三端过渡动效(UI 规范 v1.6 §5.5)+ 减弱动态效果适配**:① 复用**早已定义却一直未被引用**的 `OrdoMotion` 令牌(`popIn 180` / `pageFade 160` / `checklistExpand 220` / `sidebarCollapse 260`)并补 `popOut = 140`、`detailRise = 220`;② `pages/Index.ets` 的三个浮层(排期 / 快找 / 设置)与窄屏抽屉改为「**独立遮罩层 + 面板层**」的 `Stack` 结构 + `TransitionEffect.asymmetric`,`ListPage` 新增 `@Prop listKey` 驱动 160ms 页面淡入、`headingRow` 的 ▸/▾ 展开改 220ms,`TodoRow` 详情卡片 220ms 位移;③ **面板只挂 `scale .98→1` 与 `translate ±8`,不挂 opacity** —— 给容器蒙 alpha 会让 `.shadow` 在整段过渡里不绘制(§5.2 记过的"先方角后圆角"坑),透明只给遮罩;④ 新增纯逻辑 `viewmodel/MotionScale.ets`(折算出口,开启后时长归零)与 `theme/ReduceMotion.ets`(读 `accessibility.isAnimationReduceEnabledSync()`,并用**命名回调** `onAnimationReduceStateChange` 订阅系统开关变化),§5.5 每个时长都改走 `MotionScale.ms(...)`;⑤ 新增第 13 组 `MotionScale.test.ets` **5 条**用例(默认不改时长 / 开启后 §5.5 每条都归零 / 关掉可恢复 / 三端令牌同值 + 缓动同曲线 / 折算只有 0 与原值两档),登记进 `List.test.ets`(设备端 13 组)与 `_qa/node-harness/src/runner.ts`(宿主 12 组),`_qa/build-harness.py` 的 `CORE_FILES` 增 `viewmodel/MotionScale.ets` 与 `theme/Tokens.ets` 并补 `theme/` 的路径改写;⑥ **门禁**:`python _qa\build-harness.py` → `describe 块: 12 / 用例总数: 135 / 通过: 135 / 失败: 0`(`RESULT: ALL PASSED`,tsc OK;130 → 135),`_qa\build.ps1 -Clean`(清空 `entry/build` 全新编译)与 `_qa\build.ps1 -OhosTest` 均 `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERROR 0`(唯一 WARN 是既有的 `No signingConfig`),产物 `entry-default-unsigned.hap` **1,201,467 字节**;`_qa/selfcheck.py` 0 问题;⑦ **未做**:设备端 `aa test`(本机无设备)与真机观感回归;§5 完成时序 / 快加号集群的减弱动效接入(见 §10 与 09 报告 §4 B-013) |
 | 2026-10-15 | **v1.7 · 三端过渡动效调慢放顺(用户实测"太快、不通畅")**:① 时长 `popIn 180 → 280`(浮层入场)、`popOut 140 → 200`(退场)、`pageFade 160 → 240`(页面淡入)、`detailRise 220 → 280`(详情卡片),`sidebarCollapse 260` 与 `checklistExpand 220` 不变;② 几何 `scale .98 → .96`、`translate ±8 → ±14`(页面淡入 6 → 10px);③ 新增 `OrdoMotion.easingEnter = 'cubic-bezier(0.2, 0, 0, 1)'`(三端同名同值,起步柔、收尾长滑的 Material 3 standard 曲线),§5.5 里 22 处 `curve` 从 `Curve.FastOutSlowIn` / `easingStandard` 全部改用它 —— 既有 §5 完成时序 / 快加号集群仍留在 `easingStandard`;④ 改动面:`pages/Index.ets`(抽屉遮罩+侧栏、排期/快找/设置三个浮层的遮罩与面板)、`view/ListPage.ets`(`pageFade`、`headingRow` 展开)、`view/list/TodoRow.ets`(详情卡片 `animateTo` 与 `TransitionEffect`);⑤ 用例:`MotionScale.test.ets` 5 条改钉新值(280/200/240/280 + 260/220)并新增 `easingEnter` 断言,宿主仍是 **12 组 / 135 用例**;⑥ **门禁**:`python _qa\build-harness.py` → `describe 块: 12 / 用例总数: 135 / 通过: 135 / 失败: 0`(`RESULT: ALL PASSED`,tsc OK),`_qa\build.ps1 -Clean` 与 `_qa\build.ps1 -OhosTest` 均 `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERROR 0`(唯一 WARN 是既有的 `No signingConfig`),产物 `entry-default-unsigned.hap` **1,201,682 字节**;同批 Windows **221 用例**、Android **127 用例** 全绿;⑦ **未做**:设备端 `aa test` 与真机观感回归(本机无设备),§5 完成时序的减弱动效接入仍是 §10 与 09 报告 §4 B-013 的遗留项 |
+| 2026-10-16 | **v1.8 · 设置页「清除演示数据」(清空内容但不再播种,与「清空本地数据」并存)**:① 用户需求「移动端新增清除演示数据或者清除本地数据,但要保证清除演示数据后,重新打开应用不会在显示演示数据」—— 上一轮(2026-10-14)刚按**相反**方向修过(清空 = 回到全新安装态、下次冷启动重新播种),故**新增第三个入口**而不是改旧的;② 引擎 `core/store/OrdoEngine.ets` 把 `clearAll()` 拆成 `clearAll()`(=`clearWorkspace(false)`,连播种标记一起清)与新增 `clearDemoData()`(=`clearWorkspace(true)`,内容照清但把标记**钉回** `1`),原 `clearAll` 本体整体搬进私有 `clearWorkspace(keepSeedMark: boolean)`,末尾按 `keepSeedMark` 走 `setKv(KvKeys.SEEDED, SEEDED_MARK_VALUE)` 或 `removeKv(KvKeys.SEEDED)`;③ **单一事实源**:`core/storage/OrdoStore.ets` 新增 `export const SEEDED_MARK_VALUE: string = '1'`(引擎要写、`viewmodel/SeedPolicy.ets` 要读,字面量只留一个来源;`SeedPolicy` 改为 re-export,测试 import 路径不变且无循环依赖),文件头注释从"两条入口"扩成三条;④ `viewmodel/AppStore.ets` 新增 `clearDemoData()`(`engine.clearDemoData()` → 清选中 → `ReminderAgent.cancelAll()` → `invalidateDerived()` → 提示条「已清除演示数据」→ `bump()`);⑤ `pages/SettingsPage.ets`:「清空数据」区新增「清除演示数据」按钮(危险色 pill + `chipBg`,测试 id `ordo_settings_clear_demo`)与区首 micro 提示(讲明两条入口的区别),`@Builder confirmClearBar(isDemo: boolean)` 用三元分派文案 / 按钮文案 / 测试 id(`ordo_settings_clear_demo_confirm` / `_cancel`)与 onClick 分支,`@State confirmClearDemo` 与 `confirmClear` 各自独立;⑥ 用例 `LocalDataReset.test.ets` **8 → 12 条**(清除演示数据只清内容并钉住标记 / 清除演示数据后冷启动不播种 / 与「清空本地数据」的差别只在标记 / 清除后仍可显式「恢复默认示例数据」找回);⑦ **门禁**:`python _qa\build-harness.py` → `describe 块: 12 / 用例总数: 139 / 通过: 139 / 失败: 0`(`RESULT: ALL PASSED`,tsc OK;135 → 139),`_qa\build.ps1 -LogName v18-clear` 与 `_qa\build.ps1 -OhosTest -LogName v18-clear-ohostest` 均 `exit 0 / BUILD SUCCESSFUL / ArkTS WARN 0 · ERR 0`(唯一 WARN 是既有的 `No signingConfig`);同批 Windows **226 用例**、Android **131 用例** 全绿;⑧ **未做**:设备端 `aa test` 与真机重启回归(本机无设备),设备端预期总数 = 宿主 139 + `RelationalStore.test.ets` 2 = **141 条** |

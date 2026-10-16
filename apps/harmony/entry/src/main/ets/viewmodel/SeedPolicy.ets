@@ -1,11 +1,14 @@
 /**
  * Ordo · 启动播种策略(v1.5:纯本地,不联网)
  *
- * 背景(用户报过的 bug):设置页有两条**语义不同**的入口,必须严格区分,否则用户"自己逐条删空
+ * 背景(用户报过的 bug):设置页有**语义不同**的三条入口,必须严格区分,否则用户"自己逐条删空
  * 待办"之后会被演示数据复活(数据凭空长回来,像丢过一次删除):
  *  - 「恢复默认示例数据」= 立刻写入一份演示数据,播种标记保持/补上 → 见 AppStore.resetToSeedData
  *  - 「清空本地数据」    = 退回**全新安装态**(实体 + outbox + 墓碑 + 播种标记全清)→ 下次冷启动
  *    才重新播种,见 OrdoEngine.clearAll / AppStore.clearAllData
+ *  - 「清除演示数据」    = 内容一样清空,但**钉住播种标记**(见 OrdoEngine.clearDemoData /
+ *    AppStore.clearDemoData)→ 重启后演示数据**不会**回来,只有再点「恢复默认示例数据」才回来。
+ *    这条是用户后来的明确要求:「清除演示数据后,重新打开应用不会再显示演示数据」。
  *
  * 判据因此只有一条:**播种标记** kv `ordo.seeded`。
  *  - 标记在 → 无论库是空是满都不播种(用户逐条删空 = 他的选择,不许复活)
@@ -17,10 +20,15 @@
 
 import { OrdoState } from '../core/model/Entities.ets';
 import { OrdoEngine } from '../core/store/OrdoEngine.ets';
-import { KvKeys, OrdoStore } from '../core/storage/OrdoStore.ets';
+import { KvKeys, OrdoStore, SEEDED_MARK_VALUE as STORE_SEEDED_MARK_VALUE } from '../core/storage/OrdoStore.ets';
 
-/** 播种标记的取值(契约 §7.6.3 的本地化版本) */
-export const SEEDED_MARK_VALUE: string = '1';
+/**
+ * 播种标记的取值(契约 §7.6.3 的本地化版本)。
+ *
+ * 字面量来源在存储层(`core/storage/OrdoStore.ets`),这里只是把同一个来源按本模块的名字再导出 ——
+ * 引擎写标记、策略读标记,必须用同一个值。
+ */
+export const SEEDED_MARK_VALUE: string = STORE_SEEDED_MARK_VALUE;
 
 /**
  * 纯判据:现在该不该把演示数据写进库?

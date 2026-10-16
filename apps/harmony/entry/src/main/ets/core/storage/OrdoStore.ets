@@ -117,3 +117,13 @@ export class KvKeys {
    */
   static readonly LOCAL_ACCOUNT_ID: string = 'ordo.localAccountId';
 }
+
+/**
+ * 播种标记 `KvKeys.SEEDED` 的取值:该工作区「演示数据已经播过」的记忆(契约 §7.6.3 的本地化版本)。
+ *
+ * 为什么放在存储层:这个字面量有**两个使用者** —— 引擎要写它
+ * (`OrdoEngine.clearDemoData` 清空内容后把标记钉住)、播种策略要读它
+ * (`viewmodel/SeedPolicy.ets` 从本文件再导出为 `SEEDED_MARK_VALUE`)。
+ * 各自写一份字面量迟早会漂移,而漂移的后果正是用户报过的那类 bug("删掉的东西自己长回来")。
+ */
+export const SEEDED_MARK_VALUE: string = '1';

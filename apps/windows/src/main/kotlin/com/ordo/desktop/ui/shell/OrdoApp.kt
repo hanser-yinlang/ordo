@@ -73,11 +73,12 @@ fun OrdoApp(vm: OrdoViewModel) {
             // 设置
             SettingsView(state = state, vm = vm)
 
-            // 破坏性操作的二次确认(项目 / 区域 / 标题)
+            // 破坏性操作的二次确认(项目 / 区域 / 标题 / 清空本地数据 / 清除演示数据)
             state.confirm?.let { request ->
                 OrdoConfirmDialog(
                     title = request.title,
                     message = request.message,
+                    confirmText = request.confirmText,
                     onConfirm = { vm.confirmDelete() },
                     onCancel = { vm.cancelConfirm() }
                 )

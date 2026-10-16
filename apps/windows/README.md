@@ -20,7 +20,7 @@
 ```powershell
 $env:JAVA_HOME="<JDK 21>"
 gradle :apps:windows:run                       # 直接运行
-gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(221 个用例,30 个测试类)
+gradle :apps:windows:test                      # 单元测试 + 界面渲染冒烟(226 个用例,30 个测试类)
 gradle :apps:windows:createDistributable       # 免安装目录(app-image)
 gradle :apps:windows:packageDistributionForCurrentOS   # MSI + EXE(Compose 插件自动下载 WiX 3.11)
 gradle :apps:windows:packageMsi                # 只打 MSI
@@ -310,7 +310,7 @@ apps/windows/src/main/kotlin/com/ordo/desktop/
 - **多窗口跟随选中**(设置页开关,默认开):任一窗口打开某条待办,其它窗口**如果正好显示这条**就把它高亮,
   不改动对方路由 —— 既满足"每窗口独立路由",又能在多窗口下快速定位同一条内容。
 
-## 8. 测试(本机可跑,221 个用例,30 个测试类)
+## 8. 测试(本机可跑,226 个用例,30 个测试类)
 
 ```
 NoNetworkTest           6 个:**纯本地证明**(云同步已删除):构建脚本无网络依赖 / 运行期 classpath 无 HTTP·WebSocket 客户端 /
@@ -372,9 +372,14 @@ ThemeSwitchToastTest    8 个:切换背景颜色的提示条:深色→「已切�
                               自动→「已切换到跟随系统模式(深色|浅色)」且提示里的深浅与画面同源 /
                               侧栏主题按钮与 Ctrl+D 循环也走同一条提示 / 连点同一个模式会重新提示(2.4s 计时重开)/
                               文案与设置页选项同源 / 启动读偏好不弹提示 / 坏偏好值回退自动不崩
-ClearDataReseedTest     3 个:「清空本地数据 → 重启应用 → 重新播种演示数据」(清空 = 回到全新安装态)/
+ClearDataReseedTest     8 个:「清空本地数据 → 重启应用 → 重新播种演示数据」(清空 = 回到全新安装态)/
                               「关闭窗口 = 最小化到托盘」时唤回窗口也要补种(进程没死、不会重建 ViewModel)/
-                              用户自己把待办逐条删空后重启**不得**把演示数据塞回来
+                              用户自己把待办逐条删空后重启**不得**把演示数据塞回来 /
+                               **「清除演示数据 → 重启应用 → 不再播种」**(v1.8:清空内容但钉住播种标记)/
+                               **托盘唤回时「清除演示数据」后同样不播种** /
+                               **「清空本地数据」与「清除演示数据」的差别只在播种标记** /
+                               **「清除演示数据」后仍可显式「重置为示例数据」找回** /
+                               **两个入口都接在确认框与引擎上**(源码级:设置页 `vm.requestClear*` → 确认框 → `vm.clear*Data` → `engine.clear*`)
 RenderSmokeTest         8 个:离屏渲染「今天」与「深色+快加号」PNG、派生清单与计数、中文 NLP 新建、
                               拖拽指示线渲染、设置页(开机自启 + 同步诊断)渲染、删除确认框渲染、
                               真实指针事件驱动"按住手柄 → 拖到第三行 → 松手"并断言顺序写回引擎
@@ -490,6 +495,7 @@ OrdoMotionContractTest  5 个:源码级契约:§5.5 四个时长令牌(280/200/2
 
 **第七批(v1.7,同日)**:用户实测「过渡太快、不通畅」后,§5.5 的四个时长调慢为 **280/200/240/280**,面板几何 `scale .98→1` → **`.96→1`**、上浮 8 → **14px**(页面/详情 6 → **10px**),并新增过渡曲线 `OrdoEasing.transition` = **`cubic-bezier(.2,0,0,1)`** 让四段过渡全部改用它(既有完成时序/快加号仍用 `OrdoEasing.standard`)。两个动效测试类同步钉新值,并新增"四段过渡都必须用 `transition`"的守卫 —— 它第一跑就抓到 2 处 `standard` 残留。用例数不变(仍 30 类 / **221** 个)。
 
+**第八批(v1.8,2026-10-16)**:用户要求移动端「新增清除演示数据…清除后重开不再显示演示数据」。上一轮(第六批)刚按相反方向修过 ——「清空本地数据」= 回到全新安装态、下次冷启动重新播种 —— 两条语义相反,故**新增第三个入口**而不是改旧的:核心把 `clearAll()` 拆成 `clearAll(keepSeedMark: Boolean = false)` 与 `clearDemoData() = clearAll(keepSeedMark = true)`(内容照清,但把播种标记钉回去),端上新增 `ConfirmKind.CLEAR_ALL` / `CLEAR_DEMO` 与 `ConfirmRequest.confirmText`(两个清空入口与"删除"共用同一个确认位,标题/正文/确认按钮文案按类型分派),`SettingsView` 数据区加第三颗按钮「清除演示数据」并让两颗按钮先走 `vm.requestClearAll()` / `vm.requestClearDemoData()`。`ClearDataReseedTest` 3 → **8** 条(新增:清除演示数据后重启不播种 / 托盘唤回也不播种 / 两入口只差播种标记 / 清除后仍可显式重置找回 / 两个入口的源码级接线)。本轮后 `:apps:windows:test` 为 **30 个测试类 / 226 个用例**(1 skip 仍是托盘字体环境假设)。
 **顺带修掉一个偶发假失败**:`RenderSmokeTest.按住行尾手柄拖动会真实写回顺序` 偶发抛
 `IllegalArgumentException: LayoutNode N not found in RectList`。根因是 `ImageComposeScene.render()`(不带参数)用的帧时钟**恒为 0**,
 连续两次同时间戳的渲染会被当成"同一帧",选中后才组合出来的行尾手柄可能还没登记进 RectList,紧接着发指针事件就崩。

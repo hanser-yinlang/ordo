@@ -16,10 +16,12 @@ import org.junit.Test
  * 清空之后文件还在、内容为空，两个条件都不承认这是全新安装。
  *
  * 现在判据收口到引擎的**播种标记**（`kv[ordo.seedMark]`，见共享核心
- * `OrdoEngine.seedDemoData` / `OrdoEngine.clearAll`），于是：
+ * `OrdoEngine.seedDemoData` / `OrdoEngine.clearAll` / `OrdoEngine.clearDemoData`），于是：
  *  ① 清空 = 连标记一起清掉 → 回到全新安装态，**下次冷启动自动重新播种**；
  *  ② 用户自己逐条删空待办（标记还在）→ 不会被演示数据复活；
- *  ③ 启动路径不再看数据库文件是否存在。
+ *  ③ 启动路径不再看数据库文件是否存在；
+ *  ④ **清除演示数据** = 内容清空但标记钉住 → 重启后演示数据**不会**回来（用户明确要求的那条），
+ *     想找回示例数据只能显式点「重置为示例数据」。
  *
  * Android 单测跑在 JVM 上、不引 Robolectric，所以分两层验证：
  *  - 存储层语义：共享核心 + [InMemoryStorage]（与真机 `SqliteStorage` 同一 `OrdoStorage` 接口）；
@@ -95,6 +97,60 @@ class ClearDataReseedTest {
         assertTrue("重启后应仍然是空的", second.snapshot.todos.none { !it.deleted })
     }
 
+    /* ------------- ④ 清除演示数据 → 清空且重启不再播种（用户明确要求） ------------- */
+
+    @Test
+    fun `清除演示数据后冷启动不会重新播种`() {
+        val storage = InMemoryStorage()
+        val first = engineOn(storage)
+        assertTrue("全新安装应播种", first.seedDemoData(force = false))
+        assertTrue("播种后应有待办", first.snapshot.todos.isNotEmpty())
+
+        first.clearDemoData()
+
+        assertTrue("清除演示数据后库里应为空", first.snapshot.todos.isEmpty())
+        assertEquals(
+            "清除演示数据必须把播种标记**钉住**（这是「重启不再出现演示数据」的全部依据）",
+            seedMarkValue,
+            storage.kvGet(seedMarkKey),
+        )
+
+        val second = engineOn(storage)
+        assertFalse("清除演示数据后冷启动不得再播种", second.seedDemoData(force = false))
+        assertTrue("重启后应仍是干净的空清单", second.snapshot.todos.none { !it.deleted })
+        assertTrue("项目也不该回来", second.snapshot.projects.isEmpty())
+    }
+
+    @Test
+    fun `清空本地数据与清除演示数据只差播种标记`() {
+        val cleared = InMemoryStorage()
+        engineOn(cleared).let {
+            it.seedDemoData(force = false)
+            it.clearAll()
+        }
+        val demoCleared = InMemoryStorage()
+        engineOn(demoCleared).let {
+            it.seedDemoData(force = false)
+            it.clearDemoData()
+        }
+
+        assertNull("清空本地数据：标记一起清掉（下次启动回到全新安装态）", cleared.kvGet(seedMarkKey))
+        assertEquals("清除演示数据：内容一样清空，但标记留下", seedMarkValue, demoCleared.kvGet(seedMarkKey))
+    }
+
+    @Test
+    fun `清除演示数据后仍可显式找回示例数据`() {
+        val storage = InMemoryStorage()
+        val engine = engineOn(storage)
+        engine.seedDemoData(force = false)
+        engine.clearDemoData()
+
+        assertFalse("重启不会再自动播种", engineOn(storage).seedDemoData(force = false))
+        assertTrue("「重置为示例数据」仍能显式找回", engine.seedDemoData(force = true))
+        assertTrue("找回后应有内容", engine.snapshot.todos.isNotEmpty())
+        assertEquals("找回后标记仍在", seedMarkValue, storage.kvGet(seedMarkKey))
+    }
+
     /* ------------------------- ③ App 侧接线（源码级） ------------------------- */
 
     @Test
@@ -124,6 +180,24 @@ class ClearDataReseedTest {
         val vm = TestSource.readCode("java/com/ordo/android/vm/OrdoViewModel.kt")
         assertTrue("清空应调核心 clearAll", vm.contains("engine.clearAll()"))
         assertTrue("清空后应提示", vm.contains("R.string.toast_cleared"))
+    }
+
+    @Test
+    fun `设置页挂了清除演示数据且先确认再执行`() {
+        val screen = TestSource.readCode("java/com/ordo/android/ui/settings/SettingsScreen.kt")
+        assertTrue("设置页应有「清除演示数据」按钮", screen.contains("R.string.settings_clear_demo"))
+        assertTrue("点击应走 ViewModel", screen.contains("vm.clearDemoData()"))
+        assertTrue("破坏性操作要先两步确认", screen.contains("confirmClearDemo"))
+
+        val strings = TestSource.read("res/values/strings.xml")
+        assertTrue("按钮文案", strings.contains("settings_clear_demo"))
+        assertTrue("确认文案要点明「重启不会再出现演示数据」", strings.contains("settings_clear_demo_confirm"))
+        assertTrue("确认文案要给出找回路径", strings.contains("重置为示例数据"))
+        assertTrue("清除后要有提示条文案", strings.contains("toast_demo_cleared"))
+
+        val vm = TestSource.readCode("java/com/ordo/android/vm/OrdoViewModel.kt")
+        assertTrue("清除演示数据应调核心 clearDemoData", vm.contains("engine.clearDemoData()"))
+        assertTrue("清除后应提示", vm.contains("R.string.toast_demo_cleared"))
     }
 
     @Test

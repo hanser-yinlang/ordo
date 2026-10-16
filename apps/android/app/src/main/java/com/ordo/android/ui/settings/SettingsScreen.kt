@@ -44,6 +44,7 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
     val colors = OrdoTheme.colors
     var confirmReset by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
+    var confirmClearDemo by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -87,6 +88,20 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
                     danger = true,
                 )
             }
+            Spacer(Modifier.height(OrdoSpace.s))
+            /*
+             * 与「清空本地数据」唯一的区别是**清完之后还算不算全新安装**：
+             *   清空本地数据 → 连播种标记一起清掉，下次冷启动重新写入演示数据；
+             *   清除演示数据 → 内容清空但标记钉住，重启后演示数据不会自己回来（用户明确要求）。
+             * 两条入口都不可撤销，所以各自都要先亮后果。
+             */
+            Row(horizontalArrangement = Arrangement.spacedBy(OrdoSpace.s)) {
+                OrdoButton(
+                    label = stringResource(R.string.settings_clear_demo),
+                    onClick = { confirmClearDemo = true },
+                    danger = true,
+                )
+            }
             if (confirmReset) {
                 ConfirmStrip(
                     text = stringResource(R.string.settings_reset_confirm),
@@ -107,6 +122,16 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
                     onCancel = { confirmClear = false },
                 )
             }
+            if (confirmClearDemo) {
+                ConfirmStrip(
+                    text = stringResource(R.string.settings_clear_demo_confirm),
+                    onConfirm = {
+                        vm.clearDemoData()
+                        confirmClearDemo = false
+                    },
+                    onCancel = { confirmClearDemo = false },
+                )
+            }
         }
 
         /* 关于 */
@@ -123,7 +148,7 @@ fun SettingsScreen(state: UiState, vm: OrdoViewModel) {
 /**
  * 破坏性操作的两步确认（数据区用）：一段红色说明 + 确定 / 取消。
  *
- * 「重置为示例数据」与「清空本地数据」都不可撤销，因此都先亮出后果再执行，
+ * 「重置为示例数据」「清空本地数据」「清除演示数据」都不可撤销，因此都先亮出后果再执行，
  * 不用系统对话框：浮层实现只在 Compose 内部，竖屏矮屏也不会挡住按钮。
  */
 @Composable

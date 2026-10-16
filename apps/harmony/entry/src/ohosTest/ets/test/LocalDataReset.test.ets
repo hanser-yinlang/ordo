@@ -1,12 +1,15 @@
 /**
- * Ordo · 「清空本地数据」与启动播种判据用例
- * (`core/store/OrdoEngine.ets` 的 clearAll + `viewmodel/SeedPolicy.ets`;契约 §7.6.3 的本地化版本)
+ * Ordo · 「清空本地数据 / 清除演示数据」与启动播种判据用例
+ * (`core/store/OrdoEngine.ets` 的 clearAll / clearDemoData + `viewmodel/SeedPolicy.ets`;
+ * 契约 §7.6.3 的本地化版本)
  *
- * 守的是**用户报过的一类 bug**:设置页两条入口的语义必须不同 ——
+ * 守的是**用户报过的一类 bug**:设置页三条入口的语义必须不同 ——
  *  1.「恢复默认示例数据」:立刻写回演示数据,并保证播种标记存在;
  *  2.「清空本地数据」:退回**全新安装态**(实体 + outbox + 墓碑 + 播种标记全清),界面立刻变空,
  *    **下次冷启动**才重新播种(不是只剩一个空界面);
- *  3. 用户**自己逐条删空**待办(没点过清空)时标记还在,冷启动**不得**把演示数据塞回来。
+ *  3.「清除演示数据」:内容一样清空,但**钉住播种标记** —— 重启后演示数据不会自己长回来
+ *    (用户明确要求);想找回示例数据只能显式点「恢复默认示例数据」;
+ *  4. 用户**自己逐条删空**待办(没点过清空)时标记还在,冷启动**不得**把演示数据塞回来。
  *
  * 全部基于 MemoryOrdoStore(不需要设备 RDB),因此宿主机 harness 跑的是同一份用例。
  */
@@ -203,6 +206,72 @@ export default function localDataResetTest() {
       const wrote: boolean = await applySeedPolicy(ws.store, cold, buildSeedState(todayISO()));
       expect(wrote).assertFalse();
       expect(aliveTodos(cold)).assertEqual(0);
+      done();
+    });
+
+    it('clear_demo_data_empties_content_but_pins_the_seed_mark', 0, async (done: Function) => {
+      const ws: Workspace = await seededWorkspace();
+      // 先制造 outbox 与墓碑,证明清除演示数据也把这两样收拾干净
+      ws.engine.deleteTodo(ws.engine.todos()[0].id);
+      expect(ws.engine.pendingCount() > 0).assertTrue();
+
+      await ws.engine.clearDemoData();
+
+      expect(ws.engine.todos().length).assertEqual(0);
+      expect(ws.engine.projects().length).assertEqual(0);
+      expect(ws.engine.areas().length).assertEqual(0);
+      expect(ws.engine.tags().length).assertEqual(0);
+      expect(ws.engine.pendingCount()).assertEqual(0);
+      expect(ws.engine.listTombstones().length).assertEqual(0);
+      // 与 clearAll 的**唯一**区别:标记钉住 —— 这是「重启不再出现演示数据」的全部依据
+      expect(await ws.store.getKv(KvKeys.SEEDED)).assertEqual(SEEDED_MARK_VALUE);
+      done();
+    });
+
+    it('cold_start_after_clear_demo_data_never_reseeds', 0, async (done: Function) => {
+      const ws: Workspace = await seededWorkspace();
+      await ws.engine.clearDemoData();
+
+      const cold: OrdoEngine = await coldStart(ws.store);
+      const wrote: boolean = await applySeedPolicy(ws.store, cold, buildSeedState(todayISO()));
+
+      expect(wrote).assertFalse();
+      expect(aliveTodos(cold)).assertEqual(0);
+      expect(cold.projects().length).assertEqual(0);
+      expect(cold.todos().length).assertEqual(0);
+      expect(await ws.store.getKv(KvKeys.SEEDED)).assertEqual(SEEDED_MARK_VALUE);
+      done();
+    });
+
+    it('clear_all_and_clear_demo_data_differ_only_by_the_seed_mark', 0, async (done: Function) => {
+      const wsAll: Workspace = await seededWorkspace();
+      await wsAll.engine.clearAll();
+      const wsDemo: Workspace = await seededWorkspace();
+      await wsDemo.engine.clearDemoData();
+
+      // 内容侧:两条路径清出来的是同一个空库
+      expect(wsAll.engine.todos().length).assertEqual(wsDemo.engine.todos().length);
+      expect(wsAll.engine.projects().length).assertEqual(wsDemo.engine.projects().length);
+      expect(wsAll.engine.areas().length).assertEqual(wsDemo.engine.areas().length);
+      expect(wsAll.engine.tags().length).assertEqual(wsDemo.engine.tags().length);
+      // 标记侧:清空本地数据 = 全新安装态(没标记);清除演示数据 = 有标记(不再播种)
+      expect(await wsAll.store.getKv(KvKeys.SEEDED)).assertEqual(null);
+      expect(await wsDemo.store.getKv(KvKeys.SEEDED)).assertEqual(SEEDED_MARK_VALUE);
+      done();
+    });
+
+    it('clear_demo_data_can_still_be_restored_explicitly', 0, async (done: Function) => {
+      const ws: Workspace = await seededWorkspace();
+      await ws.engine.clearDemoData();
+
+      // 自动播种这条路已经关上…
+      expect(await applySeedPolicy(ws.store, ws.engine, buildSeedState(todayISO()))).assertFalse();
+      expect(aliveTodos(ws.engine)).assertEqual(0);
+
+      // …但设置页「恢复默认示例数据」这条**显式**路径必须还有效,否则用户再也找不回示例数据
+      await applyResetToSeedData(ws.store, ws.engine, buildSeedState(todayISO()));
+      expect(aliveTodos(ws.engine) > 0).assertTrue();
+      expect(await ws.store.getKv(KvKeys.SEEDED)).assertEqual(SEEDED_MARK_VALUE);
       done();
     });
 

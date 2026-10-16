@@ -42,7 +42,7 @@ import {
   newTodo,
   newTombstone
 } from '../model/Entities.ets';
-import { KvKeys, OrdoStore, StorageSnapshot } from '../storage/OrdoStore.ets';
+import { KvKeys, OrdoStore, SEEDED_MARK_VALUE, StorageSnapshot } from '../storage/OrdoStore.ets';
 import { todayISO } from '../util/DateUtil.ets';
 import { newChecklistItemId, newId, newOpId, nowMillis } from '../util/Ids.ets';
 import { ParsedInput, parseNaturalNow } from '../nlp/NaturalDateParser.ets';
@@ -177,6 +177,23 @@ export class OrdoEngine {
    * 只删设备级的播种标记,不动 deviceId / 外观等 kv —— 工作区标识一变,用户会以为数据换了个库。
    */
   async clearAll(): Promise<void> {
+    await this.clearWorkspace(false);
+  }
+
+  /**
+   * 清除演示数据(设置页入口,用户明确要求):内容照清,但**钉住播种标记** —— 与 clearAll 只差这一件事。
+   *
+   * 于是重启后演示数据**不会**自己长回来(冷启动的 applySeedPolicy 看到标记就直接返回),
+   * 想找回示例数据只能显式点「恢复默认示例数据」。为什么是"清空内容"而不是"只删演示的那几十行":
+   * 演示数据可以被用户改名 / 改期 / 挪进项目,没有可靠的"哪一行还算演示数据"的判据,
+   * 逐条比对种子 id 会漏掉改过的、也会留下指向已删项目的悬挂引用。
+   */
+  async clearDemoData(): Promise<void> {
+    await this.clearWorkspace(true);
+  }
+
+  /** clearAll / clearDemoData 的共同实现;keepSeedMark 决定"清完之后还算不算全新安装" */
+  private async clearWorkspace(keepSeedMark: boolean): Promise<void> {
     const opIds: string[] = [];
     for (let i = 0; i < this.outbox.length; i++) {
       opIds.push(this.outbox[i].opId);
@@ -191,7 +208,12 @@ export class OrdoEngine {
       await this.store.removeOutbox(opIds);
     }
     await this.store.pruneTombstones(nowMillis() + 1);
-    await this.store.removeKv(KvKeys.SEEDED);
+    if (keepSeedMark) {
+      // 「清除演示数据」:钉住标记 = "这台机器已经播过种了",重启不再播种
+      await this.store.setKv(KvKeys.SEEDED, SEEDED_MARK_VALUE);
+    } else {
+      await this.store.removeKv(KvKeys.SEEDED);
+    }
     this.emit();
   }
 

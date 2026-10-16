@@ -804,6 +804,20 @@ class OrdoViewModel : ViewModel() {
         showToast(context.getString(R.string.toast_cleared))
     }
 
+    /**
+     * 清除演示数据（与「清空本地数据」是两条不同的语义，用户要求"清完重开不要再出现演示数据"）：
+     * 清空本地内容，但**钉住播种标记** —— 「清除」之后的应用不再算全新安装，
+     * 下次冷启动 [ServiceLocator.bindDataDir] 的播种判定看到标记就直接返回，演示数据不会自己长回来。
+     *
+     * 想找回示例数据只能显式点「重置为示例数据」（[resetToSeed]）。
+     * 反过来，用户自己逐条删空待办也不走这里，标记本来就在，同样不会被复活。
+     */
+    fun clearDemoData() {
+        runCatching { engine.clearDemoData() }
+        rebuild(runCatching { engine.snapshot }.getOrNull())
+        showToast(context.getString(R.string.toast_demo_cleared))
+    }
+
     /* ============================== Toast ============================== */
 
     fun showToast(message: String) {

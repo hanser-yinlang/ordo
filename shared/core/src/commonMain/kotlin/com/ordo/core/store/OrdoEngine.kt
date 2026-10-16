@@ -689,7 +689,9 @@ class OrdoEngine(
      * 非 force 时要求「库为空 **且** 还没播过种」:
      * ①用户自己把待办删空,不该在下次启动被塞回演示数据;
      * ②「清空本地数据」会把播种标记一起清掉(见 [clearAll]),
-     *   所以清空 = 回到全新安装状态,下次启动会照常播种。
+     *   所以清空 = 回到全新安装状态,下次启动会照常播种;
+     * ③「清除演示数据」则相反 —— 它清空内容却**保留**标记(见 [clearDemoData]),
+     *   于是重启后依旧不播种,演示数据不会自己回来。
      */
     fun seedDemoData(force: Boolean = false): Boolean {
         if (!force) {
@@ -707,10 +709,15 @@ class OrdoEngine(
     /**
      * 清空全部本地数据(设置里的"清空本地数据")。
      *
-     * 连**播种标记**一起清掉:清空之后的应用就等同全新安装,
-     * 下次启动会重新写入演示数据(用户反馈:清空后重启看不到演示数据)。
+     * 设置页有两个清空入口,区别只在一件事:**清完之后还算不算"全新安装"**:
+     *  - [clearAll](「清空本地数据」,keepSeedMark = false):连**播种标记**一起清掉 ——
+     *    应用等同全新安装,下次启动会重新写入演示数据(用户反馈:清空后重启看不到演示数据);
+     *  - [clearDemoData](「清除演示数据」,keepSeedMark = true):内容清空但**钉住标记** ——
+     *    重启后永远是空应用,演示数据不会再自己长回来。
+     *
+     * 两者都只动本地这份库:工作区目录 id、deviceId、外观等 kv 一概保留。
      */
-    fun clearAll() {
+    fun clearAll(keepSeedMark: Boolean = false) {
         state = OrdoSnapshot()
         storage.saveSnapshot(state)
         storage.saveTombstones(emptyList())
@@ -718,9 +725,19 @@ class OrdoEngine(
         val ids = outbox.map { it.opId }
         storage.clearOutbox(ids)
         outbox.clear()
-        storage.kvSet(SEED_MARK_KEY, null)
+        storage.kvSet(SEED_MARK_KEY, if (keepSeedMark) SEED_MARK_VALUE else null)
         notifyListeners()
     }
+
+    /**
+     * 清除演示数据(设置页入口):清空本地内容 + **钉住播种标记**,重启后不再自动出现演示数据。
+     *
+     * 为什么是"清空内容"而不是"只删演示的那几十行":演示数据可以被用户改名 / 改期 / 挪进项目,
+     * 没有可靠的"哪一行还算演示数据"的判据(逐条比对种子 id 会漏掉改过的、也会留下悬挂引用)。
+     * 清空内容 + 钉住标记得到的正是用户要的结果:重开应用是干净的空清单,且演示数据不会自己回来;
+     * 想找回示例数据仍可显式点「重置为示例数据」。
+     */
+    fun clearDemoData() = clearAll(keepSeedMark = true)
 
     // ---------------------------------------------------------------- 内部
 
